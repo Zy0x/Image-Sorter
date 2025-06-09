@@ -1,7 +1,7 @@
-# Versi 26
 import sys
 import os
-
+import requests
+import re
 # Tambahkan direktori utils/ ke sys.path
 if getattr(sys, 'frozen', False):
     base_path = os.path.dirname(sys.executable)
@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QWidget, QFileDialog,
     QMessageBox, QMenuBar, QSpacerItem, QSizePolicy, QDialog, QLineEdit,
     QMenu, QColorDialog, QFrame, QStyleOption, QStyle, QComboBox, QGraphicsDropShadowEffect,
-    QProgressBar, QStackedLayout, QScrollArea  # Added imports
+    QProgressBar, QStackedLayout, QScrollArea, QTextEdit  # Added QTextEdit for release notes
 )
 from PySide6.QtGui import QPixmap, QAction, QImageReader, QIcon, QFont, QShortcut, QKeySequence, QDesktopServices
 from PySide6.QtCore import Qt, QSettings, QMimeData, QPropertyAnimation, QEasingCurve, QTimer, QThread, QSize, Property, Signal, QUrl
@@ -46,7 +46,7 @@ def get_config_path():
         base_path = os.path.dirname(os.path.abspath(__file__))
 
     config_dir = os.path.join(base_path, "config")
-    os.makedirs(config_dir, exist_ok=True)  # Buat direktori config jika belum ada
+    os.makedirs(config_dir, exist_ok=True)
     config_path = os.path.join(config_dir, "settings.json")
     print(f"[DEBUG] Using config path: {config_path}")
     return config_path
@@ -103,8 +103,8 @@ def load_settings():
             "label_bg": "#1a1a1a",
             "menu_bg": "#1a1a1a",
             "menu_text": "#FFFFFF",
-            "main_border_color": "#00BFFF",  # Aksen untuk gambar utama
-            "next_border_color": "#32CD32",  # Aksen untuk next preview
+            "main_border_color": "#00BFFF",
+            "next_border_color": "#32CD32",
             "main_shadow": "0 0 10px rgba(0, 191, 255, 0.7)",
             "next_shadow": "0 0 8px rgba(50, 205, 50, 0.5)"
         }
@@ -113,7 +113,6 @@ def load_settings():
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8") as f:
                 settings = json.load(f)
-                # Merge with defaults to handle missing keys
                 for key, value in default_settings.items():
                     if key not in settings:
                         settings[key] = value
@@ -135,7 +134,178 @@ def save_settings(settings):
     except IOError as e:
         print(f"[DEBUG] Error saving settings: {e}")
 
+class UpdateDialog(QDialog):
+    def __init__(self, parent=None, current_version="1.0", latest_version=None, release_notes="", download_url=None):
+        super().__init__(parent)
+        self.setWindowTitle("Check for Updates")
+        self.setMinimumWidth(400)
+        self.setMaximumHeight(500)
+        self.parent = parent
+
+        # Apply theme from parent
+        self.apply_theme()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+
+        # Title
+        title_label = QLabel("Image Sorter Update")
+        title_label.setStyleSheet("font-size: 20px; font-weight: bold; background-color: transparent;")
+        layout.addWidget(title_label)
+
+        # Version Info
+        version_layout = QHBoxLayout()
+        current_label = QLabel(f"Current Version: {current_version}")
+        current_label.setStyleSheet("font-size: 14px; background-color: transparent;")
+        version_layout.addWidget(current_label)
+        
+        latest_label = QLabel(f"Latest Version: {latest_version if latest_version else 'Unknown'}")
+        latest_label.setStyleSheet("font-size: 14px; background-color: transparent;")
+        version_layout.addWidget(latest_label)
+        layout.addLayout(version_layout)
+
+        # Status
+        status_text = "You are up to date!" if not latest_version or not self.is_newer_version(current_version, latest_version) else "A new version is available!"
+        status_label = QLabel(status_text)
+        status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #4CAF50;" if status_text == "You are up to date!" else "font-size: 14px; font-weight: bold; color: #F44336;")
+        layout.addWidget(status_label)
+
+        # Release Notes
+        notes_label = QLabel("Release Notes:")
+        notes_label.setStyleSheet("font-size: 14px; font-weight: bold; background-color: transparent;")
+        layout.addWidget(notes_label)
+
+        self.notes_text = QTextEdit()
+        self.notes_text.setReadOnly(True)
+        self.notes_text.setText(release_notes if release_notes else "No release notes available.")
+        self.notes_text.setStyleSheet("font-size: 12px; background-color: #2e2e2e; color: white; border: 1px solid #444;" if self.parent.theme_mode == "dark" else "font-size: 12px; background-color: #f0f0f0; color: black; border: 1px solid #ccc;")
+        self.notes_text.setFixedHeight(150)
+        layout.addWidget(self.notes_text)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.download_btn = QPushButton("Download Update")
+        self.download_btn.setEnabled(bool(download_url and self.is_newer_version(current_version, latest_version)))
+        self.download_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:disabled {
+                background-color: #666;
+                color: #aaa;
+            }
+        """)
+        self.download_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(download_url)))
+        btn_layout.addWidget(self.download_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+        """)
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
+
+    def apply_theme(self):
+        if self.parent and hasattr(self.parent, 'theme_mode'):
+            use_dark = self.parent.theme_mode == "dark" or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
+            if use_dark:
+                self.setStyleSheet("""
+                    QDialog { background-color: #1e1e1e; color: white; }
+                    QLabel { color: white; background-color: transparent; border: none; }
+                    QPushButton { background-color: #2e2e2e; color: white; }
+                    QPushButton:hover { background-color: #444444; }
+                """)
+            else:
+                self.setStyleSheet("""
+                    QDialog { background-color: #f9f9f9; color: black; }
+                    QLabel { color: black; background-color: transparent; border: none; }
+                    QPushButton { background-color: #e0e0e0; color: black; }
+                    QPushButton:hover { background-color: #d0d0d0; }
+                """)
+
+    def is_newer_version(self, current, latest):
+        try:
+            version_pattern = r'^(\d+\.\d+(?:\.\d+)?)(?:-([a-zA-Z]+))?$'
+            current_match = re.match(version_pattern, current)
+            if not current_match:
+                print(f"[DEBUG] Invalid current version format: {current}")
+                return False
+            current_num = current_match.group(1)  # e.g., '1.0' or '1.1.0'
+            current_qual = current_match.group(2) or 'Stable'
+
+            latest_match = re.match(version_pattern, latest)
+            if not latest_match:
+                print(f"[DEBUG] Invalid latest version format: {latest}")
+                return False
+            latest_num = latest_match.group(1)  # e.g., '1.2' or '1.2.0'
+            latest_qual = latest_match.group(2) or 'Stable'
+
+            # Split numeric parts, padding with zeros if needed
+            current_parts = [int(x) for x in current_num.split('.')]
+            latest_parts = [int(x) for x in latest_num.split('.')]
+            # Ensure equal length for comparison
+            while len(current_parts) < 3:
+                current_parts.append(0)
+            while len(latest_parts) < 3:
+                latest_parts.append(0)
+
+            if latest_parts > current_parts:
+                return True
+            elif latest_parts < current_parts:
+                return False
+
+            qualifier_priority = {'Stable': 3, 'Beta': 2, 'Alpha': 1}
+            current_priority = qualifier_priority.get(current_qual, 0)
+            latest_priority = qualifier_priority.get(latest_qual, 0)
+            return latest_priority > current_priority
+
+        except (ValueError, AttributeError) as e:
+            print(f"[DEBUG] Error comparing versions: {e}")
+            return False
+
+class UpdateCheckThread(QThread):
+    update_checked = Signal(str, str, str)  # Signal untuk versi terbaru, catatan rilis, dan URL unduhan
+    error_occurred = Signal(str)  # Signal untuk kesalahan
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.api_url = "https://api.github.com/repos/Zy0x/Image-Sorter/releases/latest"
+
+    def run(self):
+        try:
+            response = requests.get(self.api_url, timeout=5)
+            response.raise_for_status()
+            release_info = response.json()
+            latest_version = release_info.get("tag_name", "").lstrip("v")  # Menghapus 'v' dari tag
+            release_notes = release_info.get("body", "No release notes provided.")
+            download_url = release_info.get("html_url", "")
+            self.update_checked.emit(latest_version, release_notes, download_url)
+        except requests.RequestException as e:
+            self.error_occurred.emit(str(e))
+
 class AboutDialog(QDialog):
+    VERSION = "1.0-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -143,14 +313,12 @@ class AboutDialog(QDialog):
         self.setMaximumHeight(600)
         self.parent = parent
 
-        # Sync theme from parent
         self.apply_theme()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
 
-        # Logo + Title
         title_layout = QHBoxLayout()
         self.logo_label = QLabel()
         self.logo_label.setPixmap(QIcon(resource_path("assets/icons/app_icon.png")).pixmap(64, 64))
@@ -159,7 +327,7 @@ class AboutDialog(QDialog):
 
         self.title_label = QLabel("Image Sorter")
         self.title_label.setStyleSheet("font-size: 26px; font-weight: bold; margin-left: 10px; background-color: transparent;")
-        self.version_label = QLabel("Version 1.0")
+        self.version_label = QLabel(f"Version {self.VERSION}")
         self.version_label.setStyleSheet("font-size: 14px; margin-left: 10px; color: #aaa; background-color: transparent;")
 
         title_info = QVBoxLayout()
@@ -169,7 +337,6 @@ class AboutDialog(QDialog):
         title_layout.addStretch()
         layout.addLayout(title_layout)
 
-        # Short Description
         desc_text = (
             "Image Sorter is a sleek and intuitive application designed to help you organize your images effortlessly into custom folders with a modern interface."
         )
@@ -184,7 +351,6 @@ class AboutDialog(QDialog):
         """)
         layout.addWidget(self.desc_label)
 
-        # Features
         features_title = QLabel("Key Features:")
         features_title.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 15px; background-color: transparent;")
         layout.addWidget(features_title)
@@ -208,19 +374,16 @@ class AboutDialog(QDialog):
             """)
             layout.addWidget(item)
 
-        # Separator
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("background-color: #555; margin: 15px 0;")
         layout.addWidget(separator)
 
-        # Social Links Section
         social_layout = QHBoxLayout()
         social_layout.setSpacing(15)
         social_layout.setAlignment(Qt.AlignCenter)
 
-        # Telegram Link
         telegram_btn = QPushButton()
         telegram_btn.setIcon(QIcon(resource_path("assets/icons/telegram.png")))
         telegram_btn.setIconSize(QSize(32, 32))
@@ -246,7 +409,6 @@ class AboutDialog(QDialog):
         telegram_btn.setCursor(Qt.PointingHandCursor)
         social_layout.addWidget(telegram_btn)
 
-        # GitHub Link
         github_btn = QPushButton()
         github_btn.setIcon(QIcon(resource_path("assets/icons/github.png")))
         github_btn.setIconSize(QSize(32, 32))
@@ -275,7 +437,6 @@ class AboutDialog(QDialog):
         social_layout.addStretch()
         layout.addLayout(social_layout)
 
-        # OK Button
         btn_layout = QHBoxLayout()
         ok_button = QPushButton("OK")
         ok_button.setFixedHeight(36)
@@ -319,7 +480,7 @@ class AboutDialog(QDialog):
                 """)
 
 class ImageValidationThread(QThread):
-    progress_updated = Signal(int)  # Signal to emit progress percentage
+    progress_updated = Signal(int)
 
     def __init__(self, files, parent=None):
         super().__init__(parent)
@@ -337,7 +498,6 @@ class ImageValidationThread(QThread):
                         self.valid_images.append(file)
                 except Exception:
                     pass
-            # Emit progress as a percentage
             progress = int((i + 1) / total_files * 100)
             self.progress_updated.emit(progress)
 
@@ -346,25 +506,22 @@ class CustomThemeDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("🎨 Custom Theme Settings")
         self.setMinimumWidth(300)
-        self.setMaximumHeight(300)  # Batasi tinggi maksimum dialog
-        self.setFixedWidth(300)  # Tetapkan lebar tetap untuk konsistensi
+        self.setMaximumHeight(300)
+        self.setFixedWidth(300)
 
-        # Main layout dengan scroll area
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(8)  # Kurangi spasi antar elemen
-        main_layout.setContentsMargins(10, 10, 10, 10)  # Kurangi margin
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # Scroll area untuk konten
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setSpacing(6)  # Kurangi spasi antar elemen di dalam scroll
+        scroll_layout.setSpacing(6)
         scroll_layout.setContentsMargins(5, 5, 5, 5)
         scroll_area.setWidget(scroll_content)
         main_layout.addWidget(scroll_area)
 
-        # Load current values or defaults
         settings = load_settings()
         self.default_colors = {
             "bg_color": "#121212",
@@ -393,7 +550,6 @@ class CustomThemeDialog(QDialog):
         self.main_shadow = custom_theme.get("main_shadow", self.default_colors["main_shadow"])
         self.next_shadow = custom_theme.get("next_shadow", self.default_colors["next_shadow"])
 
-        # Add color picker buttons
         color_fields = [
             ("Background Color", "bg", self.bg_color),
             ("Text Color", "text", self.text_color),
@@ -409,7 +565,6 @@ class CustomThemeDialog(QDialog):
         for label_text, target, current_color in color_fields:
             self.create_color_picker_button(scroll_layout, label_text, target, current_color)
 
-        # Action buttons
         btn_layout = QHBoxLayout()
         self.reset_btn = QPushButton("🔄 Reset to Defaults")
         self.save_btn = QPushButton("✅ Save")
@@ -450,7 +605,6 @@ class CustomThemeDialog(QDialog):
         btn_layout.addWidget(self.save_btn)
         main_layout.addLayout(btn_layout)
 
-        # Terapkan tema berdasarkan parent
         if parent and hasattr(parent, 'theme_mode'):
             use_dark = parent.theme_mode == "dark" or (parent.theme_mode == "system" and parent.is_system_dark())
             if use_dark:
@@ -471,18 +625,18 @@ class CustomThemeDialog(QDialog):
                 """)
 
     def create_color_picker_button(self, layout, label_text, target, current_color):
-        container = QHBoxLayout()  # Gunakan HBox untuk menghemat ruang vertikal
+        container = QHBoxLayout()
         container.setSpacing(6)
 
         label = QLabel(label_text)
-        label.setStyleSheet("font-weight: bold; font-size: 12px;")  # Kurangi ukuran font
-        label.setFixedWidth(150)  # Batasi lebar label
+        label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        label.setFixedWidth(150)
         container.addWidget(label)
 
         btn = QPushButton("")
         btn.setObjectName(f"{target}_btn")
         setattr(self, f"{target}_btn", btn)
-        btn.setFixedSize(80, 30)  # Kurangi ukuran tombol
+        btn.setFixedSize(80, 30)
         btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {current_color};
@@ -495,7 +649,7 @@ class CustomThemeDialog(QDialog):
         """)
         btn.clicked.connect(lambda _, t=target: self.pick_color(t))
         container.addWidget(btn)
-        container.addStretch()  # Tambahkan stretch untuk menjaga tata letak
+        container.addStretch()
         layout.addLayout(container)
 
     def pick_color(self, target):
@@ -536,10 +690,9 @@ class CustomThemeDialog(QDialog):
                 self.next_shadow = f"0 0 8px {hex_color}80"
 
     def reset_to_defaults(self):
-        # Reset to default values
         self.bg_color = self.default_colors["bg_color"]
         self.text_color = self.default_colors["text_color"]
-        self.btn_bg = self.btn_bg = self.default_colors["btn_bg"]
+        self.btn_bg = self.default_colors["btn_bg"]
         self.btn_hover = self.default_colors["btn_hover"]
         self.label_bg = self.default_colors["label_bg"]
         self.menu_bg = self.default_colors["menu_bg"]
@@ -549,7 +702,6 @@ class CustomThemeDialog(QDialog):
         self.main_shadow = self.default_colors["main_shadow"]
         self.next_shadow = self.default_colors["next_shadow"]
 
-        # Update button styles
         target_to_key = {
             "bg": "bg_color",
             "text": "text_color",
@@ -600,7 +752,6 @@ class FolderSettingsDialog(QDialog):
         self.setWindowTitle("Set Destination Folders")
         self.layout = QVBoxLayout(self)
         self.inputs = []
-        # Load existing data or defaults
         settings = load_settings()
         self.folder_names = settings.get("folder_names", ["Folder A", "Folder B", "Folder C", "Folder D", "Folder E"])
         self.folder_paths = settings.get("folder_paths", ["output/A", "output/B", "output/C", "output/D", "output/E"])
@@ -655,7 +806,6 @@ class ImageSorterApp(QMainWindow):
         self.filtered_files = []
         self.history = load_history()
 
-        # Loading widget
         self.loading_widget = QDialog(self, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.loading_widget.setAttribute(Qt.WA_TranslucentBackground)
         self.loading_label = QLabel("Loading folder...", self.loading_widget)
@@ -673,36 +823,42 @@ class ImageSorterApp(QMainWindow):
         self.loading_widget.setLayout(layout)
         self.loading_widget.hide()
         self.loading_widget.setFixedSize(300, 100)
-
-        # Initialize UI before checking first run
+        self.start_update_check()
         self.init_ui()
-
-        # Check if this is the first run of the application
         self.check_first_run()
-
-        # Load custom folders and history
         self.load_custom_folders()
         self.load_recent_folders()
-
-        # Apply theme based on preference
         self.apply_theme()
-
-        # Show current image (after UI is ready)
         self.show_current_image(self.filtered_files)
 
+    def start_update_check(self):
+        """Mulai pengecekan pembaruan di thread terpisah."""
+        self.update_thread = UpdateCheckThread(self)
+        self.update_thread.update_checked.connect(self.show_update_dialog)
+        self.update_thread.error_occurred.connect(self.show_update_error)
+        self.update_thread.start()
+
+    def show_update_dialog(self, latest_version, release_notes, download_url):
+        """Tampilkan dialog pembaruan dengan informasi dari thread."""
+        current_version = AboutDialog.VERSION
+        dialog = UpdateDialog(self, current_version, latest_version, release_notes, download_url)
+        dialog.exec_()
+
+    def show_update_error(self, error_message):
+        """Tampilkan dialog kesalahan jika pengecekan pembaruan gagal."""
+        dialog = UpdateDialog(self, AboutDialog.VERSION, None, f"Failed to check for updates: {error_message}")
+        dialog.exec_()
+
     def check_first_run(self):
-        """Check if this is the first time the application is run and ask to load last settings."""
         settings = load_settings()
         first_run = settings.get("first_run", True)
 
         if first_run:
-            # Jika ini adalah pertama kali, atur pengaturan default tanpa dialog
             self.set_default_settings()
             settings["first_run"] = False
             save_settings(settings)
             self.show_notification("Welcome to ImageSorter! Organize your photos in seconds 😊")
         else:
-            # Tampilkan dialog konfirmasi untuk memuat pengaturan terakhir
             msg = QMessageBox()
             msg.setWindowTitle("Load Settings")
             msg.setText("Would you like to load last settings?")
@@ -713,23 +869,19 @@ class ImageSorterApp(QMainWindow):
             result = msg.exec()
 
             if result == QMessageBox.Yes:
-                # Muat pengaturan terakhir
                 self.load_custom_folders()
                 self.load_recent_folders()
                 self.theme_mode = settings.get("theme_mode", "system")
                 self.show_notification("Settings loaded from application directory.")
             else:
-                # Atur ulang ke pengaturan default
                 self.set_default_settings()
                 self.show_notification("Default settings applied.")
 
-        # Terapkan tema dan perbarui UI
         self.apply_theme()
         self.update_folder_buttons()
         self.show_current_image(self.filtered_files)
 
     def set_default_settings(self):
-        """Set default settings for the application."""
         print("[DEBUG] Using JSON-based set_default_settings")
         settings = {
             "first_run": False,
@@ -750,19 +902,18 @@ class ImageSorterApp(QMainWindow):
         save_settings(settings)
         self.load_custom_folders()
         self.load_recent_folders()
-        self.theme_mode = "system"  # Pastikan theme_mode disinkronkan
+        self.theme_mode = "system"
         self.current_index = 0
         self.filtered_files = []
         self.image_files = []
         self.nav_history = []
-        self.history = []  # Kosongkan riwayat
-        save_history(self.history)  # Simpan riwayat kosong
+        self.history = []
+        save_history(self.history)
         self.show_current_image(self.filtered_files)
 
     def open_custom_theme_editor(self):
         dialog = CustomThemeDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            # Save custom theme settings
             settings = load_settings()
             settings["custom_theme"] = {
                 "bg_color": dialog.bg_color,
@@ -774,18 +925,16 @@ class ImageSorterApp(QMainWindow):
                 "menu_text": dialog.menu_text
             }
             save_settings(settings)
-
-            # Reapply theme
-            self.set_theme_mode("custom")  # Force switch to custom mode
+            self.set_theme_mode("custom")
 
     def update_recent_folders(self, folder_path):
         if folder_path in self.recent_folders:
             self.recent_folders.remove(folder_path)
         self.recent_folders.insert(0, folder_path)
-        if len(self.recent_folders) > 5:  # Limit to 5 recent folders
+        if len(self.recent_folders) > 5:
             self.recent_folders.pop()
         self.save_recent_folders()
-        self.update_recent_folders_menu()  # Update menu immediately
+        self.update_recent_folders_menu()
 
     def save_recent_folders(self):
         settings = load_settings()
@@ -812,11 +961,11 @@ class ImageSorterApp(QMainWindow):
             return
         path = urls[0].toLocalFile()
         if os.path.isdir(path):
-            self.import_folder_common(path)  # Sudah ditangani oleh perubahan di import_folder_common
+            self.import_folder_common(path)
         elif os.path.isfile(path) and self.is_image_file(path):
             self.show_loading(True)
             source_folder = os.path.dirname(path)
-            self.update_recent_folders(source_folder)  # Tetap di sini, sebelum validasi
+            self.update_recent_folders(source_folder)
             self.image_files = [path]
             self.thread = ImageValidationThread(self.image_files)
             self.thread.finished.connect(lambda: self.process_valid_images_and_update_ui(source_folder))
@@ -832,10 +981,9 @@ class ImageSorterApp(QMainWindow):
 
     def import_folder_common(self, folder_path):
         self.show_loading(True)
-        self.position_stack.setCurrentIndex(1)  # Show progress bar
-        self.progress_bar.setValue(0)  # Reset progress
-        self.update_recent_folders(folder_path)  # Update recent folders
-        # Check cache
+        self.position_stack.setCurrentIndex(1)
+        self.progress_bar.setValue(0)
+        self.update_recent_folders(folder_path)
         if folder_path in self.image_cache:
             self.image_files = self.image_cache[folder_path]
             self.current_index = 0
@@ -845,7 +993,7 @@ class ImageSorterApp(QMainWindow):
             self.show_notification(self.source_info)
             self.show_current_image(self.filtered_files)
             self.show_loading(False)
-            self.position_stack.setCurrentIndex(0)  # Show position label
+            self.position_stack.setCurrentIndex(0)
             return
         supported_formats = ('*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp',
                             '*.tiff', '*.heic', '*.heif', '*.raw', '*.psd')
@@ -854,7 +1002,7 @@ class ImageSorterApp(QMainWindow):
             all_files.extend(glob(os.path.join(folder_path, ext)))
         if not all_files:
             self.show_loading(False)
-            self.position_stack.setCurrentIndex(0)  # Show position label
+            self.position_stack.setCurrentIndex(0)
             msg = QMessageBox()
             msg.setWindowTitle("No Images")
             msg.setText("No valid images found in this folder.")
@@ -864,7 +1012,7 @@ class ImageSorterApp(QMainWindow):
             return
         self.image_files = all_files
         self.thread = ImageValidationThread(all_files)
-        self.thread.progress_updated.connect(self.progress_bar.setValue)  # Connect progress signal
+        self.thread.progress_updated.connect(self.progress_bar.setValue)
         self.thread.finished.connect(lambda: self.process_valid_images_and_update_ui(folder_path))
         self.thread.start()
 
@@ -887,7 +1035,7 @@ class ImageSorterApp(QMainWindow):
         all_files = []
         for ext in supported_formats:
             all_files.extend(glob(os.path.join(folder, ext)))
-        return all_files  # Return list, even if empty
+        return all_files
 
     def is_image_file(self, path):
         supported_formats = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.heic', '.heif', '.raw', '.psd')
@@ -896,7 +1044,6 @@ class ImageSorterApp(QMainWindow):
 
     def apply_theme(self):
         settings = load_settings()
-        # Detect if system is in dark mode
         palette = QApplication.palette()
         base_color = palette.window().color()
         brightness = base_color.red() * 0.299 + base_color.green() * 0.587 + base_color.blue() * 0.114
@@ -956,7 +1103,6 @@ class ImageSorterApp(QMainWindow):
                 }}
                 QMenu::item:selected {{ background-color: #333333; }}
             """)
-            # Perbarui label dengan gaya modern
             self.image_label.setStyleSheet(f"""
                 QLabel {{
                     color: {text_color};
@@ -989,20 +1135,16 @@ class ImageSorterApp(QMainWindow):
                     opacity: 0.9;
                 }}
             """)
-            # Aktifkan mouse tracking
             self.image_label.setMouseTracking(True)
             self.next_image_label.setMouseTracking(True)
             
             self.update_button_styles()
             self.update_folder_buttons()
-            return  # Keluar setelah menerapkan tema custom
+            return
         else:
-            # If mode is unrecognized, use default light mode
             use_dark = self.is_system_dark()
 
-        # If not custom, use light/dark/system
         if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
-            # AMOLED Dark Mode
             self.setStyleSheet("""
                 QMainWindow { background-color: #000000; }
                 QLabel {
@@ -1034,7 +1176,6 @@ class ImageSorterApp(QMainWindow):
                 QMenu::item:selected { background-color: #111111; }
             """)
         else:
-            # Light Mode
             self.setStyleSheet("""
                 QMainWindow { background-color: #ffffff; }
                 QLabel {
@@ -1066,7 +1207,6 @@ class ImageSorterApp(QMainWindow):
                 QMenu::item:selected { background-color: #eaeaea; }
             """)
 
-        # Update additional UI styles
         self.update_progress_bar_style()
         self.update_label_styles()
         self.update_button_styles()
@@ -1080,7 +1220,6 @@ class ImageSorterApp(QMainWindow):
         self.custom_action.setChecked(self.theme_mode == "custom")
 
     def update_label_styles(self):
-        # Tentukan warna berdasarkan tema
         settings = load_settings()
         is_dark = self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark())
         
@@ -1088,16 +1227,15 @@ class ImageSorterApp(QMainWindow):
             custom_theme = settings.get("custom_theme", {})
             bg_color = custom_theme.get("label_bg", "#1e1e1e" if is_dark else "#ffffff")
             text_color = custom_theme.get("text_color", "#FFFFFF" if is_dark else "#000000")
-            main_border_color = custom_theme.get("main_border_color", "#00FFFF")  # Cyan untuk kontras
-            next_border_color = custom_theme.get("next_border_color", "#FF00FF")  # Magenta untuk kontras
+            main_border_color = custom_theme.get("main_border_color", "#00FFFF")
+            next_border_color = custom_theme.get("next_border_color", "#FF00FF")
         else:
-            bg_color = "#1e1e1e" if is_dark else "#ffffff"  # Solid background
+            bg_color = "#1e1e1e" if is_dark else "#ffffff"
             text_color = "white" if is_dark else "black"
-            main_border_color = "#00FFFF" if is_dark else "#FF4500"  # Cyan (gelap) / Oranye (terang)
-            next_border_color = "#FF00FF" if is_dark else "#9932CC"  # Magenta (gelap) / Ungu (terang)
+            main_border_color = "#00FFFF" if is_dark else "#FF4500"
+            next_border_color = "#FF00FF" if is_dark else "#9932CC"
             next_shadow = "0 0 12px rgba(255, 0, 255, 0.7)" if is_dark else "0 0 12px rgba(153, 50, 204, 0.7)"
 
-        # Gaya untuk gambar utama
         self.image_label.setStyleSheet(f"""
             QLabel {{
                 color: {text_color};
@@ -1122,7 +1260,6 @@ class ImageSorterApp(QMainWindow):
             }}
         """)
 
-        # Gaya untuk next preview
         self.next_image_label.setStyleSheet(f"""
             QLabel {{
                 color: {text_color};
@@ -1149,7 +1286,6 @@ class ImageSorterApp(QMainWindow):
             }}
         """)
 
-        # Aktifkan mouse tracking untuk mendeteksi hover
         self.image_label.setMouseTracking(True)
         self.next_image_label.setMouseTracking(True)
 
@@ -1164,7 +1300,6 @@ class ImageSorterApp(QMainWindow):
             self.set_modern_button_style(btn)
 
     def show_notification(self, text):
-        # Cancel previous animations
         if hasattr(self, 'fade_in') and self.fade_in.state() == QPropertyAnimation.Running:
             self.fade_in.stop()
         if hasattr(self, 'fade_out') and self.fade_out.state() == QPropertyAnimation.Running:
@@ -1172,7 +1307,6 @@ class ImageSorterApp(QMainWindow):
 
         self.notification_label.setText(text)
 
-        # Set notification style based on theme
         if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
             self.notification_label.setStyleSheet("""
                 font-size: 14px;
@@ -1198,38 +1332,32 @@ class ImageSorterApp(QMainWindow):
         self.notification_label.setWordWrap(True)
         self.notification_label.setAlignment(Qt.AlignCenter)
 
-        # Hitung lebar berdasarkan panjang teks
         font_metrics = self.notification_label.fontMetrics()
-        text_width = font_metrics.horizontalAdvance(text) + 20  # Tambah padding 10px di kedua sisi
-        min_width = 300  # Batas minimum lebar
-        max_width = 800  # Batas maksimum lebar
+        text_width = font_metrics.horizontalAdvance(text) + 20
+        min_width = 300
+        max_width = 800
         label_width = max(min_width, min(max_width, text_width))
 
-        label_height = 60  # Tinggi tetap untuk konsistensi
+        label_height = 60
         x = (self.width() - label_width) // 2
         y = self.height() - 150
         self.notification_label.setGeometry(x, y, label_width, label_height)
 
-        # Ensure notification is transparent to mouse events
         self.notification_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
-        # Set initial opacity and show
         self.notification_label.setWindowOpacity(0.0)
         self.notification_label.show()
 
-        # Fade-in animation
         self.fade_in = QPropertyAnimation(self.notification_label, b"windowOpacity")
         self.fade_in.setDuration(500)
         self.fade_in.setStartValue(0.0)
         self.fade_in.setEndValue(1.0)
 
-        # Fade-out animation
         self.fade_out = QPropertyAnimation(self.notification_label, b"windowOpacity")
         self.fade_out.setDuration(500)
         self.fade_out.setStartValue(1.0)
         self.fade_out.setEndValue(0.0)
 
-        # Connect animations
         self.fade_in.finished.connect(lambda: QTimer.singleShot(2500, self.fade_out.start))
         self.fade_out.finished.connect(self.notification_label.hide)
 
@@ -1239,28 +1367,23 @@ class ImageSorterApp(QMainWindow):
         if not hasattr(self, 'recent_folders_menu') or self.recent_folders_menu is None:
             return
 
-        # Clear old actions
         for action in self.recent_folders_menu.actions():
             self.recent_folders_menu.removeAction(action)
 
-        # Add new ones
         for folder in self.recent_folders:
             action = QAction(folder, self)
             action.triggered.connect(lambda _, path=folder: self.import_folder_from_path(path))
             self.recent_folders_menu.addAction(action)
 
-        # Separator
         if self.recent_folders:
             self.recent_folders_menu.addSeparator()
 
-        # Clear Action
         clear_action = QAction("Clear Recent", self)
         clear_action.setIcon(QIcon(resource_path("assets/icons/clear_recent.png")))
         clear_action.triggered.connect(self.clear_recent_folders)
         self.recent_folders_menu.addAction(clear_action)
 
     def import_folder_from_path(self, folder_path):
-        """Helper function to import folder from a specific path."""
         if not os.path.isdir(folder_path):
             self.show_notification("Folder is invalid or not found.")
             return
@@ -1271,7 +1394,7 @@ class ImageSorterApp(QMainWindow):
         self.image_files = self.thread.valid_images
         if not self.image_files:
             self.show_loading(False)
-            self.position_stack.setCurrentIndex(0)  # Show position label
+            self.position_stack.setCurrentIndex(0)
             msg = QMessageBox()
             msg.setWindowTitle("No Images")
             msg.setText("No valid images found in this folder.")
@@ -1280,7 +1403,6 @@ class ImageSorterApp(QMainWindow):
             msg.exec()
             return
 
-        # Save to cache
         self.image_cache[folder_path] = self.image_files.copy()
         
         self.current_index = 0
@@ -1290,14 +1412,13 @@ class ImageSorterApp(QMainWindow):
         self.show_notification(self.source_info)
         self.show_current_image(self.filtered_files)
         self.show_loading(False)
-        self.position_stack.setCurrentIndex(0)  # Show position label
+        self.position_stack.setCurrentIndex(0)
 
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout()
 
-        # Main preview label
         self.image_label = QLabel("Current Image")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setFixedSize(450, 500)
@@ -1307,10 +1428,9 @@ class ImageSorterApp(QMainWindow):
         main_shadow_effect.setOffset(0, 0)
         self.image_label.setGraphicsEffect(main_shadow_effect)
 
-        # Next image preview label
         self.next_image_label = QLabel("Next Image")
         self.next_image_label.setAlignment(Qt.AlignCenter)
-        self.next_image_label.setMinimumSize(300, 360)  # Opsional: tetapkan ukuran minimum
+        self.next_image_label.setMinimumSize(300, 360)
         self.next_image_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         next_shadow_effect = QGraphicsDropShadowEffect(self)
         next_shadow_effect.setBlurRadius(10)
@@ -1319,62 +1439,51 @@ class ImageSorterApp(QMainWindow):
         self.next_image_label.setGraphicsEffect(next_shadow_effect)
         self.update_label_styles()
 
-        # Horizontal layout for preview + next
         preview_layout = QHBoxLayout()
         preview_layout.addWidget(self.image_label)
         preview_layout.addWidget(self.next_image_label)
 
-        # Image path information split into two columns
         info_layout = QHBoxLayout()
 
-        # Left column: File/image name
         self.file_info_label = QLabel("No image loaded.")
         self.file_info_label.setStyleSheet("font-size: 12px; padding: 5px;")
         self.file_info_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.file_info_label.setFixedHeight(30)
         self.file_info_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        # Right column: Container for position info or progress bar
         self.position_container = QWidget()
         self.position_stack = QStackedLayout(self.position_container)
         self.position_container.setFixedHeight(30)
         self.position_stack.setContentsMargins(0, 0, 0, 0)
 
-        # Position info label
         self.position_info_label = QLabel("")
         self.position_info_label.setStyleSheet("font-size: 12px; padding: 5px;")
         self.position_info_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.file_info_label.setFixedHeight(30)
         self.position_info_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setFormat("%p%")
-        self.update_progress_bar_style()  # Style the progress bar based on theme
+        self.update_progress_bar_style()
         self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.progress_bar.setFixedHeight(30)
 
-        # Add to stacked layout
-        self.position_stack.addWidget(self.position_info_label)  # Index 0: Label
-        self.position_stack.addWidget(self.progress_bar)        # Index 1: Progress Bar
-        self.position_stack.setCurrentIndex(0)  # Show label by default
+        self.position_stack.addWidget(self.position_info_label)
+        self.position_stack.addWidget(self.progress_bar)
+        self.position_stack.setCurrentIndex(0)
 
-        # Add to info layout
         info_layout.addWidget(self.file_info_label)
         info_layout.addWidget(self.position_container)
 
-        # Set stretch factor to make the right box smaller
-        info_layout.setStretch(0, 8)  # Left label gets 10 parts of space
-        info_layout.setStretch(1, 1)   # Right label gets 1 part of space
+        info_layout.setStretch(0, 8)
+        info_layout.setStretch(1, 1)
 
-        # Add info layout to main layout
         main_layout.addLayout(info_layout)
         main_layout.addLayout(preview_layout)
 
-        # Navigation and folder buttons
         nav_layout = QHBoxLayout()
         nav_layout.setSpacing(10)
         self.prev_btn = QPushButton("Previous")
@@ -1391,19 +1500,15 @@ class ImageSorterApp(QMainWindow):
         self.next_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         nav_layout.addWidget(self.next_btn)
 
-        # Set stretch to divide space evenly between prev and next
-        nav_layout.setStretch(0, 1)  # prev_btn gets 50% space
-        nav_layout.setStretch(1, 1)  # next_btn gets 50% space
+        nav_layout.setStretch(0, 1)
+        nav_layout.setStretch(1, 1)
 
-        # Folder buttons A–E (dynamic)
         self.folder_layout = QHBoxLayout()
         self.folder_layout.setSpacing(10)
         self.update_folder_buttons()
 
-        # Additional buttons: Filter, Undo, Skip
         action_layout = QHBoxLayout()
         action_layout.setSpacing(10)
-        # Di dalam metode init_ui, ganti bagian filter_combo dengan kode berikut:
         self.filter_combo = QComboBox()
         self.filter_combo.setToolTip("Select file extension to filter")
         self.filter_combo.addItem("All Files")
@@ -1425,14 +1530,12 @@ class ImageSorterApp(QMainWindow):
         action_layout.addWidget(self.skip_btn)
         action_layout.addStretch()
 
-        # Set icons for buttons and window
         self.setWindowIcon(QIcon(resource_path("assets/icons/app_icon.png")))
         self.prev_btn.setIcon(QIcon(resource_path("assets/icons/prev.png")))
         self.next_btn.setIcon(QIcon(resource_path("assets/icons/next.png")))
         self.undo_btn.setIcon(QIcon(resource_path("assets/icons/undo.png")))
         self.skip_btn.setIcon(QIcon(resource_path("assets/icons/skip.png")))
 
-        # Set larger icon size for prev, next, and skip buttons
         large_icon_size = QSize(48, 48)
         small_icon_size = QSize(20, 20)
         self.prev_btn.setIconSize(large_icon_size)
@@ -1440,10 +1543,8 @@ class ImageSorterApp(QMainWindow):
         self.undo_btn.setIconSize(small_icon_size)
         self.skip_btn.setIconSize(large_icon_size)
 
-        # Update widths for undo, skip, and filter_combo
         self.update_button_widths()
 
-        # Container for buttons to keep them stable
         button_container = QWidget()
         button_container.setFixedHeight(150)
         button_layout = QVBoxLayout(button_container)
@@ -1456,7 +1557,6 @@ class ImageSorterApp(QMainWindow):
         main_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
         main_layout.addWidget(button_container)
 
-        # Menu bar
         menu_bar = QMenuBar(self)
         self.setMenuBar(menu_bar)
         file_menu = menu_bar.addMenu("File")
@@ -1523,10 +1623,14 @@ class ImageSorterApp(QMainWindow):
         about_action.setIcon(QIcon(resource_path("assets/icons/about.png")))
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+        
+        update_action = QAction("Check for Updates", self)
+        update_action.setIcon(QIcon(resource_path("assets/icons/update.png")))
+        update_action.triggered.connect(self.check_for_updates)
+        help_menu.addAction(update_action)
 
         central_widget.setLayout(main_layout)
 
-        # Custom notification label
         self.notification_label = QLabel(self)
         self.notification_label.setWordWrap(True)
         self.notification_label.setAlignment(Qt.AlignCenter)
@@ -1540,7 +1644,6 @@ class ImageSorterApp(QMainWindow):
         """)
         self.notification_label.hide()
 
-        # Shortcuts
         for i in range(5):
             shortcut = QShortcut(QKeySequence(str(i + 1)), self)
             shortcut.activated.connect(lambda idx=i: self.move_to_custom_folder(self.folder_paths[idx]))
@@ -1557,18 +1660,31 @@ class ImageSorterApp(QMainWindow):
         skip_shortcut = QShortcut(QKeySequence("Space"), self)
         skip_shortcut.activated.connect(self.skip_image)
 
+    def check_for_updates(self):
+        current_version = AboutDialog.VERSION  # Use version from AboutDialog
+        api_url = "https://api.github.com/repos/Zy0x/Image-Sorter/releases/latest"
+        try:
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()
+            release_info = response.json()
+            latest_version = release_info.get("tag_name", "").lstrip("v")  # Remove 'v' prefix, e.g., 'v1.1-Stable' -> '1.1-Stable'
+            release_notes = release_info.get("body", "No release notes provided.")
+            download_url = release_info.get("html_url", "")
+            
+            dialog = UpdateDialog(self, current_version, latest_version, release_notes, download_url)
+            dialog.exec_()
+            
+        except requests.RequestException as e:
+            print(f"[DEBUG] Error checking for updates: {e}")
+            dialog = UpdateDialog(self, current_version, None, "Failed to check for updates. Please check your internet connection.")
+            dialog.exec_()
+
     def load_images_from_folder(self, folder_path):
-        """
-        Load all images from a specific folder.
-        Use a thread for image file validation.
-        """
         if not os.path.isdir(folder_path):
             return
 
-        # Show loading widget
         self.show_loading(True)
 
-        # Use glob to find all image files with supported extensions
         supported_formats = ('*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp',
                             '*.tiff', '*.heic', '*.heif', '*.raw', '*.psd')
         all_files = []
@@ -1585,14 +1701,12 @@ class ImageSorterApp(QMainWindow):
             msg.exec()
             return
 
-        # Validate images with thread
         self.thread = ImageValidationThread(all_files)
         self.thread.finished.connect(lambda: self.process_valid_images_and_update_ui(folder_path))
         self.thread.start()
-        self.image_files = all_files  # Store all image files for reference
-        self.apply_filter()  # Apply initial filter
+        self.image_files = all_files
+        self.apply_filter()
 
-        # Update recent folders history
         self.update_recent_folders(folder_path)
 
     def update_progress_bar_style(self):
@@ -1638,11 +1752,9 @@ class ImageSorterApp(QMainWindow):
         settings["theme_mode"] = self.theme_mode
         save_settings(settings)
 
-        # Sync menu checkboxes
         for action in [self.light_action, self.dark_action, self.system_action, self.custom_action]:
             action.setChecked(action.text().lower().startswith(mode))
 
-        # Update UI
         self.apply_theme()
         self.update_folder_buttons()
         self.show_current_image()
@@ -1652,21 +1764,20 @@ class ImageSorterApp(QMainWindow):
         info_dialog.setWindowTitle(title)
         info_dialog.setText(message)
         info_dialog.setIcon(QMessageBox.Information)
-        info_dialog.setWindowFlags(Qt.FramelessWindowHint)  # Remove window frame
-        info_dialog.setAttribute(Qt.WA_TranslucentBackground)  # Enable transparency
-        self.apply_message_box_style(info_dialog)  # Apply stylesheet
+        info_dialog.setWindowFlags(Qt.FramelessWindowHint)
+        info_dialog.setAttribute(Qt.WA_TranslucentBackground)
+        self.apply_message_box_style(info_dialog)
         info_dialog.exec_()
 
     def apply_message_box_style(self, message_box):
-        print(f"Theme Mode: {self.theme_mode}")  # Debug
+        print(f"Theme Mode: {self.theme_mode}")
         is_dark = self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark())
-        print(f"Is Dark: {is_dark}")  # Debug
+        print(f"Is Dark: {is_dark}")
 
-        # Gunakan warna yang lebih kontras untuk tombol
         bg_color = "#1e1e1e" if is_dark else "#f9f9f9"
         text_color = "white" if is_dark else "black"
-        btn_bg = "#2e2e2e" if is_dark else "#d0d0d0"  # Warna tombol lebih gelap untuk dark mode
-        btn_hover = "#444444" if is_dark else "#b0b0b0"  # Warna hover lebih terlihat
+        btn_bg = "#2e2e2e" if is_dark else "#d0d0d0"
+        btn_hover = "#444444" if is_dark else "#b0b0b0"
 
         message_box.setStyleSheet(f"""
             QDialog {{
@@ -1714,7 +1825,7 @@ class ImageSorterApp(QMainWindow):
             with open(log_path, "a", encoding="utf-8") as f:
                 for line in self.log_buffer:
                     f.write(line + "\n")
-            self.log_buffer.clear()  # Kosongkan buffer setelah ditulis
+            self.log_buffer.clear()
             print(f"[DEBUG] Log written to {log_path}")
         except IOError as e:
             print(f"[DEBUG] Error writing to event.log: {e}")
@@ -1725,7 +1836,7 @@ class ImageSorterApp(QMainWindow):
         full_message = f"[{timestamp}] {message}"
         self.log_buffer.append(full_message)
         print(full_message)
-        self.write_log_to_file()  # Tulis ke event.log
+        self.write_log_to_file()
 
     def load_custom_folders(self):
         settings = load_settings()
