@@ -149,7 +149,7 @@ Contributions are welcome! Feel free to open an issue or submit a pull request t
 
 | Light Mode | Dark Mode |
 |------------|-----------|
-| ![Light Mode](assets/screenshots/light.png) | ![Dark Mode](assets/screenshots/dark.png) |
+| ![Light Mode](assets/images/light.png) | ![Dark Mode](assets/images/dark.png) |
 
 ‎ 
 ## 📬 Feedback
