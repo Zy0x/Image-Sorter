@@ -35,7 +35,7 @@
 ‎ 
 ## ✨ Key Features
 
-✔️ **Fast Image Sorting** – Move images to target folders using single keys (A–E).  
+> ✔️ **Fast Image Sorting** – Move images to target folders using single keys (A–E).  
 ✔️ **Undo Action** – Quickly undo the last action (`Ctrl+Z`).  
 ✔️ **Drag & Drop Support** – Drag and drop folders/images directly into the app.  
 ✔️ **Responsive Preview** – Main image preview with smooth transition effects.  
