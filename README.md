@@ -1,212 +1,151 @@
-## 🖼️ Image Sorter
+<div align="center">
+  <h1>
+    <img src="./assets/icons/app_icon.png" width="32" alt="App Icon" style="vertical-align: middle; margin-right: 10px;">
+    Image Sorter
+  </h1>
+  <p>A sleek and powerful image sorting application with drag & drop support, undo functionality, and customizable themes.</p>
 
-> A sleek and powerful image sorting application with drag & drop support, undo functionality, and customizable themes.
+  <!-- Badges -->
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Zy0x/ImageSorter?color=blue" alt="License"></a>
+  <a href="https://github.com/Zy0x/ImageSorter/releases/latest"><img src="https://img.shields.io/github/v/release/Zy0x/ImageSorter?sort=semver&color=orange" alt="Version"></a>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python Version"></a> 
+  <a href="#"><img src="https://img.shields.io/badge/build-passing-brightgreen"  alt="Build Status"></a>
+  <a href="https://github.com/Zy0x/ImageSorter/stargazers"><img  src="https://img.shields.io/github/stars/Zy0x/ImageSorter?style=social" alt="Stars"></a>
+</div>
 
-[![License](https://img.shields.io/github/license/Zy0x/ImageSorter)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0-blue)]()
-[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)]()
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
-
-<p align="center">
+<div align="center">
   <img src="assets/demo.gif" width="700" alt="Demo GIF">
-</p>
+</div>
+
+
+## 📝 Description
+
+**Image Sorter** is a modern desktop application built with PySide6 that allows users to sort thousands of images into custom folders with just one click. Featuring an intuitive UI, automatic dark/light mode support, smooth animations, keyboard shortcuts, and an undo system, this app is ideal for photographers, designers, or anyone managing large photo collections.
+
+‎ 
+## ✨ Key Features
+
+✔️ **Fast Image Sorting** – Move images to target folders using single keys (A–E).  
+✔️ **Undo Action** – Quickly undo the last action (`Ctrl+Z`).  
+✔️ **Drag & Drop Support** – Drag and drop folders/images directly into the app.  
+✔️ **Responsive Preview** – Main image preview with smooth transition effects.  
+✔️ **Custom Themes** – Customize background color, text, buttons, borders, and shadows.  
+✔️ **Recent Folder History** – Access recently opened folders instantly from the Recent menu.  
+✔️ **Keyboard Shortcuts** – Use `← / →`, `A / D`, `Space`, `Ctrl+Z`, etc.  
+✔️ **Image Extension Filter** – Show only `.png`, `.jpg`, `.gif`, etc.  
+✔️ **Activity Log Export** – Track all sorting activities into a `.txt` file.  
+✔️ **Import/Export Settings** – Save/load configurations including folder names, paths, and themes.  
+✔️ **Dynamic Folder Setup** – Manually edit destination folders via the settings dialog.  
+✔️ **Progress Bar on Load** – Shows file validation when loading large folders.  
+✔️ **Temporary UI Notifications** – Appears at the bottom for important messages.  
+✔️ **Multi-Resolution Image Handling** – Resized responsively without distortion.
 
 ---
 
-### 🧾 Description
+## 🔧 Requirements
 
-**Image Sorter** is a modern, cross-platform desktop app built using **PySide6**, designed to help users effortlessly organize thousands of images into custom folders with just one click. Featuring a clean UI, dark/light mode toggle, keyboard shortcuts, and intuitive folder navigation — this tool streamlines the workflow for photographers, designers, and anyone managing large image collections.
-
----
-
-### ✨ Features
-
-✔️ Effortless image sorting into custom folders  
-✔️ Undo functionality (`Ctrl+Z`)  
-✔️ Drag & Drop support (folders/images)  
-✔️ Responsive image previews with smooth transitions  
-✔️ Customizable themes (including system theme detection)  
-✔️ Recent folders history  
-✔️ Keyboard shortcuts (`1–5`, `←/→`, `Space`, `Ctrl+Z`)  
-✔️ Filter by extension (`.png`, `.jpg`, etc.)  
-✔️ Export/import settings  
-✔️ Log export for tracking activity  
-✔️ Folder editor for destination paths  
-✔️ Progress bar on loading  
-✔️ On-screen notifications  
-✔️ Multi-resolution image handling  
-
----
-
-### 🔧 Requirements
-
-Before running, make sure you have installed:
-
-```bash
-python >= 3.8
-```
-
-Install dependencies using:
+Ensure you have Python >= 3.8 installed. Install dependencies using:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 📄 `requirements.txt`
 
-```txt
-PySide6>=6.0.0
-pillow>=9.0.0
-```
+## 🚀 Getting Started
 
----
-
-### 🚀 How to Run
-
-1. **Download the Project:**
-   - Download the ZIP file from the repository.
-   - Extract the ZIP file to a folder of your choice.
-
-2. **Install Dependencies:**
+1. **Download ZIP Project**
+   - Click **Code > Download ZIP** from the GitHub repository.
+2. **Extract ZIP**
+   - Extract to your local folder.
+3. **Install Dependencies**
    ```bash
    pip install -r requirements.txt
    ```
+4. **Run Build Script**
+   ```bash
+   build.bat
+   ```
+   - After completion, the executable will be in the `ImageSorter` folder.
+5. **Launch the App**
+   - Open the `ImageSorter` folder and run the `.exe` file.
 
-3. **Build the Application:**
-   - Open a terminal or command prompt in the project directory.
-   - Run the following command:
-     ```bash
-     build.bat
-     ```
-   - This will generate an executable file in the `ImageSorter` folder.
 
-4. **Run the Executable:**
-   - Navigate to the `ImageSorter` folder.
-   - Double-click the generated executable file to launch the application.
-
----
-
-### 🛠️ Folder Structure
+## 🛠️ Directory Structure
 
 ```
 ImageSorter/
 ├── assets/
 │   ├── icons/
+│   │   └── app_icon.ico
+│   │   └── app_icon.png
+│   │   └── *.png (other icons)
 │   └── screenshots/
 ├── config/
-│   ├── settings.json     # App configuration
+│   ├── settings.json     # Theme, folder path, and settings
 │   └── event.log         # Activity log
+├── output/
+│   ├── A/
+│   ├── B/
+│   └── ...               # Default target folders
 ├── utils/
-│   └── image_utils.py    # Image resizing logic
-├── main.py               # Main application logic
+│   └── image_utils.py    # Utility functions for image handling
+├── main.py               # Core application logic
 ├── README.md
 └── requirements.txt
 ```
-
 ---
-
-### 🎨 Themes
+## 🎨 Themes & Customization
 
 You can switch between:
-- Light Mode
-- Dark Mode
-- System Default
-- Custom Theme (via Settings > Customize Theme)
+- **Light Mode**
+- **Dark Mode**
+- **System Default**
+- **Custom Theme**
 
-Customize colors for:
-- Background
-- Text
-- Buttons
-- Labels
-- Borders
-- Shadows
+Customizable elements:
+- Background color
+- Text color
+- Button styles and hover effects
+- Border and shadow styles
 
----
+‎ 
+## 📦 Import & Export Settings
 
-### 📦 Export / Import
+- **Export Settings**: Save configuration to a `.json` file.
+- **Import Settings**: Reload saved configuration from a JSON file.
+- **Export Log**: Export activity log to a `.txt` file.
 
-- **Export Settings**: Save your folder names, paths, and theme preferences.
-- **Import Settings**: Load saved settings from a JSON file.
-- **Export Log**: Track all actions taken during usage.
+‎ 
+## 🌐 License
 
----
+MIT License — see [LICENSE](LICENSE) for details.
 
-### 🌐 License
-
-MIT License – see [LICENSE](LICENSE) for details.
-
----
-
-### 👤 Author
+## 👤 Author
 
 👤 **Zy0x**
 
-- GitHub: [@Zy0x](https://github.com/Zy0x)
+- GitHub: [@Zy0x](https://github.com/Zy0x)  
 - Telegram: [@Thea](https://t.me/ThuandMuda)
 
----
+‎ 
+## 🙌 Contributing
 
-### 🙌 Contributing
+Contributions are welcome! Feel free to open an issue or submit a pull request to help improve this project.
 
-Contributions are welcome! Feel free to open issues or submit pull requests.
-
----
-
-### 📷 Screenshots
+‎ 
+## 📷 Screenshots
 
 | Light Mode | Dark Mode |
 |------------|-----------|
 | ![Light Mode](assets/screenshots/light.png) | ![Dark Mode](assets/screenshots/dark.png) |
 
----
+‎ 
+## 📬 Feedback
 
-### 📬 Feedback
+If you have suggestions, bug reports, or want to contribute, feel free to reach out via:
 
-If you have any suggestions, bug reports, or want to contribute, please open an issue or reach out via Telegram or GitHub.
+- Telegram: [@Thea](https://t.me/ThuandMuda)  
+- GitHub: [@Zy0x](https://github.com/Zy0x)
 
----
-
-> Built with ❤️ using Python & PySide6  
-> "Organize your photos in seconds — effortlessly."
-
----
-
-### 📂 Build Instructions
-
-To build the application from source, follow these steps:
-
-1. **Clone the Repository:**
-   ```bash
-   git clone https://github.com/Zy0x/ImageSorter.git
-   cd ImageSorter
-   ```
-
-2. **Install Dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Run the Build Script:**
-   ```bash
-   build.bat
-   ```
-
-4. **Run the Application:**
-   - The executable will be located in the `ImageSorter` folder after building.
-   - Double-click the executable to launch the app.
-
----
-
-### 🏗️ Development Notes
-
-- **Resources Compilation:** Before building, ensure that `res_compiler.bat` has been run to compile resources (e.g., icons, images).
-- **Customization:** You can customize the application's appearance and behavior through the `settings.json` file in the `config` directory.
-- **Cross-Platform Compatibility:** The application supports Windows, macOS, and Linux when built correctly.
-
----
-
-### 📝 Credits
-
-- Icons by [Icons8](https://icons8.com/)
-- Powered by [PySide6](https://wiki.qt.io/PySide6)
-- Inspired by minimalistic media organizers
+> ⚡ Organize your photos in seconds — effortlessly.  
+> **Made with ❤️ using Python & PySide6**
