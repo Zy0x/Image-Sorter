@@ -13,11 +13,11 @@
 
 <div align="center">
   <!-- Badges -->
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/Zy0x/ImageSorter?color=blue" alt="License"></a>
-  <a href="https://github.com/Zy0x/ImageSorter/releases/latest"><img src="https://img.shields.io/github/v/release/Zy0x/ImageSorter?sort=semver&color=orange" alt="Version"></a>
-  <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python Version"></a>   
-  <a href="#"><img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status"></a>
-  <a href="https://github.com/Zy0x/ImageSorter/stargazers"><img src="https://img.shields.io/github/stars/Zy0x/ImageSorter?style=social" alt="Stars"></a>
+  <a href="https://github.com/Zy0x/Image-Sorter/blob/main/LICENSE"><img  src="https://img.shields.io/badge/license-MIT-blue.svg"  alt="License"></a>
+  <a href="https://github.com/Zy0x/Image-Sorter/releases/latest"><img  src="https://img.shields.io/github/v/release/Zy0x/Image-Sorter?sort=semver&color=orange" alt="Latest Release"></a>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python Version"></a> 
+  <a href="#"><img src="https://img.shields.io/badge/build-passing-brightgreen.svg"  alt="Build Status"></a>
+  <a href="https://github.com/Zy0x/Image-Sorter/stargazers"><img  src="https://img.shields.io/github/stars/Zy0x/Image-Sorter?style=social" alt="Stars"></a>
 </div>
 
 <br />
