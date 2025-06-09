@@ -60,15 +60,7 @@ Ensure you have Python >= 3.8 installed. Install dependencies using:
 pip install -r requirements.txt
 ```
 
-### 📄 `requirements.txt`
-
-```txt
-PySide6>=6.0.0
-pillow>=9.0.0
-```
-
----
-
+‎ 
 ## 🚀 Getting Started
 
 There are two main ways to use **Image Sorter**:
@@ -85,6 +77,7 @@ There are two main ways to use **Image Sorter**:
 > 💡 After installation, launch the app from the shortcut or directly from the installation directory.
 
 
+‎ 
 ### 💻 Option 2: Run from Source (For Developers or Advanced Users)
 
 If you prefer to run from source (for development or customization):
