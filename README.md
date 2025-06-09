@@ -23,7 +23,7 @@
 <br />
 
 <div align="center">
-  <img src="assets/images/demo.mp4" width="700" alt="Demo GIF">
+  <img src="assets/images/demo.gif" max-width="500" alt="Demo GIF">
 </div>
 
 ---
