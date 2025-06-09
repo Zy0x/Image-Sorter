@@ -38,17 +38,17 @@
 > * **Fast Image Sorting** – Move images to target folders using single keys (A–E).
 > * **Undo Action** – Quickly undo the last action (`Ctrl+Z`).
 > * **Drag & Drop Support** – Drag and drop folders/images directly into the app.
-> * **Responsive Preview** – Main image preview with smooth transition effects.  
-✔️ **Custom Themes** – Customize background color, text, buttons, borders, and shadows.  
-✔️ **Recent Folder History** – Access recently opened folders instantly from the Recent menu.  
-✔️ **Keyboard Shortcuts** – Use `← / →`, `A / D`, `Space`, `Ctrl+Z`, etc.  
-✔️ **Image Extension Filter** – Show only `.png`, `.jpg`, `.gif`, etc.  
-✔️ **Activity Log Export** – Track all sorting activities into a `.txt` file.  
-✔️ **Import/Export Settings** – Save/load configurations including folder names, paths, and themes.  
-✔️ **Dynamic Folder Setup** – Manually edit destination folders via the settings dialog.  
-✔️ **Progress Bar on Load** – Shows file validation when loading large folders.  
-✔️ **Temporary UI Notifications** – Appears at the bottom for important messages.  
-✔️ **Multi-Resolution Image Handling** – Resized responsively without distortion.
+> * **Responsive Preview** – Main image preview with smooth transition effects.
+> * **Custom Themes** – Customize background color, text, buttons, borders, and shadows.
+> * **Recent Folder History** – Access recently opened folders instantly from the Recent menu.
+> * **Keyboard Shortcuts** – Use `← / →`, `A / D`, `Space`, `Ctrl+Z`, etc.
+> * **Image Extension Filter** – Show only `.png`, `.jpg`, `.gif`, etc.
+> * **Activity Log Export** – Track all sorting activities into a `.txt` file.
+> * **Import/Export Settings** – Save/load configurations including folder names, paths, and themes.
+> * **Dynamic Folder Setup** – Manually edit destination folders via the settings dialog.
+> * **Progress Bar on Load** – Shows file validation when loading large folders.
+> * **Temporary UI Notifications** – Appears at the bottom for important messages.
+> * **Multi-Resolution Image Handling** – Resized responsively without distortion.
 
 ---
 
@@ -123,15 +123,12 @@ Customizable elements:
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-‎ 
 ## 👤 Author
 
 👤 **Zy0x**
 
 - GitHub: [@Zy0x](https://github.com/Zy0x)  
 - Telegram: [@Thea](https://t.me/ThuandMuda)
-
-‎ 
 
 ## 🙌 Contributing
 
