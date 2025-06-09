@@ -75,8 +75,6 @@ There are two main ways to use **Image Sorter**:
    - **Portable Mode**: Choose this if you want to keep everything in a single folder — ideal for USB drives or temporary machines.
 
 > 💡 After installation, launch the app from the shortcut or directly from the installation directory.
-
-
 ‎ 
 ### 💻 Option 2: Run from Source (For Developers or Advanced Users)
 
@@ -111,14 +109,12 @@ Customizable elements:
 - Button styles and hover effects
 - Border and shadow styles
 
-‎ 
 ## 📦 Import & Export Settings
 
 - **Export Settings**: Save configuration to a `.json` file.
 - **Import Settings**: Reload saved configuration from a JSON file.
 - **Export Log**: Export activity log to a `.txt` file.
 
-‎ 
 ## 🌐 License
 
 MIT License — see [LICENSE](LICENSE) for details.
