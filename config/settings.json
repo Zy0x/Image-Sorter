@@ -1,0 +1,28 @@
+{
+    "first_run": true,
+    "folder_names": [
+        "Folder A",
+        "Folder B",
+        "Folder C",
+        "Folder D",
+        "Folder E"
+    ],
+    "folder_paths": [
+        "output/A",
+        "output/B",
+        "output/C",
+        "output/D",
+        "output/E"
+    ],
+    "recent_folders": [],
+    "theme_mode": "system",
+    "custom_theme": {
+        "bg_color": "#121212",
+        "text_color": "#FFFFFF",
+        "btn_bg": "#2e2e2e",
+        "btn_hover": "#444444",
+        "label_bg": "#1a1a1a",
+        "menu_bg": "#1a1a1a",
+        "menu_text": "#FFFFFF"
+    }
+}
