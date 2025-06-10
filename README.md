@@ -67,7 +67,7 @@ There are two main ways to use **Image Sorter**:
 
 ### ✅ Option 1: Download & Install (Windows)
 
-1. Visit the [GitHub Releases](https://github.com/Zy0x/ImageSorter/releases/latest) page.
+1. Visit the [GitHub Releases](https://github.com/Zy0x/Image-Sorter/releases/latest) page.
 2. Download the latest `.exe` installer (e.g., `ImageSorter-Setup-v1.0.exe`).
 3. Run the installer and follow the setup wizard.
 4. During installation, you'll be given two options:
