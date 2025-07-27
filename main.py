@@ -69,12 +69,17 @@ def load_history():
             with open(history_path, "r", encoding="utf-8") as f:
                 history = json.load(f)
                 print(f"[DEBUG] Loaded history from {history_path}")
-                return history
+                # Populate history_cache
+                history_cache = {}
+                for src, dest in history:
+                    norm_src = os.path.normcase(os.path.normpath(src))
+                    history_cache[norm_src] = dest
+                return history, history_cache
         else:
             print(f"[DEBUG] No history file found at {history_path}, returning empty list")
     except (json.JSONDecodeError, IOError) as e:
         print(f"[DEBUG] Error loading history: {e}")
-    return []
+    return [], {}
 
 def resource_path(relative_path):
     """Find the file path relative to the application directory."""
@@ -135,7 +140,7 @@ def save_settings(settings):
         print(f"[DEBUG] Error saving settings: {e}")
 
 class UpdateDialog(QDialog):
-    def __init__(self, parent=None, current_version="1.0", latest_version=None, release_notes="", download_url=None):
+    def __init__(self, parent=None, current_version="2.0", latest_version=None, release_notes="", download_url=None):
         super().__init__(parent)
         self.setWindowTitle("Check for Updates")
         self.setMinimumWidth(400)
@@ -804,12 +809,16 @@ class ImageSorterApp(QMainWindow):
         self.recent_folders = []
         self.theme_mode = "system"
         self.filtered_files = []
-        self.history = load_history()
+        self.history, self.history_cache = load_history()  # Updated to load history_cache
+        self.file_exists_cache = {}
+        self.filter_cache = {}
+        self.defer_ui_updates = False
+        self.last_filter = "All Files"
 
+        # Rest of __init__ remains unchanged
         self.loading_widget = QDialog(self, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.loading_widget.setAttribute(Qt.WA_TranslucentBackground)
         self.loading_label = QLabel("Loading folder...", self.loading_widget)
-        self.loading_label.setAlignment(Qt.AlignCenter)
         self.loading_label.setStyleSheet("""
             font-size: 16px;
             font-weight: bold;
@@ -1403,6 +1412,8 @@ class ImageSorterApp(QMainWindow):
             msg.exec()
             return
 
+        # Initialize file existence cache
+        self.file_exists_cache = {path: os.path.exists(path) for path in self.image_files}
         self.image_cache[folder_path] = self.image_files.copy()
         
         self.current_index = 0
@@ -2021,20 +2032,12 @@ class ImageSorterApp(QMainWindow):
 
     def get_new_path_from_history(self, path):
         normalized_path = os.path.normcase(os.path.normpath(path))
-        print(f"[DEBUG] Checking history for path: {normalized_path}, history: {self.history}")
-        for src, dest in reversed(self.history):
-            norm_src = os.path.normcase(os.path.normpath(src))
-            norm_dest = os.path.normcase(os.path.normpath(dest))
-            if normalized_path == norm_src:
-                print(f"[DEBUG] Found new path for {path}: {dest} (matched src)")
-                return dest
-            elif normalized_path == norm_dest:
-                print(f"[DEBUG] Found new path for {path}: {dest} (matched dest)")
-                return dest
-        print(f"[DEBUG] No new path for {path}")
-        return None
+        return self.history_cache.get(normalized_path, None)
 
     def show_current_image(self, files=None):
+        if self.defer_ui_updates:
+            return  # Skip UI update during rapid operations
+
         self.position_stack.setCurrentIndex(0)
         if files is None:
             files = self.filtered_files or self.image_files
@@ -2069,7 +2072,11 @@ class ImageSorterApp(QMainWindow):
         for child in self.image_label.findChildren(QLabel):
             child.deleteLater()
 
-        if os.path.exists(new_path):
+        # Use cached file existence
+        file_exists = self.file_exists_cache.get(new_path, os.path.exists(new_path))
+        self.file_exists_cache[new_path] = file_exists
+
+        if file_exists:
             pixmap = QPixmap(new_path)
             if not pixmap.isNull():
                 resized_pixmap = resize_image(pixmap)
@@ -2105,7 +2112,11 @@ class ImageSorterApp(QMainWindow):
         if next_index is not None:
             next_path = files[next_index]
             new_next_path = self.get_new_path_from_history(next_path) or next_path
-            if os.path.exists(new_next_path):
+            # Use cached file existence
+            next_file_exists = self.file_exists_cache.get(new_next_path, os.path.exists(new_next_path))
+            self.file_exists_cache[new_next_path] = next_file_exists
+
+            if next_file_exists:
                 next_pixmap = QPixmap(new_next_path)
                 if not next_pixmap.isNull():
                     resized_next = resize_next_preview(next_pixmap)
@@ -2139,22 +2150,16 @@ class ImageSorterApp(QMainWindow):
 
     def get_folder_name_from_history(self, path):
         normalized_path = os.path.normcase(os.path.normpath(path))
-        print(f"[DEBUG] Checking folder for path: {normalized_path}")
-        for src, dest in reversed(self.history):
-            norm_src = os.path.normcase(os.path.normpath(src))
-            norm_dest = os.path.normcase(os.path.normpath(dest))
-            dest_folder = os.path.dirname(dest)
-            print(f"[DEBUG] Comparing with src: {norm_src}, dest: {norm_dest}")
-            if normalized_path in (norm_src, norm_dest):
-                for i, folder_path in enumerate(self.folder_paths):
-                    norm_folder_path = os.path.normcase(os.path.normpath(folder_path))
-                    if os.path.normcase(os.path.normpath(dest_folder)).startswith(norm_folder_path):
-                        print(f"[DEBUG] Matched folder: {self.folder_names[i]}")
-                        return self.folder_names[i]
-                print(f"[DEBUG] Using basename: {os.path.basename(os.path.normpath(dest_folder))}")
-                return os.path.basename(os.path.normpath(dest_folder))
-        print(f"[DEBUG] No folder found for path: {normalized_path}")
-        return None
+        dest_path = self.history_cache.get(normalized_path)
+        if not dest_path:
+            return None
+        dest_folder = os.path.dirname(dest_path)
+        norm_dest_folder = os.path.normcase(os.path.normpath(dest_folder))
+        for i, folder_path in enumerate(self.folder_paths):
+            norm_folder_path = os.path.normcase(os.path.normpath(folder_path))
+            if norm_dest_folder.startswith(norm_folder_path):
+                return self.folder_names[i]
+        return os.path.basename(os.path.normpath(dest_folder))
 
     def find_valid_next_index(self, start_index, files=None):
         if files is None:
@@ -2212,10 +2217,13 @@ class ImageSorterApp(QMainWindow):
             self.show_notification("No image to move.")
             return
 
+        self.defer_ui_updates = True  # Defer UI updates during move
+
         src_path = self.image_files[self.current_index]
         if not os.path.exists(src_path) and not self.get_new_path_from_history(src_path):
             self.show_notification("Source file not found.")
             self.show_next()
+            self.defer_ui_updates = False
             return
 
         # Default paths
@@ -2229,6 +2237,7 @@ class ImageSorterApp(QMainWindow):
             dialog = FolderSettingsDialog(self)
             if dialog.exec() != QDialog.Accepted:
                 self.show_notification("Move cancelled. Please set destination folder.")
+                self.defer_ui_updates = False
                 return
 
             self.load_custom_folders()
@@ -2240,6 +2249,7 @@ class ImageSorterApp(QMainWindow):
                     break
             else:
                 self.show_notification("Destination folder invalid after settings.")
+                self.defer_ui_updates = False
                 return
 
         dest_folder = folder_path
@@ -2250,6 +2260,7 @@ class ImageSorterApp(QMainWindow):
             msg.setIcon(QMessageBox.Warning)
             self.apply_message_box_style(msg)
             msg.exec()
+            self.defer_ui_updates = False
             return
 
         current_dest = self.get_new_path_from_history(src_path)
@@ -2264,6 +2275,7 @@ class ImageSorterApp(QMainWindow):
                         folder_name = name
                         break
                 self.show_notification(f"File already in {folder_name}.")
+                self.defer_ui_updates = False
                 return
 
         os.makedirs(dest_folder, exist_ok=True)
@@ -2277,10 +2289,16 @@ class ImageSorterApp(QMainWindow):
 
             shutil.move(source_to_move, dest_path)
 
-            # Update history
-            self.history = [(s, d) for s, d in self.history if os.path.normcase(os.path.normpath(s)) != os.path.normcase(os.path.normpath(src_path))]
+            # Update history and cache
+            norm_src_path = os.path.normcase(os.path.normpath(src_path))
+            self.history = [(s, d) for s, d in self.history if os.path.normcase(os.path.normpath(s)) != norm_src_path]
             self.history.append((src_path, dest_path))
-            save_history(self.history)  # Save history
+            self.history_cache[norm_src_path] = dest_path
+            save_history(self.history)
+
+            # Update file existence cache
+            self.file_exists_cache[src_path] = False
+            self.file_exists_cache[dest_path] = True
 
             self.log_message(f"Moved: {source_to_move} → {dest_path}")
 
@@ -2302,7 +2320,8 @@ class ImageSorterApp(QMainWindow):
 
             is_second_move = current_dest is not None
 
-            # Perbarui UI dengan gambar berikutnya
+            # Re-enable UI updates and refresh
+            self.defer_ui_updates = False
             self.nav_history.append(current_index_before_move)
             self.show_current_image(self.filtered_files)
 
@@ -2318,6 +2337,7 @@ class ImageSorterApp(QMainWindow):
             msg.setIcon(QMessageBox.Critical)
             self.apply_message_box_style(msg)
             msg.exec()
+            self.defer_ui_updates = False
 
     def undo_action(self):
         if not self.history:
@@ -2329,33 +2349,42 @@ class ImageSorterApp(QMainWindow):
             msg.exec()
             return
 
+        self.defer_ui_updates = True  # Defer UI updates during undo
+
         src_path, dest_path = self.history.pop()
-        self.validate_history()
-        save_history(self.history)  # Save history after undo
-        
+        save_history(self.history)
+
         try:
             if not os.path.exists(dest_path):
                 raise FileNotFoundError(f"Destination file {dest_path} not found.")
-            
+
             shutil.move(dest_path, src_path)
             self.log_message(f"Undo: {dest_path} → {src_path}")
-            
-            # No need to update image_files since src_path remains
-            # Update filtered_files by reapplying filter
+
+            # Update caches
+            norm_src_path = os.path.normcase(os.path.normpath(src_path))
+            if norm_src_path in self.history_cache:
+                del self.history_cache[norm_src_path]
+            self.file_exists_cache[src_path] = True
+            self.file_exists_cache[dest_path] = False
+
+            # Update filtered_files
             self.apply_filter()
-            
+
             # Find index of undone file in filtered_files
             for i, path in enumerate(self.filtered_files):
-                if os.path.normcase(os.path.normpath(path)) == os.path.normcase(os.path.normpath(src_path)):
+                if os.path.normcase(os.path.normpath(path)) == norm_src_path:
                     self.current_index = i
                     break
             else:
-                # If file not in filtered_files, use closest valid index
                 self.current_index = min(self.current_index, len(self.filtered_files) - 1) if self.filtered_files else 0
-            
-            # Clean nav_history for invalid indices
+
+            # Clean nav_history
             self.nav_history = [i for i in self.nav_history if i < len(self.filtered_files)]
             filename = os.path.basename(src_path)
+
+            # Re-enable UI updates and refresh
+            self.defer_ui_updates = False
             self.show_current_image(self.filtered_files)
             self.show_notification(f'"{filename}" has been restored to its original location.')
         except Exception as e:
@@ -2366,9 +2395,8 @@ class ImageSorterApp(QMainWindow):
             msg.setIcon(QMessageBox.Critical)
             self.apply_message_box_style(msg)
             msg.exec()
-            # Re-add to history if failed
             self.history.append((src_path, dest_path))
-        self.validate_history()
+            self.defer_ui_updates = False
 
     def skip_image(self):
         self.nav_history.append(self.current_index)
@@ -2498,34 +2526,37 @@ class ImageSorterApp(QMainWindow):
 
     def apply_filter(self):
         selected_ext = self.filter_combo.currentText()
-        current_path = None
-        if self.filtered_files and 0 <= self.current_index < len(self.filtered_files):
-            current_path = self.filtered_files[self.current_index]
-        
-        self.filtered_files = [
-            path for path in self.image_files
-            if selected_ext == "All Files" or path.lower().endswith(selected_ext.lower())
-        ]
-        
-        print(f"[DEBUG] filtered_files: {len(self.filtered_files)} items")
-        
-        # Coba pertahankan gambar saat ini jika masih ada dalam filtered_files
-        if current_path and current_path in self.filtered_files:
-            self.current_index = self.filtered_files.index(current_path)
+        if selected_ext == self.last_filter and self.filtered_files:
+            return  # No need to re-filter if the filter hasn't changed
+
+        self.last_filter = selected_ext
+        cache_key = selected_ext
+
+        # Check if filter result is cached
+        if cache_key in self.filter_cache:
+            self.filtered_files = self.filter_cache[cache_key]
         else:
-            # Jika gambar saat ini tidak ada, cari indeks berikutnya yang valid
+            self.filtered_files = [
+                path for path in self.image_files
+                if selected_ext == "All Files" or path.lower().endswith(selected_ext.lower())
+            ]
+            self.filter_cache[cache_key] = self.filtered_files[:]
+
+        print(f"[DEBUG] filtered_files: {len(self.filtered_files)} items")
+
+        # Reset current_index if current file is not in filtered_files
+        if self.filtered_files and (not self.image_files or self.current_index >= len(self.filtered_files)):
             self.current_index = 0
-            if self.filtered_files:
-                valid_index = self.find_valid_next_index(-1, self.filtered_files)
-                if valid_index is not None:
-                    self.current_index = valid_index
-                else:
-                    # Jika tidak ada indeks valid, cari file yang ada
-                    for i, path in enumerate(self.filtered_files):
-                        if os.path.exists(path) or self.get_new_path_from_history(path):
-                            self.current_index = i
-                            break
-        self.position_stack.setCurrentIndex(0)  # Show position label
+            valid_index = self.find_valid_next_index(-1, self.filtered_files)
+            if valid_index is not None:
+                self.current_index = valid_index
+            else:
+                for i, path in enumerate(self.filtered_files):
+                    if path in self.file_exists_cache and self.file_exists_cache[path]:
+                        self.current_index = i
+                        break
+
+        self.position_stack.setCurrentIndex(0)
         if not self.filtered_files:
             self.image_label.setText("No images match the filter.")
             self.next_image_label.setText("Next: None")

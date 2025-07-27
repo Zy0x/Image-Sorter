@@ -30,22 +30,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; Main executable
-Source: "ImageSorter\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-
-; Assets folder
-Source: "ImageSorter\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "ImageSorter\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; Config folder
-Source: "ImageSorter\config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; Utils folder
-Source: "ImageSorter\utils\*"; DestDir: "{app}\utils"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; Optional files (README.md and requirements.txt)
-Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "output\*"; DestDir: "{app}\output"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "utils\*"; DestDir: "{app}\utils"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: ""
@@ -115,23 +104,23 @@ begin
     'Please select the installation type:', True, False);
   InstallModePage.Add('Default Installation (Installs to Program Files with uninstaller)');
   InstallModePage.Add('Portable Installation (Extracts to a single folder, no uninstaller)');
-  InstallModePage.SelectedValueIndex := 0; // Default to Default mode
-  IsPortableMode := False; // Default value
+  InstallModePage.SelectedValueIndex := 0; // Default ke mode Default
+  IsPortableMode := False; // Nilai default
   Log('InitializeWizard: IsPortableMode initialized to ' + IntToStr(Ord(IsPortableMode)));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
-  Result := True; // Default: proceed
+  Result := True; // Default: lanjutkan
   if CurPageID = InstallModePage.ID then
   begin
-    // Update IsPortableMode when Next button is clicked on the mode selection page
+    // Perbarui IsPortableMode saat tombol Next diklik di halaman pemilihan mode
     IsPortableMode := (InstallModePage.SelectedValueIndex = 1);
     if IsPortableMode then
       Log('Debug: IsPortableMode set to: True')
     else
       Log('Debug: IsPortableMode set to: False');
-    // Set the installation path immediately after updating IsPortableMode
+    // Atur path instalasi segera setelah IsPortableMode diperbarui
     if IsPortableMode then
     begin
       WizardForm.DirEdit.Text := ExpandConstant('{src}\ImageSorter');
@@ -149,7 +138,7 @@ procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = wpReady then
   begin
-    // Ensure the installation path is correct on the "Ready to Install" page
+    // Pastikan path instalasi sesuai pada halaman "Ready to Install"
     if IsPortableMode then
     begin
       WizardForm.DirEdit.Text := ExpandConstant('{src}\ImageSorter');
@@ -165,7 +154,7 @@ end;
 
 function WizardDirValue: String;
 begin
-  // Ensure the directory value used by the installer is always correct
+  // Pastikan path yang digunakan oleh instalasi selalu sesuai
   if IsPortableMode then
   begin
     Result := ExpandConstant('{src}\ImageSorter');

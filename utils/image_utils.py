@@ -33,7 +33,7 @@ def resize_image(pixmap: QPixmap) -> QPixmap:
     )
     return QPixmap.fromImage(resized_image)
 
-def resize_next_preview(pixmap: QPixmap, max_width: int = 300, max_height: int = 360) -> QPixmap:
+def resize_next_preview(pixmap: QPixmap, max_width: int = 200, max_height: int = 260) -> QPixmap:
     """
     Resize pixmap untuk preview berikutnya (thumbnail kecil).
     Parameter `max_width` dan `max_height` dapat disesuaikan secara opsional.
