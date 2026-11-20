@@ -2,6 +2,14 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.9 — 2026-11-20
+
+### Added — video sorting, live animated zoom preview & 25+ media formats
+- **Live Animated Playback & Frame Stepping in `ImagePreviewDialog` (`F` / double-click):** Animated `.gif`, `.webp`, `.apng`, `.avif`, and video files continue playing live while zoomed in and panned, complete with `Play/Pause` (`Space`) and frame-by-frame stepping (`⟨` / `[` and `⟩` / `]`).
+- **Video Sorting Support (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`, `.wmv`):** Extracts live frames, duration badges (`▶ M:SS`), and resolution metadata into memory via OpenCV and immediately releases file handles so videos can be moved (`1`–`5`, Rapid Move) or restored (`Ctrl+Z`) on Windows without file locks.
+- **Expanded Modern Image Decoders:** Added full decoding and metadata support for `.avif`, `.heic`, `.heif` (via `pillow-heif`), `.psd` (Photoshop), `.apng`, `.svgz`, `.tga`, `.icns`, `.cur`, `.pbm`, `.pgm`, `.ppm`, `.xbm`, `.xpm`, and `.wbmp`.
+- **Smart Media Category Filters:** Added `All Images`, `All Videos`, and `Animated / GIF` quick filters alongside individual extension filters.
+
 ## 2.1.8 — 2026-11-20
 
 ### Added — smart double-click zoom & drag-to-pan in Full-Size Preview

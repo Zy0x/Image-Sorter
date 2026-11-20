@@ -1,3 +1,6 @@
 PySide6
-pyinstaller
+Pillow
+pillow-heif
+opencv-python
 requests
+pyinstaller

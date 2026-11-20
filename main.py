@@ -40,9 +40,18 @@ from PySide6.QtGui import QAction, QImageReader, QIcon, QShortcut, QKeySequence,
 from PySide6.QtCore import Qt, QPropertyAnimation, QTimer, QThread, QSize, Signal, QUrl, QEvent, QByteArray, QBuffer, QIODevice
 
 from utils.image_utils import (
+    PIL_FALLBACK_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+    _HAS_CV2,
+    _HAS_HEIF,
+    _HAS_PIL,
+    format_duration,
     format_file_size,
+    is_video_file,
+    load_animation_frames,
     load_pixmap,
     read_image_metadata,
+    read_video_metadata,
     resize_image,
     resize_next_preview,
 )
@@ -151,8 +160,13 @@ def resource_path(relative_path):
     print(f"[DEBUG] Resource path for {relative_path}: {full_path}")
     return full_path
 
-SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.jfif', '.gif', '.bmp', '.webp',
-                              '.tiff', '.tif', '.ico', '.svg', '.heic', '.heif', '.raw', '.psd')
+SUPPORTED_IMAGE_EXTENSIONS = (
+    '.png', '.jpg', '.jpeg', '.jfif', '.gif', '.bmp', '.webp',
+    '.avif', '.heic', '.heif', '.apng',
+    '.tiff', '.tif', '.ico', '.cur', '.icns', '.svg', '.svgz',
+    '.tga', '.psd', '.pbm', '.pgm', '.ppm', '.xbm', '.xpm', '.wbmp',
+    '.mp4', '.webm', '.mkv', '.mov', '.avi', '.m4v', '.wmv',
+)
 RAPID_MOVE_MIN_MS = 50
 RAPID_MOVE_MAX_MS = 1000
 RAPID_MOVE_DEFAULT_MS = 200
@@ -171,16 +185,28 @@ _READABLE_EXTENSIONS = None
 
 
 def readable_image_extensions():
-    """Ekstensi yang didukung aplikasi DAN bisa dibaca Qt di komputer ini.
+    """Ekstensi gambar, animasi, dan video yang didukung aplikasi DAN bisa dibaca
+    oleh Qt, Pillow/pillow-heif, atau OpenCV di komputer ini.
     Dicek sekali per ekstensi (bukan sekali per file) agar import ribuan file tetap cepat."""
     global _READABLE_EXTENSIONS
     if _READABLE_EXTENSIONS is None:
         qt_formats = {bytes(f).decode("ascii", "ignore").lower() for f in QImageReader.supportedImageFormats()}
-        aliases = {".jpg": "jpeg", ".jpeg": "jpeg", ".jfif": "jpeg", ".tiff": "tiff", ".tif": "tiff", ".heic": "heic", ".heif": "heif"}
+        aliases = {
+            ".jpg": "jpeg", ".jpeg": "jpeg", ".jfif": "jpeg",
+            ".tiff": "tiff", ".tif": "tiff",
+            ".heic": "heic", ".heif": "heif",
+            ".apng": "png",
+        }
         result = set()
         for ext in SUPPORTED_IMAGE_EXTENSIONS:
             name = ext.lstrip(".")
             if name in qt_formats or aliases.get(ext, name) in qt_formats:
+                result.add(ext)
+            elif ext in VIDEO_EXTENSIONS and _HAS_CV2:
+                result.add(ext)
+            elif ext in (".heic", ".heif") and (_HAS_HEIF or _HAS_PIL):
+                result.add(ext)
+            elif ext in PIL_FALLBACK_EXTENSIONS and _HAS_PIL:
                 result.add(ext)
         _READABLE_EXTENSIONS = frozenset(result)
     return _READABLE_EXTENSIONS
@@ -459,7 +485,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.8-Stable"
+    VERSION = "2.1.9-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -853,7 +879,8 @@ class ShortcutsGuideDialog(QDialog):
 
 
 class ImagePreviewDialog(QDialog):
-    """Dialog pratinjau ukuran penuh dengan Smart Double-Click Zoom, Cursor-Anchored Wheel Zoom, dan Drag-to-Pan."""
+    """Dialog pratinjau ukuran penuh dengan Smart Double-Click Zoom, Cursor-Anchored Wheel Zoom,
+    Drag-to-Pan, serta Live Playback & Frame Stepping untuk GIF, Animated WebP/APNG/AVIF, dan Video."""
     def __init__(self, image_path, parent=None):
         super().__init__(parent)
         self.image_path = image_path
@@ -866,7 +893,18 @@ class ImagePreviewDialog(QDialog):
         self._pan_start_pos = None
         self._pan_start_h = 0
         self._pan_start_v = 0
-        self.base_pixmap = load_pixmap(image_path)
+
+        self.anim_frames = load_animation_frames(image_path, 1600, 1200, max_frames=240)
+        self._anim_index = 0
+        self._anim_playing = len(self.anim_frames) > 1
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setSingleShot(True)
+        self._anim_timer.timeout.connect(self._advance_anim_frame)
+
+        if self.anim_frames:
+            self.base_pixmap = self.anim_frames[0][0]
+        else:
+            self.base_pixmap = load_pixmap(image_path)
 
         filename = os.path.basename(image_path)
         w = self.base_pixmap.width()
@@ -902,7 +940,7 @@ class ImagePreviewDialog(QDialog):
                 background-color: {btn_bg};
                 color: {text};
                 border: 1px solid {border};
-                padding: 5px 13px;
+                padding: 5px 12px;
                 font-size: 12px;
                 font-weight: 600;
                 border-radius: 6px;
@@ -948,6 +986,23 @@ class ImagePreviewDialog(QDialog):
         toolbar.addWidget(hint_label)
         toolbar.addStretch()
 
+        self.prev_frame_btn = None
+        self.play_pause_btn = None
+        self.next_frame_btn = None
+        if len(self.anim_frames) > 1:
+            self.prev_frame_btn = QPushButton("⟨")
+            self.prev_frame_btn.setToolTip("Previous Frame ([)")
+            self.prev_frame_btn.clicked.connect(lambda: self.step_frame(-1))
+            self.play_pause_btn = QPushButton("Pause")
+            self.play_pause_btn.setToolTip("Play / Pause Animation (Space)")
+            self.play_pause_btn.clicked.connect(self.toggle_animation)
+            self.next_frame_btn = QPushButton("⟩")
+            self.next_frame_btn.setToolTip("Next Frame (])")
+            self.next_frame_btn.clicked.connect(lambda: self.step_frame(1))
+            for ab in (self.prev_frame_btn, self.play_pause_btn, self.next_frame_btn):
+                ab.setCursor(Qt.PointingHandCursor)
+                toolbar.addWidget(ab)
+
         zoom_out_btn = QPushButton("−")
         zoom_out_btn.setToolTip("Zoom Out (−)")
         zoom_out_btn.clicked.connect(lambda: self.adjust_zoom(0.8))
@@ -980,6 +1035,46 @@ class ImagePreviewDialog(QDialog):
         self.preview_label.installEventFilter(self)
 
         self.update_preview()
+        if self._anim_playing:
+            self._schedule_next_anim_frame()
+
+    def _schedule_next_anim_frame(self):
+        if not self._anim_playing or len(self.anim_frames) <= 1:
+            return
+        delay = self.anim_frames[self._anim_index][1]
+        self._anim_timer.start(max(20, int(delay)))
+
+    def _advance_anim_frame(self):
+        if len(self.anim_frames) <= 1:
+            return
+        self._anim_index = (self._anim_index + 1) % len(self.anim_frames)
+        self.base_pixmap = self.anim_frames[self._anim_index][0]
+        self._render_current_frame_preserve_scroll()
+        if self._anim_playing:
+            self._schedule_next_anim_frame()
+
+    def toggle_animation(self):
+        if len(self.anim_frames) <= 1:
+            return
+        self._anim_playing = not self._anim_playing
+        if self.play_pause_btn is not None:
+            self.play_pause_btn.setText("Pause" if self._anim_playing else "Play")
+        if self._anim_playing:
+            self._schedule_next_anim_frame()
+        else:
+            self._anim_timer.stop()
+        self._update_info_label()
+
+    def step_frame(self, delta: int):
+        if len(self.anim_frames) <= 1:
+            return
+        self._anim_playing = False
+        self._anim_timer.stop()
+        if self.play_pause_btn is not None:
+            self.play_pause_btn.setText("Play")
+        self._anim_index = (self._anim_index + delta) % len(self.anim_frames)
+        self.base_pixmap = self.anim_frames[self._anim_index][0]
+        self._render_current_frame_preserve_scroll()
 
     def _compute_fit_zoom(self):
         if self.base_pixmap.isNull():
@@ -1067,6 +1162,41 @@ class ImagePreviewDialog(QDialog):
     def reset_actual_size(self):
         self._zoom_to_at_pos(1.0)
 
+    def _update_info_label(self):
+        pct = int(round(self.zoom_factor * 100))
+        mode_tag = "Fit" if self._fit_mode else f"{pct}%"
+        frame_tag = ""
+        if len(self.anim_frames) > 1:
+            state_tag = "" if self._anim_playing else " · Paused"
+            frame_tag = f" • Frame {self._anim_index + 1}/{len(self.anim_frames)}{state_tag}"
+        self.info_label.setText(
+            f"{os.path.basename(self.image_path)}  ({self.base_pixmap.width()}×{self.base_pixmap.height()} • {mode_tag}{frame_tag})"
+        )
+
+    def _render_current_frame_preserve_scroll(self):
+        """Render frame animasi saat ini tanpa mereset posisi scroll/pan."""
+        if self.base_pixmap.isNull():
+            return
+        hbar = self.scroll_area.horizontalScrollBar()
+        vbar = self.scroll_area.verticalScrollBar()
+        old_h = hbar.value()
+        old_v = vbar.value()
+        if self._fit_mode:
+            self._fit_zoom = self._compute_fit_zoom()
+            self.zoom_factor = self._fit_zoom
+        tw = max(16, int(round(self.base_pixmap.width() * self.zoom_factor)))
+        th = max(16, int(round(self.base_pixmap.height() * self.zoom_factor)))
+        scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        if self._fit_mode:
+            self.preview_label.setMinimumSize(1, 1)
+        else:
+            self.preview_label.setMinimumSize(scaled.size())
+        self.preview_label.setPixmap(scaled)
+        if not self._fit_mode:
+            hbar.setValue(old_h)
+            vbar.setValue(old_v)
+        self._update_info_label()
+
     def update_preview(self):
         if self.base_pixmap.isNull():
             self.preview_label.setText("Failed to load image.")
@@ -1084,11 +1214,7 @@ class ImagePreviewDialog(QDialog):
         self.preview_label.setPixmap(scaled)
         self.preview_label.resize(scaled.size())
         QApplication.processEvents()
-        pct = int(round(self.zoom_factor * 100))
-        mode_tag = "Fit" if self._fit_mode else f"{pct}%"
-        self.info_label.setText(
-            f"{os.path.basename(self.image_path)}  ({self.base_pixmap.width()}×{self.base_pixmap.height()} • {mode_tag})"
-        )
+        self._update_info_label()
         self._update_cursor()
 
     def _map_to_viewport(self, obj, pos):
@@ -1151,7 +1277,20 @@ class ImagePreviewDialog(QDialog):
         if key == Qt.Key_1:
             self.reset_actual_size()
             return
+        if key == Qt.Key_Space and len(self.anim_frames) > 1:
+            self.toggle_animation()
+            return
+        if key == Qt.Key_BracketLeft and len(self.anim_frames) > 1:
+            self.step_frame(-1)
+            return
+        if key == Qt.Key_BracketRight and len(self.anim_frames) > 1:
+            self.step_frame(1)
+            return
         super().keyPressEvent(event)
+
+    def closeEvent(self, event):
+        self._anim_timer.stop()
+        super().closeEvent(event)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1811,6 +1950,11 @@ class ImageSorterApp(QMainWindow):
         self.current_movie = None
         self._movie_buffer = None
         self._movie_bytes = None
+        self._main_anim_frames = []
+        self._main_anim_index = 0
+        self._main_anim_timer = QTimer(self)
+        self._main_anim_timer.setSingleShot(True)
+        self._main_anim_timer.timeout.connect(self._advance_main_anim_frame)
         # Rapid move variables
         self.is_rapid_moving = False
         self.rapid_folder_index = None
@@ -1856,6 +2000,8 @@ class ImageSorterApp(QMainWindow):
 
     def start_update_check(self, manual=False):
         """Mulai pengecekan pembaruan di thread terpisah (tidak memblokir UI)."""
+        if not manual and os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return
         if self.update_thread is not None and self.update_thread.isRunning():
             if manual:
                 self.show_notification("Update check is already running...")
@@ -1905,7 +2051,11 @@ class ImageSorterApp(QMainWindow):
             self._history_dirty = False
 
     def stop_current_movie(self):
-        """Hentikan animasi QMovie aktif dan lepaskan buffer memori."""
+        """Hentikan animasi QMovie / timer frame aktif dan lepaskan buffer memori."""
+        if getattr(self, "_main_anim_timer", None) is not None:
+            self._main_anim_timer.stop()
+        self._main_anim_frames = []
+        self._main_anim_index = 0
         if self.current_movie is not None:
             self.current_movie.stop()
             if hasattr(self, "image_label"):
@@ -1916,6 +2066,15 @@ class ImageSorterApp(QMainWindow):
             self._movie_buffer.close()
             self._movie_buffer = None
         self._movie_bytes = None
+
+    def _advance_main_anim_frame(self):
+        """Putar frame berikutnya untuk APNG/AVIF/Video di preview utama (zero file lock)."""
+        if not self._main_anim_frames or not hasattr(self, "image_label"):
+            return
+        self._main_anim_index = (self._main_anim_index + 1) % len(self._main_anim_frames)
+        pix, delay = self._main_anim_frames[self._main_anim_index]
+        self.image_label.setPixmap(pix)
+        self._main_anim_timer.start(max(20, int(delay)))
 
     def init_hot_reload(self):
         """Pantau perubahan pada main.py, utils/image_utils.py, dan config/settings.json.
@@ -2748,8 +2907,11 @@ class ImageSorterApp(QMainWindow):
         action_layout = QHBoxLayout()
         action_layout.setSpacing(10)
         self.filter_combo = QComboBox()
-        self.filter_combo.setToolTip("Select file extension to filter")
+        self.filter_combo.setToolTip("Select file extension or media type to filter")
         self.filter_combo.addItem("All Files")
+        self.filter_combo.addItem("All Images")
+        self.filter_combo.addItem("All Videos")
+        self.filter_combo.addItem("Animated / GIF")
         readable_exts = readable_image_extensions()
         self.filter_combo.addItems([ext for ext in SUPPORTED_IMAGE_EXTENSIONS if ext in readable_exts])
         self.filter_combo.currentIndexChanged.connect(self.apply_filter)
@@ -3308,12 +3470,22 @@ class ImageSorterApp(QMainWindow):
 
         meta_text = ""
         orig_w, orig_h, file_size, fmt_bytes, frame_count = 0, 0, 0, b"", 1
+        video_duration = 0.0
+        is_video = is_video_file(new_path)
         file_exists = os.path.exists(new_path)
         if file_exists:
-            orig_w, orig_h, file_size, fmt_bytes, frame_count = read_image_metadata(new_path)
+            if is_video:
+                orig_w, orig_h, file_size, _fps, frame_count, video_duration = read_video_metadata(new_path)
+                fmt_bytes = os.path.splitext(new_path)[1].lstrip(".").lower().encode("ascii", "ignore")
+            else:
+                orig_w, orig_h, file_size, fmt_bytes, frame_count = read_image_metadata(new_path)
             parts = []
             if orig_w > 0 and orig_h > 0:
                 parts.append(f"{orig_w}×{orig_h}")
+            if is_video and video_duration > 0:
+                parts.append(f"VIDEO {format_duration(video_duration)}")
+            elif frame_count and frame_count > 1:
+                parts.append(f"{frame_count} frames")
             if file_size > 0:
                 parts.append(format_file_size(file_size))
             if parts:
@@ -3336,29 +3508,60 @@ class ImageSorterApp(QMainWindow):
                 resized_pixmap = resize_image(pixmap)
                 target_size = resized_pixmap.size()
                 self.image_label.setFixedSize(target_size)
-                # Putar animasi GIF/WebP dari buffer memori agar tidak mengunci file di Windows
-                if frame_count and frame_count > 1 and file_size <= 30 * 1024 * 1024:
-                    try:
-                        with open(new_path, "rb") as f:
-                            raw_bytes = f.read()
-                        self._movie_bytes = QByteArray(raw_bytes)
-                        self._movie_buffer = QBuffer()
-                        self._movie_buffer.setData(self._movie_bytes)
-                        self._movie_buffer.open(QIODevice.ReadOnly)
-                        movie = QMovie(self._movie_buffer, QByteArray(fmt_bytes), self)
-                        movie.setScaledSize(target_size)
-                        if movie.isValid():
-                            self.current_movie = movie
-                            self.image_label.setMovie(movie)
-                            movie.start()
-                        else:
+                # Putar animasi GIF/WebP/APNG/AVIF atau Video dari buffer/frame memori agar tidak mengunci file di Windows
+                started_anim = False
+                if frame_count and frame_count > 1 and file_size <= 50 * 1024 * 1024:
+                    if not is_video and fmt_bytes in (b"gif", b"webp"):
+                        try:
+                            with open(new_path, "rb") as f:
+                                raw_bytes = f.read()
+                            self._movie_bytes = QByteArray(raw_bytes)
+                            self._movie_buffer = QBuffer()
+                            self._movie_buffer.setData(self._movie_bytes)
+                            self._movie_buffer.open(QIODevice.ReadOnly)
+                            movie = QMovie(self._movie_buffer, QByteArray(fmt_bytes), self)
+                            movie.setScaledSize(target_size)
+                            if movie.isValid():
+                                self.current_movie = movie
+                                self.image_label.setMovie(movie)
+                                movie.start()
+                                started_anim = True
+                            else:
+                                self.stop_current_movie()
+                        except OSError:
                             self.stop_current_movie()
-                            self.image_label.setPixmap(resized_pixmap)
-                    except OSError:
-                        self.stop_current_movie()
-                        self.image_label.setPixmap(resized_pixmap)
-                else:
+                    if not started_anim:
+                        raw_frames = load_animation_frames(new_path, 720, 500, max_frames=90)
+                        if len(raw_frames) > 1:
+                            self._main_anim_frames = [
+                                (resize_image(fpix), fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
+                            ]
+                            if len(self._main_anim_frames) > 1:
+                                self._main_anim_index = 0
+                                self.image_label.setPixmap(self._main_anim_frames[0][0])
+                                self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
+                                started_anim = True
+                if not started_anim:
                     self.image_label.setPixmap(resized_pixmap)
+                if is_video:
+                    vbadge = QLabel(self.image_label)
+                    dur_str = format_duration(video_duration) if video_duration > 0 else "VIDEO"
+                    vbadge.setText(f"▶ {dur_str}")
+                    vbadge.setStyleSheet("""
+                        background-color: rgba(18, 18, 22, 195);
+                        color: #ededef;
+                        border: 1px solid rgba(255, 255, 255, 40);
+                        font-weight: 600;
+                        font-size: 11px;
+                        padding: 4px 8px;
+                        border-radius: 5px;
+                    """)
+                    vbadge.setAlignment(Qt.AlignCenter)
+                    vbadge.adjustSize()
+                    bw = max(68, vbadge.width() + 10)
+                    bh = 26
+                    vbadge.setGeometry(target_size.width() - bw - 10, target_size.height() - bh - 10, bw, bh)
+                    vbadge.show()
                 if is_moved:
                     watermark = QLabel(self.image_label)
                     watermark.setText("MOVED")
@@ -4137,6 +4340,13 @@ class ImageSorterApp(QMainWindow):
         # Selalu bangun ulang filtered_files dari image_files agar tidak basi saat ganti folder
         if selected_ext == "All Files":
             candidates = list(self.image_files)
+        elif selected_ext == "All Videos":
+            candidates = [path for path in self.image_files if is_video_file(path)]
+        elif selected_ext == "All Images":
+            candidates = [path for path in self.image_files if not is_video_file(path)]
+        elif selected_ext == "Animated / GIF":
+            anim_exts = (".gif", ".webp", ".apng", ".avif")
+            candidates = [path for path in self.image_files if path.lower().endswith(anim_exts)]
         else:
             wanted = selected_ext.lower()
             candidates = [path for path in self.image_files if path.lower().endswith(wanted)]

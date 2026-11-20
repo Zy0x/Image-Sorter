@@ -63,6 +63,13 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.9-Stable (Selesai)
+- [x] **Live Animated Zoom Preview & Frame Stepping (`ImagePreviewDialog`):** Animasi `.gif`, `.webp`, `.apng`, `.avif`, dan video tetap bergerak secara *live* saat di-zoom dan di-geser (*drag-to-pan*), dilengkapi kontrol `Play/Pause` (`Space`) dan navigasi per-frame (`[` / `]`).
+- [x] **Dukungan Sortir Video Tanpa File-Lock (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`, `.wmv`):** Memutar pratinjau video di memori lengkap dengan informasi durasi (`▶ M:SS`) dan resolusi tanpa mengunci file di Windows saat dipindahkan (`1`–`5`) maupun di-*Undo* (`Ctrl+Z`).
+- [x] **Ekspansi 25+ Format Gambar Modern & Desain (`.avif`, `.heic`, `.heif`, `.psd`, `.apng`, `.svgz`, `.tga`, `.icns`, `.cur`, `.ppm`, dll.):** Integrasi decoder `Pillow` + `pillow-heif` + `OpenCV` serta filter kategori cerdas (`All Images`, `All Videos`, `Animated / GIF`).
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Custom Jumlah Slot Folder Dinamis (3–10 Folder):** Menambah atau mengurangi jumlah tombol folder tujuan sesuai kebutuhan proyek.
 - [ ] **Deteksi Gambar Duplikat / Mirip (Perceptual Hash):** Menandai foto kembar dalam satu folder sebelum disortir.
