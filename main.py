@@ -459,7 +459,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.5-Stable"
+    VERSION = "2.1.6-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -810,18 +810,18 @@ class ShortcutsGuideDialog(QDialog):
         left_shortcuts = [
             ("1 – 5", "Move image to Folder A–E"),
             ("Hold 1 – 5", "Rapid Move to Folder A–E"),
-            ("←  /  A", "Previous image"),
-            ("→  /  D", "Next image"),
-            ("Space", "Skip current image"),
+            ("←  /  →", "Previous / Next image"),
+            ("Space", "Skip to next unmoved image"),
             ("Home / End", "First / last image"),
+            ("Ctrl + G", "Jump to specific image #"),
         ]
         right_shortcuts = [
             ("Ctrl + Z", "Undo last move safely"),
             ("Ctrl + O", "Import folder"),
-            ("Ctrl + G", "Jump to image #"),
             ("Ctrl + H", "Toggle Hide Moved Images"),
             ("F", "Full-Size / Zoom Preview"),
-            ("Ctrl + E / Del", "Show in Explorer / Recycle Bin"),
+            ("Ctrl + E", "Show image in File Explorer"),
+            ("Delete", "Move image to Recycle Bin"),
         ]
 
         for r_idx, (k_str, desc_str) in enumerate(left_shortcuts):
@@ -2588,14 +2588,14 @@ class ImageSorterApp(QMainWindow):
         nav_layout = QHBoxLayout()
         nav_layout.setSpacing(10)
         self.prev_btn = QPushButton("Previous")
-        self.prev_btn.setToolTip("Go to previous image (Left Arrow / A)")
+        self.prev_btn.setToolTip("Go to previous image (Left Arrow ←)")
         self.set_modern_button_style(self.prev_btn)
         self.prev_btn.clicked.connect(self.show_previous)
         self.prev_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         nav_layout.addWidget(self.prev_btn)
 
         self.next_btn = QPushButton("Next")
-        self.next_btn.setToolTip("Go to next image (Right Arrow / D)")
+        self.next_btn.setToolTip("Go to next image (Right Arrow →)")
         self.set_modern_button_style(self.next_btn)
         self.next_btn.clicked.connect(self.show_next)
         self.next_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -2626,7 +2626,7 @@ class ImageSorterApp(QMainWindow):
         action_layout.addWidget(self.undo_btn)
 
         self.skip_btn = QPushButton("Skip")
-        self.skip_btn.setToolTip("Skip current image (Space)")
+        self.skip_btn.setToolTip("Skip to next unmoved image (Space)")
         self.set_modern_button_style(self.skip_btn)
         self.skip_btn.clicked.connect(self.skip_image)
         action_layout.addWidget(self.skip_btn)
@@ -2804,12 +2804,8 @@ class ImageSorterApp(QMainWindow):
         end_shortcut.activated.connect(self.show_last_image)
         next_shortcut = QShortcut(QKeySequence("Right"), self)
         next_shortcut.activated.connect(self.show_next)
-        next_shortcut_d = QShortcut(QKeySequence("D"), self)
-        next_shortcut_d.activated.connect(self.show_next)
         prev_shortcut = QShortcut(QKeySequence("Left"), self)
         prev_shortcut.activated.connect(self.show_previous)
-        prev_shortcut_a = QShortcut(QKeySequence("A"), self)
-        prev_shortcut_a.activated.connect(self.show_previous)
         undo_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.Undo), self)
         undo_shortcut.activated.connect(self.undo_action)
         skip_shortcut = QShortcut(QKeySequence("Space"), self)
@@ -3787,9 +3783,29 @@ class ImageSorterApp(QMainWindow):
             self.schedule_history_save()
             self.defer_ui_updates = False
 
+    def find_next_unmoved_index(self, start_index, files=None):
+        """Cari indeks gambar berikutnya yang BELUM dipindahkan (unmoved)."""
+        if files is None:
+            files = self.filtered_files
+        for i in range(start_index + 1, len(files)):
+            path = files[i]
+            norm_path = os.path.normcase(os.path.normpath(path))
+            if norm_path not in self.history_cache and os.path.exists(path):
+                return i
+        return None
+
     def skip_image(self):
-        self.nav_history.append(self.current_index)
-        self.show_next()
+        """Lompat langsung ke gambar berikutnya yang belum dipindahkan (unmoved)."""
+        if not self.filtered_files:
+            self.show_notification("No image loaded.")
+            return
+        next_unmoved = self.find_next_unmoved_index(self.current_index, self.filtered_files)
+        if next_unmoved is not None:
+            self.nav_history.append(self.current_index)
+            self.current_index = next_unmoved
+            self.show_current_image(self.filtered_files)
+        else:
+            self.show_notification("No unmoved images remaining ahead.")
 
     def export_log(self):
         if self.log_buffer:
@@ -3865,16 +3881,16 @@ class ImageSorterApp(QMainWindow):
             f"<td align='left'>Rapid Move (or hold A–E)</td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>← / A &nbsp;•&nbsp; → / D</b></font></td>"
+            f"<td align='left'><font face='Consolas' color='{key_col}'><b>← &nbsp;•&nbsp; →</b></font></td>"
             f"<td align='left'>Previous / Next image</td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Space &nbsp;•&nbsp; Ctrl+Z</b></font></td>"
-            f"<td align='left'>Skip image / Undo move</td>"
+            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Space</b></font></td>"
+            f"<td align='left'>Skip to next unmoved image</td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>F &nbsp;•&nbsp; Ctrl+H</b></font></td>"
-            f"<td align='left'>Zoom Preview / Hide Moved</td>"
+            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Ctrl+Z &nbsp;•&nbsp; F</b></font></td>"
+            f"<td align='left'>Undo move / Zoom Preview</td>"
             f"</tr>"
             f"</table>"
             f"<p style='font-size:12px; color:{sub_col}; margin-top:14px;'>"

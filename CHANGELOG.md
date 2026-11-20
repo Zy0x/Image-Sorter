@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.6 — 2026-11-20
+
+### Changed — streamlined navigation & distinct Skip shortcut
+- **Removed redundant `A` / `D` navigation shortcuts:** `Previous` and `Next` now use the dedicated arrow keys **`←` (`Left`)** and **`→` (`Right`)** only.
+- **Distinct `Skip` (`Space`) behavior (`find_next_unmoved_index`):** While `Next` (`→`) steps through every image sequentially (including already-moved ones), `Skip` (`Space`) now jumps directly to the next **unmoved** image.
+- **Cleaner `ShortcutsGuideDialog` (`F1`) & empty-state table:** Combined `← / →` into one row and separated `Ctrl + E` (Show in Explorer) and `Delete` (Recycle Bin) into distinct rows so every shortcut maps 1-to-1 to a unique action.
+
 ## 2.1.5 — 2026-11-20
 
 ### Added — live hot-reload

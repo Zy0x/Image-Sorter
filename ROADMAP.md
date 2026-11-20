@@ -48,6 +48,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.6-Stable (Selesai)
+- [x] **Perapian Redundansi Shortcut Navigasi & Fungsi `Skip` (`Space`):** Menghapus duplikasi tombol `A`/`D` sehingga `Previous` dan `Next` eksklusif memakai panah **`←` / `→`**, serta membedakan fungsi **`Skip` (`Space`)** agar langsung melompat ke gambar berikutnya yang **belum dipindahkan (*unmoved*)**.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Custom Jumlah Slot Folder Dinamis (3–10 Folder):** Menambah atau mengurangi jumlah tombol folder tujuan sesuai kebutuhan proyek.
 - [ ] **Deteksi Gambar Duplikat / Mirip (Perceptual Hash):** Menandai foto kembar dalam satu folder sebelum disortir.
