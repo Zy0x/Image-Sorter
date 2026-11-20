@@ -2,6 +2,11 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.3 — 2026-11-20
+
+### Added
+- **`run.bat` one-click launcher:** Double-click `run.bat` to open Image Sorter directly without a background console window (automatically checks and installs `requirements.txt` if missing; supports `run.bat --debug` to view console logs).
+
 ## 2.1.2 — 2026-11-20
 
 ### Added — productivity & media features

@@ -33,6 +33,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.3-Stable (Selesai)
+- [x] **One-Click Batch Launcher (`run.bat`):** Peluncur cepat yang otomatis memeriksa dependensi Python (`PySide6`, `requests`), mendukung `.venv` maupun Python sistem, berjalan tanpa jendela CMD menggantung (`pythonw`), serta mendukung mode `run.bat --debug`.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Custom Jumlah Slot Folder Dinamis (3–10 Folder):** Menambah atau mengurangi jumlah tombol folder tujuan sesuai kebutuhan proyek.
 - [ ] **Deteksi Gambar Duplikat / Mirip (Perceptual Hash):** Menandai foto kembar dalam satu folder sebelum disortir.
