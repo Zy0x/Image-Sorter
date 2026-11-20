@@ -2,6 +2,7 @@
 
 import os
 import gzip
+from collections import OrderedDict
 from PySide6.QtGui import QPixmap, QImage, QImageReader
 from PySide6.QtCore import Qt, QSize, QByteArray, QBuffer, QIODevice
 
@@ -428,3 +429,196 @@ def resize_next_preview(pixmap: QPixmap, max_width: int = 200, max_height: int =
         Qt.TransformationMode.FastTransformation
     )
     return QPixmap.fromImage(resized_image)
+
+
+class PixmapLRUCache:
+    """
+    Cache LRU ultra-cepat untuk menyimpan hasil decode QPixmap + metadata
+    berdasarkan (normalized_path, mtime_ns, size, max_w, max_h).
+    Membuat navigasi <- / -> dan Rapid Move menjadi 0 ms (instan).
+    """
+    def __init__(self, max_entries: int = 36):
+        self.max_entries = max(8, int(max_entries))
+        self._pix_cache = OrderedDict()
+        self._meta_cache = OrderedDict()
+        self.hits = 0
+        self.misses = 0
+
+    @staticmethod
+    def _file_token(path: str):
+        try:
+            st = os.stat(path)
+            norm = os.path.normcase(os.path.normpath(path))
+            return norm, st.st_mtime_ns, st.st_size
+        except OSError:
+            return None
+
+    def get_metadata(self, path: str):
+        tok = self._file_token(path)
+        if tok is None:
+            return 0, 0, 0, b"", 1
+        if tok in self._meta_cache:
+            self._meta_cache.move_to_end(tok)
+            return self._meta_cache[tok]
+        meta = read_image_metadata(path)
+        self._meta_cache[tok] = meta
+        if len(self._meta_cache) > self.max_entries * 4:
+            self._meta_cache.popitem(last=False)
+        return meta
+
+    def get_pixmap(self, path: str, max_width: int = 0, max_height: int = 0) -> QPixmap:
+        tok = self._file_token(path)
+        if tok is None:
+            return QPixmap()
+        key = (tok, int(max_width), int(max_height))
+        if key in self._pix_cache:
+            self.hits += 1
+            self._pix_cache.move_to_end(key)
+            return self._pix_cache[key]
+        self.misses += 1
+        pix = load_pixmap(path, max_width, max_height)
+        if not pix.isNull():
+            self._pix_cache[key] = pix
+            if len(self._pix_cache) > self.max_entries:
+                self._pix_cache.popitem(last=False)
+        return pix
+
+    def has_pixmap(self, path: str, max_width: int = 0, max_height: int = 0) -> bool:
+        tok = self._file_token(path)
+        if tok is None:
+            return False
+        return (tok, int(max_width), int(max_height)) in self._pix_cache
+
+    def clear(self):
+        self._pix_cache.clear()
+        self._meta_cache.clear()
+
+
+def compute_dhash(path: str, hash_size: int = 8):
+    """
+    Hitung 64-bit Difference Perceptual Hash (dHash) dari gambar atau thumbnail video.
+    Mengecilkan gambar langsung saat decode ke (hash_size+1) x hash_size grayscale
+    agar pemindaian ratusan/ribuan gambar sangat cepat dan hemat memori.
+    Mengembalikan int 64-bit, atau None jika gagal dibaca.
+    """
+    w_target = hash_size + 1
+    h_target = hash_size
+
+    # Jalur cepat via Pillow untuk gambar (termasuk AVIF, HEIC, PSD, PNG, JPG, WEBP)
+    if _HAS_PIL and not is_video_file(path) and not path.lower().endswith((".svg", ".svgz")):
+        try:
+            with _PILImage.open(path) as im:
+                try:
+                    im = _PILImageOps.exif_transpose(im)
+                except Exception:
+                    pass
+                gray = im.convert("L").resize((w_target, h_target), _PILImage.Resampling.BILINEAR)
+                pixels = list(gray.getdata())
+                bits = 0
+                for row in range(h_target):
+                    base = row * w_target
+                    for col in range(hash_size):
+                        bits = (bits << 1) | (1 if pixels[base + col] > pixels[base + col + 1] else 0)
+                return bits
+        except Exception:
+            pass
+
+    # Fallback untuk SVG/SVGZ, Video, atau format lain via load_pixmap
+    pix = load_pixmap(path, 64, 64)
+    if pix.isNull():
+        return None
+    qimg = pix.toImage().convertToFormat(QImage.Format_Grayscale8).scaled(
+        w_target, h_target, Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+    )
+    bits = 0
+    for y in range(h_target):
+        for x in range(hash_size):
+            left = qimg.pixelColor(x, y).red()
+            right = qimg.pixelColor(x + 1, y).red()
+            bits = (bits << 1) | (1 if left > right else 0)
+    return bits
+
+
+def hamming_distance(hash_a: int, hash_b: int) -> int:
+    """Hitung jumlah bit yang berbeda (Hamming distance) antara dua hash 64-bit."""
+    return (hash_a ^ hash_b).bit_count()
+
+
+def find_duplicate_groups(paths, max_distance: int = 6, should_cancel=None, on_progress=None):
+    """
+    Temukan kelompok gambar/video yang identik atau sangat mirip menggunakan 64-bit dHash.
+    Mengembalikan tuple:
+      - duplicate_paths_set: set berisi normalized_path dari semua file yang punya kembaran
+      - groups: list of lists [[path1, path2, ...], ...]
+      - hash_map: dict {normalized_path: dhash_int}
+    """
+    hashes = []  # [(path, norm_path, dhash)]
+    hash_map = {}
+    total = len(paths)
+    for idx, p in enumerate(paths):
+        if should_cancel is not None and should_cancel():
+            return set(), [], {}
+        if on_progress is not None and idx % 25 == 0:
+            on_progress(idx, total)
+        if not os.path.exists(p):
+            continue
+        dh = compute_dhash(p)
+        if dh is not None:
+            norm = os.path.normcase(os.path.normpath(p))
+            hashes.append((p, norm, dh))
+            hash_map[norm] = dh
+
+    # Kelompokkan menggunakan Union-Find dengan fast exact-bucket + BK/prefix pruning
+    n = len(hashes)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            if ri < rj:
+                parent[rj] = ri
+            else:
+                parent[ri] = rj
+
+    # 1. Exact hash bucket O(N)
+    exact_buckets = {}
+    unique_reps = []  # indeks perwakilan unik per exact hash
+    for i, (_p, _norm, dh) in enumerate(hashes):
+        if dh in exact_buckets:
+            union(exact_buckets[dh], i)
+        else:
+            exact_buckets[dh] = i
+            unique_reps.append(i)
+
+    # 2. Near-duplicate check (max_distance > 0) pada perwakilan unik
+    if max_distance > 0 and len(unique_reps) <= 8000:
+        u_len = len(unique_reps)
+        for a in range(u_len):
+            if should_cancel is not None and a % 100 == 0 and should_cancel():
+                return set(), [], {}
+            idx_a = unique_reps[a]
+            dh_a = hashes[idx_a][2]
+            for b in range(a + 1, u_len):
+                idx_b = unique_reps[b]
+                if (dh_a ^ hashes[idx_b][2]).bit_count() <= max_distance:
+                    union(idx_a, idx_b)
+
+    clusters = {}
+    for i, (p, _norm, _dh) in enumerate(hashes):
+        root = find(i)
+        clusters.setdefault(root, []).append(p)
+
+    groups = [g for g in clusters.values() if len(g) > 1]
+    dup_norms = {
+        os.path.normcase(os.path.normpath(p))
+        for g in groups
+        for p in g
+    }
+    return dup_norms, groups, hash_map
+

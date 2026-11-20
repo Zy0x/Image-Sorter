@@ -2,6 +2,14 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.10 — 2026-11-20
+
+### Added — dynamic 3–9 folder slots, subfolder scan, perceptual duplicate finder & LRU pre-fetch cache
+- **Dynamic Folder Slots (`3`–`9` Folders & Keys `1`–`9`):** `FolderSettingsDialog` now includes an **Active Folder Slots (`3`–`9`)** selector. Both single-press and continuous **Rapid Move** work across all active slots (`1`–`9` on keyboard or mouse hold), with responsive button sizing.
+- **Recursive Subfolder Scanning (`View → Include Subfolders`, `Ctrl+Shift+S`):** Optional iterative `os.scandir` subfolder traversal that automatically excludes configured destination folders to prevent recursive self-sorting.
+- **Perceptual Duplicate & Similar Image Finder (`View → Find Duplicate / Similar Images`, `Ctrl+D`):** Computes 64-bit Difference Perceptual Hashes (`dHash`) in a background thread to detect exact and near-duplicate images across different formats/resolutions (e.g. PNG vs re-compressed JPEG/AVIF or resized copies), complete with a `Duplicates Only` filter and `DUP #N` badges.
+- **Ultra-Fast In-Memory LRU Pre-Fetch Cache (`PixmapLRUCache`):** Caches decoded `QPixmap`s and image metadata keyed by `(path, mtime_ns, size)` and pre-fetches neighboring items (`+1`, `+2`, `-1`, `+3`) during idle time, reducing back-and-forth navigation latency to ~2.5 ms/step.
+
 ## 2.1.9 — 2026-11-20
 
 ### Added — video sorting, live animated zoom preview & 25+ media formats

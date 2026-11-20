@@ -70,7 +70,14 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.10-Stable (Selesai)
+- [x] **Custom Jumlah Slot Folder Dinamis (`3`–`9` Folder & Shortcut `1`–`9`):** Menambah atau mengurangi jumlah slot folder tujuan di `Folder Settings` lengkap dengan *Rapid Move* pada tombol keyboard `1`–`9` maupun tahan klik mouse.
+- [x] **Pemindaian Subfolder Rekursif Cerdas (`View → Include Subfolders` / `Ctrl+Shift+S`):** Memindai seluruh sub-direktori secara iteratif menggunakan `os.scandir` dengan pengecualian otomatis terhadap folder tujuan (*destination exclusion*).
+- [x] **Deteksi Gambar Duplikat / Mirip (`View → Find Duplicate / Similar Images` / `Ctrl+D`):** Menggunakan *64-bit Perceptual dHash* dan *Hamming distance* untuk mendeteksi gambar kembar identik maupun gambar yang di-resize/dikompres ulang lintas format, dilengkapi filter **`Duplicates Only`** dan badge **`DUP #`**.
+- [x] **LRU Pixmap Pre-Fetch Cache (`PixmapLRUCache`):** Pre-decode otomatis gambar tetangga (`+1`, `+2`, `-1`, `+3`) ke dalam memori saat waktu *idle*, mempercepat navigasi bolak-balik dan *Rapid Move* hingga ~2,49 ms per langkah.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
-- [ ] **Custom Jumlah Slot Folder Dinamis (3–10 Folder):** Menambah atau mengurangi jumlah tombol folder tujuan sesuai kebutuhan proyek.
-- [ ] **Deteksi Gambar Duplikat / Mirip (Perceptual Hash):** Menandai foto kembar dalam satu folder sebelum disortir.
+- [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.

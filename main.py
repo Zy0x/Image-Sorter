@@ -45,8 +45,12 @@ from utils.image_utils import (
     _HAS_CV2,
     _HAS_HEIF,
     _HAS_PIL,
+    PixmapLRUCache,
+    compute_dhash,
+    find_duplicate_groups,
     format_duration,
     format_file_size,
+    hamming_distance,
     is_video_file,
     load_animation_frames,
     load_pixmap,
@@ -221,33 +225,87 @@ def natural_sort_key(path):
     return [int(part) if part.isdigit() else part for part in _NATURAL_SPLIT.split(name)]
 
 
-def scan_image_files(folder_path, extensions=None, should_cancel=None, on_progress=None):
-    """Satu kali lintasan direktori dengan os.scandir (tanpa subfolder).
+def scan_image_files(
+    folder_path,
+    extensions=None,
+    should_cancel=None,
+    on_progress=None,
+    include_subfolders=False,
+    excluded_dirs=None,
+):
+    """Satu kali lintasan direktori dengan os.scandir (mendukung rekursi subfolder opsional).
     Tidak memakai glob, jadi nama folder dengan [ ] * ? aman."""
     extensions = extensions or readable_image_extensions()
     files = []
     last_report = time.monotonic()
-    with os.scandir(folder_path) as entries:
-        for entry in entries:
-            if should_cancel is not None and should_cancel():
-                return None
-            name = entry.name
-            dot = name.rfind(".")
-            if dot <= 0 or name[dot:].lower() not in extensions:
-                continue
-            try:
-                if not entry.is_file():
-                    continue
-            except OSError:
-                continue
-            files.append(entry.path)
-            if on_progress is not None and len(files) % 500 == 0:
-                now = time.monotonic()
-                if now - last_report >= 0.15:
-                    last_report = now
-                    on_progress(len(files))
+    excluded = set()
+    if excluded_dirs:
+        for ex in excluded_dirs:
+            if ex:
+                excluded.add(os.path.normcase(os.path.normpath(os.path.abspath(ex))))
+
+    stack = [folder_path]
+    visited_dirs = set()
+    while stack:
+        current_dir = stack.pop()
+        if should_cancel is not None and should_cancel():
+            return None
+        norm_cur = os.path.normcase(os.path.normpath(os.path.abspath(current_dir)))
+        if norm_cur in visited_dirs:
+            continue
+        visited_dirs.add(norm_cur)
+        if norm_cur != os.path.normcase(os.path.normpath(os.path.abspath(folder_path))) and norm_cur in excluded:
+            continue
+        try:
+            with os.scandir(current_dir) as entries:
+                subdirs = []
+                for entry in entries:
+                    if should_cancel is not None and should_cancel():
+                        return None
+                    name = entry.name
+                    try:
+                        if include_subfolders and entry.is_dir(follow_symlinks=False):
+                            if not name.startswith(".") and name not in ("__pycache__", "$RECYCLE.BIN", "System Volume Information"):
+                                sub_norm = os.path.normcase(os.path.normpath(os.path.abspath(entry.path)))
+                                if sub_norm not in excluded:
+                                    subdirs.append(entry.path)
+                            continue
+                        dot = name.rfind(".")
+                        if dot <= 0 or name[dot:].lower() not in extensions:
+                            continue
+                        if not entry.is_file():
+                            continue
+                    except OSError:
+                        continue
+                    files.append(entry.path)
+                    if on_progress is not None and len(files) % 500 == 0:
+                        now = time.monotonic()
+                        if now - last_report >= 0.15:
+                            last_report = now
+                            on_progress(len(files))
+                if subdirs:
+                    subdirs.sort(key=natural_sort_key, reverse=True)
+                    stack.extend(subdirs)
+        except OSError:
+            if current_dir == folder_path:
+                raise
+            continue
     files.sort(key=natural_sort_key)
     return files
+
+
+MIN_FOLDER_SLOTS = 3
+MAX_FOLDER_SLOTS = 9
+DEFAULT_FOLDER_SLOTS = 5
+ALL_SLOT_LETTERS = ("A", "B", "C", "D", "E", "F", "G", "H", "I")
+
+
+def clamp_folder_slots(count) -> int:
+    try:
+        val = int(count)
+    except (TypeError, ValueError):
+        return DEFAULT_FOLDER_SLOTS
+    return max(MIN_FOLDER_SLOTS, min(MAX_FOLDER_SLOTS, val))
 
 
 def load_settings():
@@ -255,6 +313,8 @@ def load_settings():
     config_path = get_config_path()
     default_settings = {
         "first_run": True,
+        "folder_slot_count": DEFAULT_FOLDER_SLOTS,
+        "include_subfolders": False,
         "folder_names": ["Folder A", "Folder B", "Folder C", "Folder D", "Folder E"],
         "folder_paths": ["output/A", "output/B", "output/C", "output/D", "output/E"],
         "recent_folders": [],
@@ -485,7 +545,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.9-Stable"
+    VERSION = "2.1.10-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -773,9 +833,9 @@ class ShortcutsGuideDialog(QDialog):
         wf_lay.setSpacing(8)
         wf_text = QLabel(
             f"<span style='color:{muted};'>Workflow:</span> &nbsp;"
-            f"<b>1.</b> Set folders (<i>Settings → Folder Settings</i>) &nbsp;·&nbsp; "
+            f"<b>1.</b> Set folders &amp; slot count 3–9 (<i>Settings → Folder Settings</i>) &nbsp;·&nbsp; "
             f"<b>2.</b> Import (<b>Ctrl+O</b> or drop) &nbsp;·&nbsp; "
-            f"<b>3.</b> Press or hold <b>1–5</b> to sort"
+            f"<b>3.</b> Press or hold <b>1–9</b> to sort"
         )
         wf_text.setStyleSheet("font-size: 12px;")
         wf_lay.addWidget(wf_text)
@@ -787,8 +847,8 @@ class ShortcutsGuideDialog(QDialog):
 
         left_sections = [
             ("SORTING", [
-                ("Move to Folder A–E", [("key", "1"), ("join", "–"), ("key", "5")]),
-                ("Rapid Move (continuous)", [("join", "Hold"), ("key", "1"), ("join", "–"), ("key", "5")]),
+                ("Move to Folder 1–9", [("key", "1"), ("join", "–"), ("key", "9")]),
+                ("Rapid Move (continuous)", [("join", "Hold"), ("key", "1"), ("join", "–"), ("key", "9")]),
                 ("Undo last move", [("key", "Ctrl"), ("key", "Z")]),
             ]),
             ("NAVIGATION", [
@@ -802,6 +862,8 @@ class ShortcutsGuideDialog(QDialog):
         right_sections = [
             ("VIEW & INSPECT", [
                 ("Full-size zoom preview", [("key", "F")]),
+                ("Find duplicate / similar", [("key", "Ctrl"), ("key", "D")]),
+                ("Include subfolders", [("key", "Ctrl"), ("key", "Shift"), ("key", "S")]),
                 ("Hide moved images", [("key", "Ctrl"), ("key", "H")]),
                 ("Shortcuts reference", [("key", "F1")]),
             ]),
@@ -809,7 +871,7 @@ class ShortcutsGuideDialog(QDialog):
                 ("Import folder", [("key", "Ctrl"), ("key", "O")]),
                 ("Show in File Explorer", [("key", "Ctrl"), ("key", "E")]),
                 ("Move to Recycle Bin", [("key", "Delete")]),
-                ("Rapid Move with mouse", [("join", "Hold"), ("key", "Click A–E")]),
+                ("Rapid Move with mouse", [("join", "Hold"), ("key", "Click 1–9")]),
                 ("Zoom preview with mouse", [("key", "Double-Click")]),
             ]),
         ]
@@ -1307,9 +1369,11 @@ class FolderScanThread(QThread):
     """Memindai folder di thread latar. UI tetap responsif berapa pun jumlah filenya."""
     progress_updated = Signal(int)  # jumlah gambar yang sudah ditemukan
 
-    def __init__(self, folder_path, parent=None):
+    def __init__(self, folder_path, parent=None, include_subfolders=False, excluded_dirs=None):
         super().__init__(parent)
         self.folder_path = folder_path
+        self.include_subfolders = bool(include_subfolders)
+        self.excluded_dirs = excluded_dirs or []
         self.files = []
         self.error = None
         self._cancelled = False
@@ -1326,11 +1390,44 @@ class FolderScanThread(QThread):
                 self.folder_path,
                 should_cancel=self.is_cancelled,
                 on_progress=self.progress_updated.emit,
+                include_subfolders=self.include_subfolders,
+                excluded_dirs=self.excluded_dirs,
             )
             self.files = result or []
         except OSError as e:
             self.error = str(e)
             self.files = []
+
+
+class DuplicateScanThread(QThread):
+    """Memindai kemiripan/duplikat gambar & video di thread latar menggunakan 64-bit dHash."""
+    progress_updated = Signal(int, int)  # (processed, total)
+
+    def __init__(self, paths, max_distance: int = 6, parent=None):
+        super().__init__(parent)
+        self.paths = list(paths)
+        self.max_distance = int(max_distance)
+        self.duplicate_norms = set()
+        self.groups = []
+        self.hash_map = {}
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def is_cancelled(self):
+        return self._cancelled
+
+    def run(self):
+        dup_norms, groups, hmap = find_duplicate_groups(
+            self.paths,
+            max_distance=self.max_distance,
+            should_cancel=self.is_cancelled,
+            on_progress=self.progress_updated.emit,
+        )
+        self.duplicate_norms = dup_norms
+        self.groups = groups
+        self.hash_map = hmap
 
 
 class CustomThemeDialog(QDialog):
@@ -1579,17 +1676,19 @@ class CustomThemeDialog(QDialog):
         self.accept()
 
 class FolderSettingsDialog(QDialog):
-    DEFAULT_NAMES = ["Folder A", "Folder B", "Folder C", "Folder D", "Folder E"]
+    DEFAULT_NAMES = [f"Folder {ch}" for ch in ALL_SLOT_LETTERS]
+    DEFAULT_PATHS = [f"output/{ch}" for ch in ALL_SLOT_LETTERS]
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
         self.setWindowTitle("Set Destination Folders")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(600)
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setContentsMargins(20, 18, 20, 18)
         self.layout.setSpacing(10)
         self.inputs = []
+        self.row_widgets = []
 
         is_dark = False
         if self.parent and hasattr(self.parent, "theme_mode"):
@@ -1605,7 +1704,7 @@ class FolderSettingsDialog(QDialog):
         self.setStyleSheet(f"""
             QDialog {{ background-color: {bg}; color: {text}; }}
             QLabel {{ color: {text}; background: transparent; border: none; }}
-            QLineEdit {{
+            QLineEdit, QSpinBox {{
                 background-color: {surface}; color: {text};
                 border: 1px solid {border}; border-radius: 6px; padding: 6px 8px;
             }}
@@ -1616,6 +1715,26 @@ class FolderSettingsDialog(QDialog):
             }}
             QPushButton:hover {{ border-color: #00BFFF; }}
         """)
+
+        settings = load_settings()
+        saved_names = list(settings.get("folder_names", self.DEFAULT_NAMES[:DEFAULT_FOLDER_SLOTS]))
+        saved_paths = list(settings.get("folder_paths", self.DEFAULT_PATHS[:DEFAULT_FOLDER_SLOTS]))
+        initial_count = clamp_folder_slots(
+            settings.get("folder_slot_count", len(saved_names) or DEFAULT_FOLDER_SLOTS)
+        )
+
+        slot_bar = QHBoxLayout()
+        slot_lbl = QLabel("Active Folder Slots (Keys 1–9):")
+        slot_lbl.setStyleSheet("font-weight: bold;")
+        self.slot_spin = QSpinBox()
+        self.slot_spin.setRange(MIN_FOLDER_SLOTS, MAX_FOLDER_SLOTS)
+        self.slot_spin.setValue(initial_count)
+        self.slot_spin.setFixedWidth(72)
+        self.slot_spin.valueChanged.connect(self._update_visible_rows)
+        slot_bar.addWidget(slot_lbl)
+        slot_bar.addWidget(self.slot_spin)
+        slot_bar.addStretch()
+        self.layout.addLayout(slot_bar)
 
         header_layout = QHBoxLayout()
         lbl_key = QLabel("Key")
@@ -1631,25 +1750,30 @@ class FolderSettingsDialog(QDialog):
         header_layout.addWidget(lbl_path, stretch=1)
         self.layout.addLayout(header_layout)
 
-        settings = load_settings()
-        self.folder_names = settings.get("folder_names", list(self.DEFAULT_NAMES))
-        self.folder_paths = settings.get("folder_paths", ["output/A", "output/B", "output/C", "output/D", "output/E"])
-        for i in range(5):
-            h_layout = QHBoxLayout()
+        for i in range(MAX_FOLDER_SLOTS):
+            row_w = QWidget()
+            h_layout = QHBoxLayout(row_w)
+            h_layout.setContentsMargins(0, 0, 0, 0)
+            h_layout.setSpacing(8)
             key_badge = QLabel(f"[{i + 1}]")
             key_badge.setFixedWidth(36)
             key_badge.setStyleSheet("font-weight: bold;")
-            name_input = QLineEdit(self.folder_names[i] if i < len(self.folder_names) else self.DEFAULT_NAMES[i])
+            name_val = saved_names[i] if i < len(saved_names) else self.DEFAULT_NAMES[i]
+            path_val = saved_paths[i] if i < len(saved_paths) else self.DEFAULT_PATHS[i]
+            name_input = QLineEdit(name_val)
             name_input.setFixedWidth(140)
-            path_input = QLineEdit(self.folder_paths[i] if i < len(self.folder_paths) else f"output/{chr(65 + i)}")
+            path_input = QLineEdit(path_val)
             btn_browse = QPushButton("Browse...")
             btn_browse.clicked.connect(lambda _, idx=i: self.select_folder(idx))
             h_layout.addWidget(key_badge)
             h_layout.addWidget(name_input)
             h_layout.addWidget(path_input, stretch=1)
             h_layout.addWidget(btn_browse)
-            self.layout.addLayout(h_layout)
+            self.layout.addWidget(row_w)
+            self.row_widgets.append(row_w)
             self.inputs.append((name_input, path_input))
+
+        self._update_visible_rows(initial_count)
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -1666,18 +1790,29 @@ class FolderSettingsDialog(QDialog):
         btn_layout.addWidget(save_btn)
         self.layout.addLayout(btn_layout)
 
+    def _update_visible_rows(self, count):
+        count = clamp_folder_slots(count)
+        for i, row_w in enumerate(self.row_widgets):
+            row_w.setVisible(i < count)
+        self.adjustSize()
+
     def select_folder(self, index):
         folder = QFileDialog.getExistingDirectory(self, f"Select Folder {index + 1}")
         if folder:
             self.inputs[index][1].setText(folder)
 
     def save_and_close(self):
+        count = clamp_folder_slots(self.slot_spin.value())
         self.folder_names = [
-            inp[0].text().strip() or self.DEFAULT_NAMES[i]
-            for i, inp in enumerate(self.inputs)
+            self.inputs[i][0].text().strip() or self.DEFAULT_NAMES[i]
+            for i in range(count)
         ]
-        self.folder_paths = [inp[1].text().strip() for inp in self.inputs]
+        self.folder_paths = [
+            self.inputs[i][1].text().strip() or self.DEFAULT_PATHS[i]
+            for i in range(count)
+        ]
         settings = load_settings()
+        settings["folder_slot_count"] = count
         settings["folder_names"] = self.folder_names
         settings["folder_paths"] = self.folder_paths
         save_settings(settings)
@@ -1964,6 +2099,17 @@ class ImageSorterApp(QMainWindow):
         self.folder_buttons = []  # Untuk menyimpan referensi tombol folder
         settings = load_settings()
         self.rapid_move_interval = clamp_rapid_interval(settings.get("rapid_move_interval", RAPID_MOVE_DEFAULT_MS))
+        self.include_subfolders = bool(settings.get("include_subfolders", False))
+        self.folder_slot_count = clamp_folder_slots(settings.get("folder_slot_count", DEFAULT_FOLDER_SLOTS))
+        self.pixmap_cache = PixmapLRUCache(max_entries=36)
+        self._prefetch_timer = QTimer(self)
+        self._prefetch_timer.setSingleShot(True)
+        self._prefetch_timer.setInterval(12)
+        self._prefetch_timer.timeout.connect(self._prefetch_neighbor_images)
+        self.duplicate_norms = set()
+        self.duplicate_groups = []
+        self.duplicate_group_lookup = {}
+        self.dup_thread = None
         self.scan_thread = None
         self._scan_threads = set()  # semua thread pemindai yang masih hidup
         self.update_thread = None
@@ -2224,7 +2370,11 @@ class ImageSorterApp(QMainWindow):
 
         folder_path = state.get("folder_path") or ""
         if folder_path and os.path.isdir(folder_path):
-            files = scan_image_files(folder_path)
+            files = scan_image_files(
+                folder_path,
+                include_subfolders=self.include_subfolders,
+                excluded_dirs=self.folder_paths,
+            )
             if files:
                 self.current_folder_path = folder_path
                 self.image_files = files
@@ -2251,6 +2401,11 @@ class ImageSorterApp(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.removeEventFilter(self)
+        if getattr(self, "_prefetch_timer", None) is not None:
+            self._prefetch_timer.stop()
+        if getattr(self, "dup_thread", None) is not None and self.dup_thread.isRunning():
+            self.dup_thread.cancel()
+            self.dup_thread.wait(3000)
         for thread in list(self._scan_threads):
             thread.cancel()
         for thread in list(self._scan_threads):
@@ -2302,6 +2457,8 @@ class ImageSorterApp(QMainWindow):
         print("[DEBUG] Using JSON-based set_default_settings")
         settings = {
             "first_run": False,
+            "folder_slot_count": DEFAULT_FOLDER_SLOTS,
+            "include_subfolders": False,
             "folder_names": ["Folder A", "Folder B", "Folder C", "Folder D", "Folder E"],
             "folder_paths": ["output/A", "output/B", "output/C", "output/D", "output/E"],
             "recent_folders": [],
@@ -2322,6 +2479,9 @@ class ImageSorterApp(QMainWindow):
             }
         }
         save_settings(settings)
+        self.include_subfolders = False
+        if hasattr(self, "include_subfolders_action"):
+            self.include_subfolders_action.setChecked(False)
         self.load_custom_folders()
         self.load_recent_folders()
         self.theme_mode = "system"
@@ -2413,8 +2573,14 @@ class ImageSorterApp(QMainWindow):
         self.cancel_running_scan()
         readable_image_extensions()  # isi cache format Qt di thread utama sebelum thread latar jalan
         self.progress_bar.setRange(0, 0)  # indikator sibuk: total belum diketahui
-        self.loading_label.setText("Scanning folder...")
-        thread = FolderScanThread(folder_path, self)
+        sub_note = " (with subfolders)" if self.include_subfolders else ""
+        self.loading_label.setText(f"Scanning folder{sub_note}...")
+        thread = FolderScanThread(
+            folder_path,
+            self,
+            include_subfolders=self.include_subfolders,
+            excluded_dirs=self.folder_paths,
+        )
         self._scan_threads.add(thread)
         thread.progress_updated.connect(
             lambda count, t=thread: self.on_scan_progress(t, count)
@@ -2792,6 +2958,10 @@ class ImageSorterApp(QMainWindow):
         self.filtered_files = []
         self.current_index = 0
         self.nav_history.clear()
+        self.pixmap_cache.clear()
+        self.duplicate_norms.clear()
+        self.duplicate_groups.clear()
+        self.duplicate_group_lookup.clear()
         if not self.image_files:
             self.show_current_image(self.filtered_files)
             self.show_loading(False)
@@ -2912,6 +3082,7 @@ class ImageSorterApp(QMainWindow):
         self.filter_combo.addItem("All Images")
         self.filter_combo.addItem("All Videos")
         self.filter_combo.addItem("Animated / GIF")
+        self.filter_combo.addItem("Duplicates Only")
         readable_exts = readable_image_extensions()
         self.filter_combo.addItems([ext for ext in SUPPORTED_IMAGE_EXTENSIONS if ext in readable_exts])
         self.filter_combo.currentIndexChanged.connect(self.apply_filter)
@@ -3027,6 +3198,18 @@ class ImageSorterApp(QMainWindow):
         self.hide_moved_action.setShortcut(QKeySequence("Ctrl+H"))
         self.hide_moved_action.triggered.connect(self.toggle_hide_moved)
         view_menu.addAction(self.hide_moved_action)
+
+        self.include_subfolders_action = QAction("Include Subfolders", self)
+        self.include_subfolders_action.setCheckable(True)
+        self.include_subfolders_action.setChecked(self.include_subfolders)
+        self.include_subfolders_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self.include_subfolders_action.triggered.connect(self.toggle_include_subfolders)
+        view_menu.addAction(self.include_subfolders_action)
+
+        dup_action = QAction("Find Duplicate / Similar Images", self)
+        dup_action.setShortcut(QKeySequence("Ctrl+D"))
+        dup_action.triggered.connect(self.scan_duplicates)
+        view_menu.addAction(dup_action)
 
         jump_action = QAction("Jump to Image...", self)
         jump_action.setShortcut(QKeySequence("Ctrl+G"))
@@ -3241,10 +3424,23 @@ class ImageSorterApp(QMainWindow):
 
     def load_custom_folders(self):
         settings = load_settings()
-        self.folder_names = settings.get("folder_names", ["Folder A", "Folder B", "Folder C", "Folder D", "Folder E"])
-        self.folder_paths = settings.get("folder_paths", ["output/A", "output/B", "output/C", "output/D", "output/E"])
-        print(f"[DEBUG] Loaded folder_names: {self.folder_names}")
-        print(f"[DEBUG] Loaded folder_paths: {self.folder_paths}") 
+        self.include_subfolders = bool(settings.get("include_subfolders", False))
+        if hasattr(self, "include_subfolders_action"):
+            self.include_subfolders_action.setChecked(self.include_subfolders)
+        raw_names = list(settings.get("folder_names", FolderSettingsDialog.DEFAULT_NAMES[:DEFAULT_FOLDER_SLOTS]))
+        raw_paths = list(settings.get("folder_paths", FolderSettingsDialog.DEFAULT_PATHS[:DEFAULT_FOLDER_SLOTS]))
+        slot_count = clamp_folder_slots(settings.get("folder_slot_count", len(raw_names) or DEFAULT_FOLDER_SLOTS))
+        self.folder_slot_count = slot_count
+        self.folder_names = [
+            (raw_names[i] if i < len(raw_names) and raw_names[i] else FolderSettingsDialog.DEFAULT_NAMES[i])
+            for i in range(slot_count)
+        ]
+        self.folder_paths = [
+            (raw_paths[i] if i < len(raw_paths) and raw_paths[i] else FolderSettingsDialog.DEFAULT_PATHS[i])
+            for i in range(slot_count)
+        ]
+        print(f"[DEBUG] Loaded folder_names ({slot_count} slots): {self.folder_names}")
+        print(f"[DEBUG] Loaded folder_paths ({slot_count} slots): {self.folder_paths}")
 
     def clear_recent_folders(self):
         self.recent_folders.clear()
@@ -3262,14 +3458,24 @@ class ImageSorterApp(QMainWindow):
 
         self.folder_buttons = []  # Reset list
 
-        light_colors = ["#FFD1DC", "#C1E1C1", "#FFE082", "#B3CDE0", "#F8C8DC"]
-        dark_colors = ["#4A2C5A", "#3A5F3A", "#6B5A2C", "#3A4B5D", "#6B3F4D"]
+        light_colors = [
+            "#FFD1DC", "#C1E1C1", "#FFE082", "#B3CDE0", "#F8C8DC",
+            "#D6CDEA", "#B8E6D4", "#FFD8B1", "#D0E1F9",
+        ]
+        dark_colors = [
+            "#4A2C5A", "#3A5F3A", "#6B5A2C", "#3A4B5D", "#6B3F4D",
+            "#3F3B6C", "#2E5A54", "#6A4832", "#35495E",
+        ]
+
+        slot_count = len(self.folder_names)
+        pad_h = 10 if slot_count >= 7 else 16
+        font_sz = "11px" if slot_count >= 8 else "12px"
 
         for i, (label, path) in enumerate(zip(self.folder_names, self.folder_paths)):
             key_num = i + 1
             btn = QPushButton(f"[{key_num}] {label}")
             btn.setIcon(QIcon(resource_path("assets/icons/folder.png")))
-            btn.setIconSize(QSize(16, 16))
+            btn.setIconSize(QSize(15 if slot_count >= 7 else 16, 15 if slot_count >= 7 else 16))
             btn.setToolTip(
                 f"Move to {label} ({path})\n"
                 f"Shortcut: Press {key_num} • Hold click or key {key_num} for Rapid Move"
@@ -3282,13 +3488,14 @@ class ImageSorterApp(QMainWindow):
                 color = light_colors[i % len(light_colors)]
                 hover_color = self.darken_color(color, factor=0.9)
                 text_color = "black"
-            
+
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {color};
                     color: {text_color};
                     border: none;
-                    padding: 10px 16px;
+                    padding: 10px {pad_h}px;
+                    font-size: {font_sz};
                     font-weight: bold;
                     border-radius: 10px;
                     min-height: 34px;
@@ -3301,7 +3508,7 @@ class ImageSorterApp(QMainWindow):
             self.folder_layout.addWidget(btn)
             self.folder_buttons.append(btn)
 
-        # Pasang event filter pada kelima tombol folder (A-E)
+        # Pasang event filter pada seluruh tombol folder aktif (1-9)
         for btn in self.folder_buttons:
             btn.installEventFilter(self)
         if hasattr(self, "image_label"):
@@ -3478,7 +3685,7 @@ class ImageSorterApp(QMainWindow):
                 orig_w, orig_h, file_size, _fps, frame_count, video_duration = read_video_metadata(new_path)
                 fmt_bytes = os.path.splitext(new_path)[1].lstrip(".").lower().encode("ascii", "ignore")
             else:
-                orig_w, orig_h, file_size, fmt_bytes, frame_count = read_image_metadata(new_path)
+                orig_w, orig_h, file_size, fmt_bytes, frame_count = self.pixmap_cache.get_metadata(new_path)
             parts = []
             if orig_w > 0 and orig_h > 0:
                 parts.append(f"{orig_w}×{orig_h}")
@@ -3488,6 +3695,10 @@ class ImageSorterApp(QMainWindow):
                 parts.append(f"{frame_count} frames")
             if file_size > 0:
                 parts.append(format_file_size(file_size))
+            norm_src_cur = os.path.normcase(os.path.normpath(path))
+            if norm_src_cur in self.duplicate_group_lookup:
+                g_idx, g_size = self.duplicate_group_lookup[norm_src_cur]
+                parts.append(f"DUP #{g_idx} ({g_size} similar)")
             if parts:
                 meta_text = f" <span style='color: #888888;'>({' • '.join(parts)})</span>"
 
@@ -3503,7 +3714,7 @@ class ImageSorterApp(QMainWindow):
             child.deleteLater()
 
         if file_exists:
-            pixmap = load_pixmap(new_path, 720, 500)
+            pixmap = self.pixmap_cache.get_pixmap(new_path, 720, 500)
             if not pixmap.isNull():
                 resized_pixmap = resize_image(pixmap)
                 target_size = resized_pixmap.size()
@@ -3593,7 +3804,7 @@ class ImageSorterApp(QMainWindow):
             next_path = files[next_index]
             new_next_path = self.get_new_path_from_history(next_path) or next_path
             if os.path.exists(new_next_path):
-                next_pixmap = load_pixmap(new_next_path, 200, 260)
+                next_pixmap = self.pixmap_cache.get_pixmap(new_next_path, 200, 260)
                 if not next_pixmap.isNull():
                     resized_next = resize_next_preview(next_pixmap)
                     self.next_image_label.setPixmap(resized_next)
@@ -3607,6 +3818,29 @@ class ImageSorterApp(QMainWindow):
         else:
             self.next_image_label.setText("Next\nImage")
             self.next_image_label.setFixedSize(250, 310)
+
+        # Jadwalkan pre-fetch cerdas di waktu idle (12ms) untuk gambar sekitar (prev, next, next+1)
+        if hasattr(self, "_prefetch_timer"):
+            self._prefetch_timer.start()
+
+    def _prefetch_neighbor_images(self):
+        """Pre-decode gambar tetangga ke dalam LRU cache saat idle agar navigasi <- / -> & Rapid Move 0 ms."""
+        files = self.filtered_files
+        if not files or self.defer_ui_updates:
+            return
+        total = len(files)
+        cur = self.current_index
+        # Prioritas: next (+1), next (+2), prev (-1), next (+3)
+        for offset in (1, 2, -1, 3):
+            idx = cur + offset
+            if 0 <= idx < total:
+                p = files[idx]
+                actual = self.get_new_path_from_history(p) or p
+                if os.path.exists(actual):
+                    self.pixmap_cache.get_metadata(actual)
+                    self.pixmap_cache.get_pixmap(actual, 720, 500)
+                    if offset in (1, 2):
+                        self.pixmap_cache.get_pixmap(actual, 200, 260)
 
     def apply_info_style(self, label):
         if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
@@ -3739,6 +3973,122 @@ class ImageSorterApp(QMainWindow):
         state = "hidden" if self.hide_moved else "visible"
         self.show_notification(f"Moved images are now {state}.")
 
+    def toggle_include_subfolders(self, checked=None):
+        if checked is None:
+            self.include_subfolders = not self.include_subfolders
+        else:
+            self.include_subfolders = bool(checked)
+        if hasattr(self, "include_subfolders_action"):
+            self.include_subfolders_action.setChecked(self.include_subfolders)
+        settings = load_settings()
+        settings["include_subfolders"] = self.include_subfolders
+        save_settings(settings)
+        mode_str = "enabled" if self.include_subfolders else "disabled"
+        if self.current_folder_path and os.path.isdir(self.current_folder_path):
+            self.import_folder_common(self.current_folder_path)
+            self.show_notification(f"Include Subfolders {mode_str} — rescanning folder...")
+        else:
+            self.show_notification(f"Include Subfolders {mode_str}.")
+
+    def _resolve_duplicate_scan_targets(self):
+        """Kembalikan pasangan (src_path, actual_path) untuk seluruh file aktif."""
+        targets = []
+        for src in self.image_files:
+            actual = self.get_new_path_from_history(src) or src
+            if os.path.exists(actual):
+                targets.append((src, actual))
+        return targets
+
+    def _populate_duplicate_results(self, groups_actual, actual_to_srcs):
+        self.duplicate_norms.clear()
+        self.duplicate_groups.clear()
+        self.duplicate_group_lookup.clear()
+        for g_idx, g_actuals in enumerate(groups_actual, start=1):
+            src_group = []
+            for act in g_actuals:
+                norm_act = os.path.normcase(os.path.normpath(act))
+                for src in actual_to_srcs.get(norm_act, [act]):
+                    src_group.append(src)
+            if len(src_group) > 1:
+                self.duplicate_groups.append(src_group)
+                for s in src_group:
+                    ns = os.path.normcase(os.path.normpath(s))
+                    self.duplicate_norms.add(ns)
+                    self.duplicate_group_lookup[ns] = (g_idx, len(src_group))
+
+    def scan_duplicates(self, max_distance: int = 6, synchronous: bool = False):
+        """Pindai gambar/video duplikat atau mirip menggunakan 64-bit Perceptual dHash."""
+        self.stop_rapid_move(silent=True)
+        if not self.image_files:
+            self.show_notification("Import a folder first before scanning for duplicates.")
+            return 0
+        targets = self._resolve_duplicate_scan_targets()
+        if len(targets) < 2:
+            self.show_notification("Need at least 2 files to compare duplicates.")
+            return 0
+
+        actual_paths = [act for _src, act in targets]
+        actual_to_srcs = {}
+        for src, act in targets:
+            norm_act = os.path.normcase(os.path.normpath(act))
+            actual_to_srcs.setdefault(norm_act, []).append(src)
+
+        if synchronous or len(actual_paths) <= 120 or os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            _dup_norms, groups, _hmap = find_duplicate_groups(actual_paths, max_distance=max_distance)
+            self._populate_duplicate_results(groups, actual_to_srcs)
+            dup_count = len(self.duplicate_norms)
+            group_count = len(self.duplicate_groups)
+            if dup_count > 0:
+                idx = self.filter_combo.findText("Duplicates Only")
+                if idx >= 0:
+                    self.filter_combo.setCurrentIndex(idx)
+                self.apply_filter()
+                self.show_notification(
+                    f"Found {dup_count} duplicate/similar files across {group_count} group{'s' if group_count != 1 else ''}."
+                )
+            else:
+                self.show_notification("No duplicate or visually similar files found.")
+            return dup_count
+
+        if self.dup_thread is not None and self.dup_thread.isRunning():
+            self.dup_thread.cancel()
+            self.dup_thread.wait(1000)
+
+        self.show_loading(True)
+        self.loading_label.setText(f"Scanning duplicates...\n0 / {len(actual_paths):,}")
+        thread = DuplicateScanThread(actual_paths, max_distance=max_distance, parent=self)
+        self._actual_to_srcs_pending = actual_to_srcs
+        thread.progress_updated.connect(
+            lambda done, tot: self.loading_label.setText(f"Scanning duplicates...\n{done:,} / {tot:,}")
+        )
+        thread.finished.connect(lambda t=thread: self._on_duplicate_scan_finished(t))
+        self.dup_thread = thread
+        thread.start()
+        return 0
+
+    def _on_duplicate_scan_finished(self, thread):
+        if thread is not self.dup_thread:
+            thread.deleteLater()
+            return
+        self.dup_thread = None
+        groups = thread.groups
+        thread.deleteLater()
+        self.show_loading(False)
+        actual_to_srcs = getattr(self, "_actual_to_srcs_pending", {})
+        self._populate_duplicate_results(groups, actual_to_srcs)
+        dup_count = len(self.duplicate_norms)
+        group_count = len(self.duplicate_groups)
+        if dup_count > 0:
+            idx = self.filter_combo.findText("Duplicates Only")
+            if idx >= 0:
+                self.filter_combo.setCurrentIndex(idx)
+            self.apply_filter()
+            self.show_notification(
+                f"Found {dup_count} duplicate/similar files across {group_count} group{'s' if group_count != 1 else ''}."
+            )
+        else:
+            self.show_notification("No duplicate or visually similar files found.")
+
     def get_current_actual_path(self):
         if not self.filtered_files or not (0 <= self.current_index < len(self.filtered_files)):
             return None, None
@@ -3811,7 +4161,7 @@ class ImageSorterApp(QMainWindow):
         self.history = valid_history
         print(f"[DEBUG] Validated history: {self.history}")
 
-    DEFAULT_FOLDER_PATHS = ["output/A", "output/B", "output/C", "output/D", "output/E"]
+    DEFAULT_FOLDER_PATHS = [f"output/{ch}" for ch in ALL_SLOT_LETTERS]
 
     @staticmethod
     def _norm_path(path):
@@ -4014,11 +4364,17 @@ class ImageSorterApp(QMainWindow):
             if not silent:
                 self.show_notification("Rapid move stopped")
 
-    RAPID_KEYS = (Qt.Key_1, Qt.Key_2, Qt.Key_3, Qt.Key_4, Qt.Key_5)
+    RAPID_KEYS = (
+        Qt.Key_1, Qt.Key_2, Qt.Key_3, Qt.Key_4, Qt.Key_5,
+        Qt.Key_6, Qt.Key_7, Qt.Key_8, Qt.Key_9,
+    )
 
     def _is_rapid_key_event(self, obj, event):
-        """Key 1-5 tanpa Ctrl/Alt/Meta, ditujukan ke jendela utama, dan tidak ada dialog modal."""
+        """Key 1-9 (sesuai jumlah slot aktif) tanpa Ctrl/Alt/Meta, ditujukan ke jendela utama."""
         if event.key() not in self.RAPID_KEYS:
+            return False
+        idx = event.key() - Qt.Key_1
+        if not (0 <= idx < len(self.folder_paths)):
             return False
         blocked = Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
         if event.modifiers() & blocked:
@@ -4205,6 +4561,8 @@ class ImageSorterApp(QMainWindow):
         desc_col = "#9e9ea8" if is_dark else "#52525b"
         row_bg = "#18181c" if is_dark else "#f4f4f6"
 
+        max_key = max(3, len(self.folder_names)) if getattr(self, "folder_names", None) else 5
+        max_let = ALL_SLOT_LETTERS[min(max_key - 1, len(ALL_SLOT_LETTERS) - 1)]
         return (
             f"<div align='center'>"
             f"<p style='font-size:17px; font-weight:600; color:{title_col}; margin-bottom:4px;'>No Image Loaded</p>"
@@ -4213,11 +4571,11 @@ class ImageSorterApp(QMainWindow):
             f"</p>"
             f"<table align='center' width='310' cellspacing='3' cellpadding='6' style='font-size:12px;'>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left' width='42%'><font face='Consolas' color='{key_col}'><b>[1] – [5]</b></font></td>"
-            f"<td align='left'><font color='{desc_col}'>Move to Folder A–E</font></td>"
+            f"<td align='left' width='42%'><font face='Consolas' color='{key_col}'><b>[1] – [{max_key}]</b></font></td>"
+            f"<td align='left'><font color='{desc_col}'>Move to Folder A–{max_let}</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Hold [1] – [5]</b></font></td>"
+            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Hold [1] – [{max_key}]</b></font></td>"
             f"<td align='left'><font color='{desc_col}'>Rapid Move</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
@@ -4347,6 +4705,21 @@ class ImageSorterApp(QMainWindow):
         elif selected_ext == "Animated / GIF":
             anim_exts = (".gif", ".webp", ".apng", ".avif")
             candidates = [path for path in self.image_files if path.lower().endswith(anim_exts)]
+        elif selected_ext == "Duplicates Only":
+            if not self.duplicate_norms and self.image_files and not self.defer_ui_updates:
+                targets = self._resolve_duplicate_scan_targets()
+                if len(targets) >= 2:
+                    actual_paths = [act for _src, act in targets]
+                    actual_to_srcs = {}
+                    for src, act in targets:
+                        norm_act = os.path.normcase(os.path.normpath(act))
+                        actual_to_srcs.setdefault(norm_act, []).append(src)
+                    _dn, groups, _hm = find_duplicate_groups(actual_paths, max_distance=6)
+                    self._populate_duplicate_results(groups, actual_to_srcs)
+            candidates = [
+                path for path in self.image_files
+                if os.path.normcase(os.path.normpath(path)) in self.duplicate_norms
+            ]
         else:
             wanted = selected_ext.lower()
             candidates = [path for path in self.image_files if path.lower().endswith(wanted)]

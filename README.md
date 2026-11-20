@@ -16,7 +16,7 @@
   <a href="https://github.com/Zy0x/Image-Sorter/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/releases/latest"><img src="https://img.shields.io/github/v/release/Zy0x/Image-Sorter?sort=semver&color=orange" alt="Latest Release"></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python Version"></a>
-  <a href="#"><img src="https://img.shields.io/badge/version-2.1.9--Stable-brightgreen.svg" alt="Version"></a>
+  <a href="#"><img src="https://img.shields.io/badge/version-2.1.10--Stable-brightgreen.svg" alt="Version"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/stargazers"><img src="https://img.shields.io/github/stars/Zy0x/Image-Sorter?style=social" alt="Stars"></a>
 </div>
 
@@ -36,8 +36,10 @@
 
 ## ✨ Key Features
 
-> * **One-Key & Rapid Move (`1`–`5`)** – Press keys `1`–`5` (or click Folder A–E) to move an image, or **hold** keys `1`–`5` / buttons A–E to sort continuously at your configured interval (50–1000 ms).
-> * **100,000+ File Engine** – Single-pass `os.scandir` background thread with natural filename sorting (`IMG_2` before `IMG_10`) and $O(1)$ move/undo operations.
+> * **One-Key & Rapid Move (`1`–`9` Dynamic Folder Slots)** – Configure between **3 and 9 destination folders** in *Folder Settings*. Press keys `1`–`9` (or click Folder 1–9) to move an image, or **hold** keys `1`–`9` / buttons to sort continuously at your configured interval (50–1000 ms).
+> * **100,000+ File Engine & Subfolder Scanning (`Ctrl+Shift+S`)** – Single-pass `os.scandir` background thread with optional recursive **Include Subfolders** (automatically excluding active destination folders), natural filename sorting (`IMG_2` before `IMG_10`), and $O(1)$ move/undo operations.
+> * **Instant LRU Pixmap Pre-Fetch Cache** – Pre-decodes neighboring media (`+1`, `+2`, `-1`, `+3`) in an in-memory LRU cache (`PixmapLRUCache`) for near-zero (~2.5 ms/step) navigation and Rapid Move latency.
+> * **Perceptual Duplicate & Similar Image Finder (`Ctrl+D`)** – 64-bit Difference Perceptual Hash (`dHash`) detects exact and near-duplicate images across different formats, resolutions, and compression levels, with a dedicated `Duplicates Only` filter and `DUP #` group badges.
 > * **Zero-Overwrite File Safety** – Automatically renames duplicate filenames (`photo (1).jpg`, `photo (2).jpg`) and protects original paths during Undo (`Ctrl+Z`).
 > * **Full-Size & Zoom Preview (`F`)** – Double-click the main image or press `F` to inspect details with **Smart Double-Click Zoom** (cursor-anchored toggle between Fit and 2.25×/100%), **Drag-to-Pan (`Drag Move`)**, cursor-anchored mouse-wheel zoom, and **Live Animated GIF/WebP/APNG/Video Playback with Frame-by-Frame Stepping (`[`, `]`, `Space`)**.
 > * **Complete Modern Media & Video Support** – Native support for **Videos** (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`, `.wmv`), **Animated formats** (`.gif`, `.webp`, `.apng`, `.avif`), **Apple & Design formats** (`.heic`, `.heif`, `.avif`, `.psd`, `.svg`, `.svgz`, `.tga`, `.icns`, `.cur`, `.tif`, `.bmp`, `.png`, `.jpg`, `.jfif`) with zero file locking on Windows and smart category filters (`All Images`, `All Videos`, `Animated / GIF`).
