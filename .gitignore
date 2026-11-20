@@ -1,1 +1,13 @@
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Temporary files
+*.tmp
+config/.write_test

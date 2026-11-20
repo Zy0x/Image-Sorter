@@ -2,6 +2,8 @@ import sys
 import os
 import requests
 import re
+import time
+from collections import deque
 # Tambahkan direktori utils/ ke sys.path
 if getattr(sys, 'frozen', False):
     base_path = os.path.dirname(sys.executable)
@@ -20,45 +22,103 @@ try:
 except ImportError as e:
     print(f"[ERROR] Failed to import resources: {e}")
 
-from pathlib import Path
 import shutil
 import json
+import subprocess
+import ctypes
+from ctypes import wintypes
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton,
     QHBoxLayout, QVBoxLayout, QWidget, QFileDialog,
     QMessageBox, QMenuBar, QSpacerItem, QSizePolicy, QDialog, QLineEdit,
-    QMenu, QColorDialog, QFrame, QStyleOption, QStyle, QComboBox, QGraphicsDropShadowEffect,
-    QProgressBar, QStackedLayout, QScrollArea, QTextEdit  # Added QTextEdit for release notes
+    QColorDialog, QFrame, QComboBox, QGraphicsDropShadowEffect,
+    QProgressBar, QStackedLayout, QScrollArea, QTextEdit,
+    QSpinBox, QSlider
 )
-from PySide6.QtGui import QPixmap, QAction, QImageReader, QIcon, QFont, QShortcut, QKeySequence, QDesktopServices
-from PySide6.QtCore import Qt, QSettings, QMimeData, QPropertyAnimation, QEasingCurve, QTimer, QThread, QSize, Property, Signal, QUrl
-from glob import glob
+from PySide6.QtGui import QAction, QImageReader, QIcon, QShortcut, QKeySequence, QDesktopServices, QMovie
+from PySide6.QtCore import Qt, QPropertyAnimation, QTimer, QThread, QSize, Signal, QUrl, QEvent, QByteArray, QBuffer, QIODevice
 
-# Import resize function from utils/image_utils.py
-from utils.image_utils import resize_image, resize_next_preview
+from utils.image_utils import (
+    format_file_size,
+    load_pixmap,
+    read_image_metadata,
+    resize_image,
+    resize_next_preview,
+)
+
+_RESOLVED_CONFIG_DIR = None
+
 
 def get_config_path():
-    """Get the path to settings.json, always relative to the application directory."""
+    """Kembalikan path settings.json.
+    Gunakan folder 'config/' lokal jika bisa ditulis (atau mode --portable),
+    dan otomatis beralih ke %LOCALAPPDATA%/ImageSorter/config jika diinstal
+    di lokasi read-only seperti C:/Program Files."""
+    global _RESOLVED_CONFIG_DIR
     if getattr(sys, 'frozen', False):
         base_path = os.path.dirname(sys.executable)
     else:
         base_path = os.path.dirname(os.path.abspath(__file__))
 
-    config_dir = os.path.join(base_path, "config")
-    os.makedirs(config_dir, exist_ok=True)
-    config_path = os.path.join(config_dir, "settings.json")
-    print(f"[DEBUG] Using config path: {config_path}")
-    return config_path
+    local_config_dir = os.path.join(base_path, "config")
+    portable = "--portable" in sys.argv
+    if _RESOLVED_CONFIG_DIR is None:
+        chosen = local_config_dir
+        try:
+            os.makedirs(local_config_dir, exist_ok=True)
+            probe = os.path.join(local_config_dir, ".write_test")
+            with open(probe, "w", encoding="utf-8") as f:
+                f.write("")
+            os.remove(probe)
+        except OSError:
+            if not portable:
+                appdata = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+                chosen = os.path.join(appdata, "ImageSorter", "config")
+                os.makedirs(chosen, exist_ok=True)
+        _RESOLVED_CONFIG_DIR = chosen
+    else:
+        os.makedirs(_RESOLVED_CONFIG_DIR, exist_ok=True)
+
+    return os.path.join(_RESOLVED_CONFIG_DIR, "settings.json")
+
+
+class _SHFILEOPSTRUCTW(ctypes.Structure):
+    _fields_ = [
+        ("hwnd", wintypes.HWND),
+        ("wFunc", wintypes.UINT),
+        ("pFrom", wintypes.LPCWSTR),
+        ("pTo", wintypes.LPCWSTR),
+        ("fFlags", wintypes.WORD),
+        ("fAnyOperationsAborted", wintypes.BOOL),
+        ("hNameMappings", wintypes.LPVOID),
+        ("lpszProgressTitle", wintypes.LPCWSTR),
+    ]
+
+
+def send_to_recycle_bin(file_path: str) -> bool:
+    """Pindahkan file ke Windows Recycle Bin (FOF_ALLOWUNDO)."""
+    abs_path = os.path.abspath(file_path)
+    if not os.path.exists(abs_path):
+        return False
+    op = _SHFILEOPSTRUCTW()
+    op.wFunc = 3  # FO_DELETE
+    op.pFrom = abs_path + "\0\0"
+    op.fFlags = 0x0040 | 0x0010 | 0x0004 | 0x0400  # ALLOWUNDO | NOCONFIRMATION | SILENT | NOERRORUI
+    rc = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+    return rc == 0 and not op.fAnyOperationsAborted
 
 def save_history(history):
     config_path = get_config_path()
     history_path = os.path.join(os.path.dirname(config_path), "history.json")
+    tmp_path = history_path + ".tmp"
     try:
-        with open(history_path, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=4)
-        print(f"[DEBUG] History saved to {history_path}")
-    except IOError as e:
+        # Tulis ke file sementara lalu ganti secara atomik: history.json tidak
+        # pernah setengah tertulis walaupun aplikasi/PC mati saat menyimpan.
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False)
+        os.replace(tmp_path, history_path)
+    except (IOError, OSError) as e:
         print(f"[DEBUG] Error saving history: {e}")
 
 def load_history():
@@ -86,10 +146,83 @@ def resource_path(relative_path):
     if getattr(sys, 'frozen', False):
         base_path = os.path.dirname(sys.executable)
     else:
-        base_path = os.path.abspath(".")
+        base_path = os.path.dirname(os.path.abspath(__file__))
     full_path = os.path.join(base_path, relative_path)
     print(f"[DEBUG] Resource path for {relative_path}: {full_path}")
     return full_path
+
+SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.jfif', '.gif', '.bmp', '.webp',
+                              '.tiff', '.tif', '.ico', '.svg', '.heic', '.heif', '.raw', '.psd')
+RAPID_MOVE_MIN_MS = 50
+RAPID_MOVE_MAX_MS = 1000
+RAPID_MOVE_DEFAULT_MS = 200
+
+
+def clamp_rapid_interval(value):
+    """Pastikan interval rapid move selalu angka valid dalam rentang 50-1000 ms."""
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return RAPID_MOVE_DEFAULT_MS
+    return max(RAPID_MOVE_MIN_MS, min(RAPID_MOVE_MAX_MS, value))
+
+
+_READABLE_EXTENSIONS = None
+
+
+def readable_image_extensions():
+    """Ekstensi yang didukung aplikasi DAN bisa dibaca Qt di komputer ini.
+    Dicek sekali per ekstensi (bukan sekali per file) agar import ribuan file tetap cepat."""
+    global _READABLE_EXTENSIONS
+    if _READABLE_EXTENSIONS is None:
+        qt_formats = {bytes(f).decode("ascii", "ignore").lower() for f in QImageReader.supportedImageFormats()}
+        aliases = {".jpg": "jpeg", ".jpeg": "jpeg", ".jfif": "jpeg", ".tiff": "tiff", ".tif": "tiff", ".heic": "heic", ".heif": "heif"}
+        result = set()
+        for ext in SUPPORTED_IMAGE_EXTENSIONS:
+            name = ext.lstrip(".")
+            if name in qt_formats or aliases.get(ext, name) in qt_formats:
+                result.add(ext)
+        _READABLE_EXTENSIONS = frozenset(result)
+    return _READABLE_EXTENSIONS
+
+
+_NATURAL_SPLIT = re.compile(r"(\d+)")
+
+
+def natural_sort_key(path):
+    """Urutan seperti Windows Explorer: IMG_2 sebelum IMG_10."""
+    name = os.path.basename(path).lower()
+    return [int(part) if part.isdigit() else part for part in _NATURAL_SPLIT.split(name)]
+
+
+def scan_image_files(folder_path, extensions=None, should_cancel=None, on_progress=None):
+    """Satu kali lintasan direktori dengan os.scandir (tanpa subfolder).
+    Tidak memakai glob, jadi nama folder dengan [ ] * ? aman."""
+    extensions = extensions or readable_image_extensions()
+    files = []
+    last_report = time.monotonic()
+    with os.scandir(folder_path) as entries:
+        for entry in entries:
+            if should_cancel is not None and should_cancel():
+                return None
+            name = entry.name
+            dot = name.rfind(".")
+            if dot <= 0 or name[dot:].lower() not in extensions:
+                continue
+            try:
+                if not entry.is_file():
+                    continue
+            except OSError:
+                continue
+            files.append(entry.path)
+            if on_progress is not None and len(files) % 500 == 0:
+                now = time.monotonic()
+                if now - last_report >= 0.15:
+                    last_report = now
+                    on_progress(len(files))
+    files.sort(key=natural_sort_key)
+    return files
+
 
 def load_settings():
     """Load settings from settings.json or return default settings."""
@@ -100,6 +233,7 @@ def load_settings():
         "folder_paths": ["output/A", "output/B", "output/C", "output/D", "output/E"],
         "recent_folders": [],
         "theme_mode": "system",
+        "rapid_move_interval": 200,
         "custom_theme": {
             "bg_color": "#121212",
             "text_color": "#FFFFFF",
@@ -293,8 +427,9 @@ class UpdateCheckThread(QThread):
     update_checked = Signal(str, str, str)  # Signal untuk versi terbaru, catatan rilis, dan URL unduhan
     error_occurred = Signal(str)  # Signal untuk kesalahan
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, manual=False):
         super().__init__(parent)
+        self.manual = manual  # True = dipicu dari menu Help > Check for Updates
         self.api_url = "https://api.github.com/repos/Zy0x/Image-Sorter/releases/latest"
 
     def run(self):
@@ -305,12 +440,12 @@ class UpdateCheckThread(QThread):
             latest_version = release_info.get("tag_name", "").lstrip("v")  # Menghapus 'v' dari tag
             release_notes = release_info.get("body", "No release notes provided.")
             download_url = release_info.get("html_url", "")
-            self.update_checked.emit(latest_version, release_notes, download_url)
-        except requests.RequestException as e:
+            self.update_checked.emit(latest_version, release_notes or "", download_url)
+        except (requests.RequestException, ValueError) as e:
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "1.0-Stable"
+    VERSION = "2.1.2-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -484,27 +619,285 @@ class AboutDialog(QDialog):
                     QFrame { background-color: #ccc; }
                 """)
 
-class ImageValidationThread(QThread):
-    progress_updated = Signal(int)
 
-    def __init__(self, files, parent=None):
+class ShortcutsGuideDialog(QDialog):
+    """Dialog panduan penggunaan & daftar lengkap shortcut keyboard/mouse."""
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.files = files
-        self.valid_images = []
+        self.setWindowTitle("Keyboard Shortcuts & Quick Guide")
+        self.setMinimumSize(540, 520)
+        self.parent = parent
+
+        is_dark = False
+        if self.parent and hasattr(self.parent, "theme_mode"):
+            is_dark = (
+                self.parent.theme_mode in ("dark", "custom")
+                or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
+            )
+
+        bg = "#1e1e1e" if is_dark else "#ffffff"
+        card_bg = "#282828" if is_dark else "#f4f6f8"
+        text = "#ffffff" if is_dark else "#1f2328"
+        muted = "#b0b8c1" if is_dark else "#57606a"
+        accent = "#00BFFF" if is_dark else "#0969da"
+        border = "#3a3a3a" if is_dark else "#d8dee4"
+        key_bg = "#121212" if is_dark else "#eaeef2"
+
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {bg}; color: {text}; }}
+            QLabel {{ color: {text}; background: transparent; border: none; }}
+            QScrollArea {{ background-color: {bg}; border: none; }}
+        """)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(12)
+
+        header = QLabel("⌨️ Keyboard Shortcuts & Quick Guide")
+        header.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {text};")
+        main_layout.addWidget(header)
+
+        subtitle = QLabel("Everything you need to sort images quickly with keyboard or mouse.")
+        subtitle.setStyleSheet(f"font-size: 13px; color: {muted}; margin-bottom: 4px;")
+        subtitle.setWordWrap(True)
+        main_layout.addWidget(subtitle)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {bg};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(4, 4, 4, 4)
+        content_layout.setSpacing(12)
+
+        guide_html = f"""
+        <div style="font-size:13px; line-height:1.55; color:{text};">
+          <div style="background-color:{card_bg}; border:1px solid {border}; border-radius:10px; padding:12px 14px; margin-bottom:10px;">
+            <div style="font-size:15px; font-weight:bold; color:{accent}; margin-bottom:6px;">🚀 Quick Workflow (3 Steps)</div>
+            <ol style="margin:4px 0 0 18px; padding:0;">
+              <li><b>Set Destination Folders:</b> Open <i>Settings → Folder Settings</i> (or click any folder button on first use) to set paths for Folders A–E.</li>
+              <li><b>Import Images:</b> Drag &amp; drop a folder or image onto the window, or press <span style="background:{key_bg}; padding:2px 6px; border-radius:4px; font-family:Consolas,monospace;">Ctrl+O</span>.</li>
+              <li><b>Sort Fast:</b> Press <span style="background:{key_bg}; padding:2px 6px; border-radius:4px; font-family:Consolas,monospace;">1</span>–<span style="background:{key_bg}; padding:2px 6px; border-radius:4px; font-family:Consolas,monospace;">5</span> to move 1 image, or hold <span style="background:{key_bg}; padding:2px 6px; border-radius:4px; font-family:Consolas,monospace;">1</span>–<span style="background:{key_bg}; padding:2px 6px; border-radius:4px; font-family:Consolas,monospace;">5</span> for Rapid Move.</li>
+            </ol>
+          </div>
+
+          <div style="background-color:{card_bg}; border:1px solid {border}; border-radius:10px; padding:12px 14px; margin-bottom:10px;">
+            <div style="font-size:15px; font-weight:bold; color:{accent}; margin-bottom:8px;">⌨️ Keyboard Shortcuts</div>
+            <table width="100%" cellspacing="0" cellpadding="5" style="font-size:13px;">
+              <tr><td width="38%"><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">1</span> – <span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">5</span> (Press)</b></td><td>Move current image to Folder A – E</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">1</span> – <span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">5</span> (Hold)</b></td><td><b>Rapid Move</b> continuously to Folder A – E</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">←</span> or <span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">A</span></b></td><td>Previous image</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">→</span> or <span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">D</span></b></td><td>Next image</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">Home</span> / <span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">End</span></b></td><td>Jump to first / last image</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">Ctrl+G</span></b></td><td>Jump to specific image number</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">Ctrl+H</span></b></td><td>Toggle Hide Moved Images</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">F</span></b></td><td>Open Full-Size / Zoom Preview</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">Space</span></b></td><td>Skip current image</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">Ctrl+Z</span></b></td><td>Undo last move (restores file safely)</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">Ctrl+E</span></b></td><td>Reveal current image in File Explorer</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">Delete</span></b></td><td>Move current image to Windows Recycle Bin</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">Ctrl+O</span></b></td><td>Import folder</td></tr>
+              <tr><td><b><span style="background:{key_bg}; padding:2px 7px; border-radius:4px; font-family:Consolas,monospace;">F1</span></b></td><td>Open this Keyboard Shortcuts &amp; Guide dialog</td></tr>
+            </table>
+          </div>
+
+          <div style="background-color:{card_bg}; border:1px solid {border}; border-radius:10px; padding:12px 14px;">
+            <div style="font-size:15px; font-weight:bold; color:{accent}; margin-bottom:6px;">🖱️ Mouse &amp; Safety Tips</div>
+            <ul style="margin:4px 0 0 18px; padding:0;">
+              <li><b>Click Folder A–E:</b> Move 1 image to that folder.</li>
+              <li><b>Hold Left-Click on Folder A–E:</b> Rapid Move images continuously at your chosen interval (adjust in <i>Settings → Rapid Move Speed</i>).</li>
+              <li><b>Double-Click Main Image:</b> Open Full-Size Zoom Preview.</li>
+              <li><b>Drag &amp; Drop:</b> Drop any folder or image file directly onto the window.</li>
+              <li><b>Zero Overwrite Protection:</b> Duplicate filenames are automatically renamed (e.g. <i>photo (1).jpg</i>) so existing files are never overwritten.</li>
+            </ul>
+          </div>
+        </div>
+        """
+
+        body = QLabel(guide_html)
+        body.setWordWrap(True)
+        body.setTextFormat(Qt.RichText)
+        body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        content_layout.addWidget(body)
+        content_layout.addStretch()
+
+        scroll.setWidget(content)
+        main_layout.addWidget(scroll, stretch=1)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        close_btn = QPushButton("Got It")
+        close_btn.setFixedHeight(36)
+        close_btn.setMinimumWidth(110)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 8px 20px;
+                font-weight: bold;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(close_btn)
+        main_layout.addLayout(btn_layout)
+
+
+
+
+class ImagePreviewDialog(QDialog):
+    """Dialog pratinjau ukuran penuh dengan kontrol Zoom (+, -, Fit, 100%, roda mouse)."""
+    def __init__(self, image_path, parent=None):
+        super().__init__(parent)
+        self.image_path = image_path
+        self.parent = parent
+        self.zoom_factor = 1.0
+        self._fit_mode = True
+        self.base_pixmap = load_pixmap(image_path)
+
+        filename = os.path.basename(image_path)
+        w = self.base_pixmap.width()
+        h = self.base_pixmap.height()
+        self.setWindowTitle(f"Preview — {filename} ({w}×{h})")
+        self.resize(960, 720)
+        self.setMinimumSize(480, 360)
+
+        is_dark = True
+        if self.parent and hasattr(self.parent, "theme_mode"):
+            is_dark = (
+                self.parent.theme_mode in ("dark", "custom")
+                or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
+            )
+        bg = "#141414" if is_dark else "#f5f5f5"
+        text = "#ffffff" if is_dark else "#1f2328"
+        btn_bg = "#2a2a2a" if is_dark else "#e0e0e0"
+
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {bg}; color: {text}; }}
+            QScrollArea {{ background-color: {bg}; border: 1px solid #333; border-radius: 8px; }}
+            QLabel {{ color: {text}; background: transparent; border: none; }}
+            QPushButton {{
+                background-color: {btn_bg}; color: {text}; border: none;
+                padding: 6px 14px; font-weight: bold; border-radius: 6px; min-height: 28px;
+            }}
+            QPushButton:hover {{ background-color: #00BFFF; color: white; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        toolbar = QHBoxLayout()
+        self.info_label = QLabel(f"{filename}  ({w}×{h})")
+        self.info_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        toolbar.addWidget(self.info_label)
+        toolbar.addStretch()
+
+        zoom_out_btn = QPushButton("− Zoom Out")
+        zoom_out_btn.clicked.connect(lambda: self.adjust_zoom(0.8))
+        zoom_in_btn = QPushButton("+ Zoom In")
+        zoom_in_btn.clicked.connect(lambda: self.adjust_zoom(1.25))
+        fit_btn = QPushButton("Fit")
+        fit_btn.clicked.connect(self.fit_to_window)
+        actual_btn = QPushButton("100%")
+        actual_btn.clicked.connect(self.reset_actual_size)
+        close_btn = QPushButton("Close (Esc)")
+        close_btn.clicked.connect(self.accept)
+
+        for b in (zoom_out_btn, zoom_in_btn, fit_btn, actual_btn, close_btn):
+            toolbar.addWidget(b)
+        layout.addLayout(toolbar)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setAlignment(Qt.AlignCenter)
+        self.preview_label = QLabel()
+        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.scroll_area.setWidget(self.preview_label)
+        layout.addWidget(self.scroll_area, stretch=1)
+
+        self.update_preview()
+
+    def adjust_zoom(self, multiplier):
+        self._fit_mode = False
+        self.zoom_factor = max(0.1, min(8.0, self.zoom_factor * multiplier))
+        self.update_preview()
+
+    def fit_to_window(self):
+        self._fit_mode = True
+        self.update_preview()
+
+    def reset_actual_size(self):
+        self._fit_mode = False
+        self.zoom_factor = 1.0
+        self.update_preview()
+
+    def update_preview(self):
+        if self.base_pixmap.isNull():
+            self.preview_label.setText("Failed to load image.")
+            return
+        if self._fit_mode:
+            vp = self.scroll_area.viewport().size()
+            tw = max(200, vp.width() - 16)
+            th = max(200, vp.height() - 16)
+            scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.zoom_factor = scaled.width() / max(1, self.base_pixmap.width())
+        else:
+            tw = max(16, int(self.base_pixmap.width() * self.zoom_factor))
+            th = max(16, int(self.base_pixmap.height() * self.zoom_factor))
+            scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.preview_label.setPixmap(scaled)
+        pct = int(round(self.zoom_factor * 100))
+        self.info_label.setText(
+            f"{os.path.basename(self.image_path)}  ({self.base_pixmap.width()}×{self.base_pixmap.height()} • {pct}%)"
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._fit_mode:
+            self.update_preview()
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self.adjust_zoom(1.15)
+        elif delta < 0:
+            self.adjust_zoom(1 / 1.15)
+
+
+class FolderScanThread(QThread):
+    """Memindai folder di thread latar. UI tetap responsif berapa pun jumlah filenya."""
+    progress_updated = Signal(int)  # jumlah gambar yang sudah ditemukan
+
+    def __init__(self, folder_path, parent=None):
+        super().__init__(parent)
+        self.folder_path = folder_path
+        self.files = []
+        self.error = None
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def is_cancelled(self):
+        return self._cancelled
 
     def run(self):
-        supported_formats = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.heic', '.heif', '.raw', '.psd')
-        total_files = len(self.files)
-        for i, file in enumerate(self.files):
-            if file.lower().endswith(supported_formats):
-                try:
-                    img = QImageReader(file)
-                    if img.canRead():
-                        self.valid_images.append(file)
-                except Exception:
-                    pass
-            progress = int((i + 1) / total_files * 100)
-            self.progress_updated.emit(progress)
+        try:
+            result = scan_image_files(
+                self.folder_path,
+                should_cancel=self.is_cancelled,
+                on_progress=self.progress_updated.emit,
+            )
+            self.files = result or []
+        except OSError as e:
+            self.error = str(e)
+            self.files = []
+
 
 class CustomThemeDialog(QDialog):
     def __init__(self, parent=None):
@@ -752,28 +1145,92 @@ class CustomThemeDialog(QDialog):
         self.accept()
 
 class FolderSettingsDialog(QDialog):
+    DEFAULT_NAMES = ["Folder A", "Folder B", "Folder C", "Folder D", "Folder E"]
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.parent = parent
         self.setWindowTitle("Set Destination Folders")
+        self.setMinimumWidth(560)
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(10)
         self.inputs = []
+
+        is_dark = False
+        if self.parent and hasattr(self.parent, "theme_mode"):
+            is_dark = (
+                self.parent.theme_mode in ("dark", "custom")
+                or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
+            )
+        bg = "#1e1e1e" if is_dark else "#ffffff"
+        surface = "#2b2b2b" if is_dark else "#f4f6f8"
+        text = "#ffffff" if is_dark else "#1f2328"
+        border = "#404040" if is_dark else "#d0d7de"
+
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {bg}; color: {text}; }}
+            QLabel {{ color: {text}; background: transparent; border: none; }}
+            QLineEdit {{
+                background-color: {surface}; color: {text};
+                border: 1px solid {border}; border-radius: 6px; padding: 6px 8px;
+            }}
+            QPushButton {{
+                background-color: {surface}; color: {text};
+                border: 1px solid {border}; border-radius: 6px;
+                padding: 6px 14px; font-weight: bold; min-height: 28px;
+            }}
+            QPushButton:hover {{ border-color: #00BFFF; }}
+        """)
+
+        header_layout = QHBoxLayout()
+        lbl_key = QLabel("Key")
+        lbl_key.setFixedWidth(36)
+        lbl_key.setStyleSheet("font-weight: bold;")
+        lbl_name = QLabel("Folder Name")
+        lbl_name.setFixedWidth(140)
+        lbl_name.setStyleSheet("font-weight: bold;")
+        lbl_path = QLabel("Destination Path")
+        lbl_path.setStyleSheet("font-weight: bold;")
+        header_layout.addWidget(lbl_key)
+        header_layout.addWidget(lbl_name)
+        header_layout.addWidget(lbl_path, stretch=1)
+        self.layout.addLayout(header_layout)
+
         settings = load_settings()
-        self.folder_names = settings.get("folder_names", ["Folder A", "Folder B", "Folder C", "Folder D", "Folder E"])
+        self.folder_names = settings.get("folder_names", list(self.DEFAULT_NAMES))
         self.folder_paths = settings.get("folder_paths", ["output/A", "output/B", "output/C", "output/D", "output/E"])
         for i in range(5):
             h_layout = QHBoxLayout()
-            name_input = QLineEdit(self.folder_names[i])
-            path_input = QLineEdit(self.folder_paths[i])
-            btn_browse = QPushButton("Browse")
+            key_badge = QLabel(f"[{i + 1}]")
+            key_badge.setFixedWidth(36)
+            key_badge.setStyleSheet("font-weight: bold;")
+            name_input = QLineEdit(self.folder_names[i] if i < len(self.folder_names) else self.DEFAULT_NAMES[i])
+            name_input.setFixedWidth(140)
+            path_input = QLineEdit(self.folder_paths[i] if i < len(self.folder_paths) else f"output/{chr(65 + i)}")
+            btn_browse = QPushButton("Browse...")
             btn_browse.clicked.connect(lambda _, idx=i: self.select_folder(idx))
+            h_layout.addWidget(key_badge)
             h_layout.addWidget(name_input)
-            h_layout.addWidget(path_input)
+            h_layout.addWidget(path_input, stretch=1)
             h_layout.addWidget(btn_browse)
             self.layout.addLayout(h_layout)
             self.inputs.append((name_input, path_input))
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
         save_btn = QPushButton("Save")
+        save_btn.setDefault(True)
+        save_btn.setStyleSheet(
+            "QPushButton { background-color: #2196F3; color: white; border: none; padding: 6px 18px; border-radius: 6px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #1976D2; }"
+        )
         save_btn.clicked.connect(self.save_and_close)
-        self.layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(save_btn)
+        self.layout.addLayout(btn_layout)
 
     def select_folder(self, index):
         folder = QFileDialog.getExistingDirectory(self, f"Select Folder {index + 1}")
@@ -781,8 +1238,11 @@ class FolderSettingsDialog(QDialog):
             self.inputs[index][1].setText(folder)
 
     def save_and_close(self):
-        self.folder_names = [inp[0].text() for inp in self.inputs]
-        self.folder_paths = [inp[1].text() for inp in self.inputs]
+        self.folder_names = [
+            inp[0].text().strip() or self.DEFAULT_NAMES[i]
+            for i, inp in enumerate(self.inputs)
+        ]
+        self.folder_paths = [inp[1].text().strip() for inp in self.inputs]
         settings = load_settings()
         settings["folder_names"] = self.folder_names
         settings["folder_paths"] = self.folder_paths
@@ -792,16 +1252,248 @@ class FolderSettingsDialog(QDialog):
     def get_folders(self):
         return self.folder_names, self.folder_paths
 
+class RapidMoveSettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("⚡ Rapid Move Speed")
+        self.parent = parent
+        self.setMinimumSize(420, 300)
+        self.setModal(True)
+
+        # Main layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(24)
+
+        # Title
+        title = QLabel("Rapid Move Interval")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 24px; font-weight: 600; margin-bottom: 8px; border: none; background-color: transparent;")
+        layout.addWidget(title)
+
+        # Description
+        desc = QLabel("Adjust how fast images are moved while holding Folder A–E\n(mouse button or keyboard key 1–5). Lower value = faster movement.")
+        desc.setAlignment(Qt.AlignCenter)
+        desc.setWordWrap(True)
+        desc.setStyleSheet("font-size: 14px; line-height: 1.5;")
+        layout.addWidget(desc)
+
+        layout.addSpacing(20)
+
+        # Current speed indicator
+        self.current_label = QLabel()
+        self.current_label.setAlignment(Qt.AlignCenter)
+        self.current_label.setStyleSheet("font-size: 18px; font-weight: 600; padding: 16px;")
+        self.current_label.setMinimumHeight(60)
+        layout.addWidget(self.current_label)
+
+        # Slider + Value layout
+        control_layout = QHBoxLayout()
+        control_layout.setSpacing(24)
+
+        # Slider
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(50, 1000)
+        self.slider.setSingleStep(50)
+        self.slider.setPageStep(100)
+        control_layout.addWidget(self.slider, stretch=1)
+
+        # SpinBox
+        self.spinbox = QSpinBox()
+        self.spinbox.setRange(50, 1000)
+        self.spinbox.setSingleStep(50)
+        self.spinbox.setSuffix(" ms")
+        self.spinbox.setFixedWidth(130)
+        self.spinbox.setFixedHeight(44)
+        self.spinbox.setStyleSheet("font-size: 15px;")
+        control_layout.addWidget(self.spinbox)
+
+        layout.addLayout(control_layout)
+
+        # Direction hint
+        hint = QLabel("Faster ← → Slower")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setStyleSheet("font-size: 13px; font-style: italic; margin-top: 8px;")
+        layout.addWidget(hint)
+
+        layout.addStretch()
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFixedHeight(44)
+        cancel_btn.setMinimumWidth(110)
+        cancel_btn.clicked.connect(self.reject)
+
+        save_btn = QPushButton("Save")
+        save_btn.setFixedHeight(44)
+        save_btn.setMinimumWidth(110)
+        save_btn.setObjectName("save_btn")
+        save_btn.setDefault(True)
+        save_btn.clicked.connect(self.save_and_close)
+
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addSpacing(16)
+        btn_layout.addWidget(save_btn)
+
+        layout.addLayout(btn_layout)
+
+        # Initial value
+        initial_value = clamp_rapid_interval(parent.rapid_move_interval if parent else RAPID_MOVE_DEFAULT_MS)
+        self.slider.setValue(initial_value)
+        self.spinbox.setValue(initial_value)
+        self.update_current_label(initial_value)
+
+        # Sync controls
+        self.slider.valueChanged.connect(self.spinbox.setValue)
+        self.spinbox.valueChanged.connect(self.slider.setValue)
+        self.slider.valueChanged.connect(self.update_current_label)
+        self.spinbox.valueChanged.connect(self.update_current_label)
+
+        # Apply modern theme
+        self.apply_modern_theme()
+
+    def apply_modern_theme(self):
+        if self.parent and hasattr(self.parent, 'theme_mode'):
+            is_dark = (
+                self.parent.theme_mode == "dark" or
+                (self.parent.theme_mode == "system" and self.parent.is_system_dark()) or
+                self.parent.theme_mode == "custom"
+            )
+        else:
+            is_dark = False
+
+        # Colors
+        bg_color = "#1e1e1e" if is_dark else "#ffffff"
+        surface_color = "#2d2d2d" if is_dark else "#f8f9fa"
+        text_color = "#ffffff" if is_dark else "#212529"
+        text_secondary = "#b0b0b0" if is_dark else "#6c757d"
+        accent_color = "#00BFFF"
+        border_color = "#404040" if is_dark else "#dee2e6"
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+                border-radius: 20px;
+            }}
+            QLabel {{
+                color: {text_color};
+                background: transparent;
+            }}
+            QSlider::groove:horizontal {{
+                background: {border_color};
+                height: 8px;
+                border-radius: 4px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {accent_color};
+                border-radius: 4px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {accent_color};
+                width: 14px;
+                height: 14px;
+                margin: -4px 0;
+                border-radius: 5px;
+                border: 2px solid {bg_color};
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: #00d4ff;
+            }}
+            QSpinBox {{
+                background-color: {surface_color};
+                border: 2px solid {border_color};
+                border-radius: 10px;
+                padding: 8px 12px;
+                color: {text_color};
+                font-size: 15px;
+            }}
+            QSpinBox:focus {{
+                border-color: {accent_color};
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
+                width: 20px;
+                background: transparent;
+            }}
+            QPushButton {{
+                background-color: {surface_color};
+                color: {text_color};
+                border: 2px solid {border_color};
+                border-radius: 12px;
+                padding: 0 24px;
+                font-weight: 600;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {border_color};
+            }}
+            QPushButton:pressed {{
+                background-color: {accent_color}40;
+            }}
+            QPushButton#save_btn {{
+                background-color: {accent_color};
+                color: white;
+                border: none;
+            }}
+            QPushButton#save_btn:hover {{
+                background-color: #00a8e6;
+            }}
+            QPushButton#save_btn:pressed {{
+                background-color: #0098d4;
+            }}
+        """)
+
+        # Update secondary text colors
+        for widget in self.findChildren(QLabel):
+            if widget.text() in ["Faster ← → Slower", 
+                                "Adjust how fast images are moved while holding Folder A–E\n(mouse button or keyboard key 1–5). Lower value = faster movement."]:
+                widget.setStyleSheet(f"color: {text_secondary}; font-size: 14px; border: none; background: transparent;")
+
+        # Current label emphasis
+        self.current_label.setStyleSheet(f"""
+            background-color: {surface_color};
+            color: {text_color};
+            border-radius: 16px;
+            padding: 20px;
+            font-size: 18px;
+            font-weight: 600;
+        """)
+
+    def update_current_label(self, value):
+        if value <= 100:
+            speed = "Lightning Fast ⚡⚡⚡"
+        elif value <= 200:
+            speed = "Very Fast ⚡⚡"
+        elif value <= 400:
+            speed = "Fast ⚡"
+        elif value <= 600:
+            speed = "Medium ⏱️"
+        else:
+            speed = "Relaxed 🐌"
+
+        self.current_label.setText(f"{value} ms\n{speed}")
+
+    def save_and_close(self):
+        new_interval = clamp_rapid_interval(self.spinbox.value())
+        if self.parent:
+            self.parent.rapid_move_interval = new_interval
+            settings = load_settings()
+            settings["rapid_move_interval"] = new_interval
+            save_settings(settings)
+            self.parent.show_notification(f"Rapid move interval set to {new_interval} ms")
+        self.accept()
+
 class ImageSorterApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ImageSorter")
         self.resize(900, 700)
         self.setAcceptDrops(True)
-        self.image_cache = {}
         self.image_files = []
         self.current_index = 0
-        self.nav_history = []
+        self.nav_history = deque(maxlen=500)
         self.folder_names = []
         self.folder_paths = []
         self.log_buffer = []
@@ -810,10 +1502,31 @@ class ImageSorterApp(QMainWindow):
         self.theme_mode = "system"
         self.filtered_files = []
         self.history, self.history_cache = load_history()  # Updated to load history_cache
-        self.file_exists_cache = {}
-        self.filter_cache = {}
+        # history.json disimpan dengan jeda singkat agar rapid move ribuan file tidak
+        # menulis ulang seluruh file di setiap pemindahan.
+        self._history_dirty = False
+        self._history_save_timer = QTimer(self)
+        self._history_save_timer.setSingleShot(True)
+        self._history_save_timer.setInterval(400)
+        self._history_save_timer.timeout.connect(self.flush_history)
         self.defer_ui_updates = False
         self.last_filter = "All Files"
+        self.hide_moved = False
+        self.current_movie = None
+        self._movie_buffer = None
+        self._movie_bytes = None
+        # Rapid move variables
+        self.is_rapid_moving = False
+        self.rapid_folder_index = None
+        self.rapid_source = None  # "mouse" atau "key"
+        self.rapid_timer = QTimer(self)
+        self.rapid_timer.timeout.connect(self.rapid_move)
+        self.folder_buttons = []  # Untuk menyimpan referensi tombol folder
+        settings = load_settings()
+        self.rapid_move_interval = clamp_rapid_interval(settings.get("rapid_move_interval", RAPID_MOVE_DEFAULT_MS))
+        self.scan_thread = None
+        self._scan_threads = set()  # semua thread pemindai yang masih hidup
+        self.update_thread = None
 
         # Rest of __init__ remains unchanged
         self.loading_widget = QDialog(self, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -839,24 +1552,88 @@ class ImageSorterApp(QMainWindow):
         self.load_recent_folders()
         self.apply_theme()
         self.show_current_image(self.filtered_files)
+        # Tangkap tombol 1-4 di level aplikasi agar rapid move keyboard tetap jalan
+        # walaupun fokus sedang berada di tombol/combobox di jendela utama.
+        QApplication.instance().installEventFilter(self)
 
-    def start_update_check(self):
-        """Mulai pengecekan pembaruan di thread terpisah."""
-        self.update_thread = UpdateCheckThread(self)
-        self.update_thread.update_checked.connect(self.show_update_dialog)
-        self.update_thread.error_occurred.connect(self.show_update_error)
-        self.update_thread.start()
+    def start_update_check(self, manual=False):
+        """Mulai pengecekan pembaruan di thread terpisah (tidak memblokir UI)."""
+        if self.update_thread is not None and self.update_thread.isRunning():
+            if manual:
+                self.show_notification("Update check is already running...")
+            return
+        thread = UpdateCheckThread(self, manual=manual)
+        thread.update_checked.connect(lambda v, n, u, t=thread: self.show_update_dialog(v, n, u, t.manual))
+        thread.error_occurred.connect(lambda e, t=thread: self.show_update_error(e, t.manual))
+        thread.finished.connect(lambda t=thread: self._on_update_thread_finished(t))
+        self.update_thread = thread
+        thread.start()
 
-    def show_update_dialog(self, latest_version, release_notes, download_url):
-        """Tampilkan dialog pembaruan dengan informasi dari thread."""
+    def _on_update_thread_finished(self, thread):
+        # Lepaskan referensi Python SEBELUM objek C++ dihapus agar tidak ada pointer basi.
+        if self.update_thread is thread:
+            self.update_thread = None
+        thread.deleteLater()
+
+    def show_update_dialog(self, latest_version, release_notes, download_url, manual=True):
+        """Startup: dialog hanya muncul bila ada versi baru. Manual: selalu tampil."""
         current_version = AboutDialog.VERSION
+        if not manual:
+            checker = UpdateDialog.is_newer_version
+            if not latest_version or not checker(None, current_version, latest_version):
+                print(f"[DEBUG] Up to date ({current_version}), latest={latest_version}")
+                return
         dialog = UpdateDialog(self, current_version, latest_version, release_notes, download_url)
-        dialog.exec_()
+        dialog.exec()
 
-    def show_update_error(self, error_message):
-        """Tampilkan dialog kesalahan jika pengecekan pembaruan gagal."""
-        dialog = UpdateDialog(self, AboutDialog.VERSION, None, f"Failed to check for updates: {error_message}")
-        dialog.exec_()
+    def show_update_error(self, error_message, manual=True):
+        """Startup: gagal cek update cukup dicatat (tanpa popup). Manual: tampilkan pesan."""
+        print(f"[DEBUG] Update check failed: {error_message}")
+        if not manual:
+            return
+        dialog = UpdateDialog(self, AboutDialog.VERSION, None,
+                              "Failed to check for updates. Please check your internet connection.")
+        dialog.exec()
+
+    def schedule_history_save(self):
+        self._history_dirty = True
+        self._history_save_timer.start()
+
+    def flush_history(self):
+        """Tulis history.json sekarang juga jika ada perubahan yang belum tersimpan."""
+        self._history_save_timer.stop()
+        if self._history_dirty:
+            save_history(self.history)
+            self._history_dirty = False
+
+    def stop_current_movie(self):
+        """Hentikan animasi QMovie aktif dan lepaskan buffer memori."""
+        if self.current_movie is not None:
+            self.current_movie.stop()
+            if hasattr(self, "image_label"):
+                self.image_label.setMovie(None)
+            self.current_movie.deleteLater()
+            self.current_movie = None
+        if self._movie_buffer is not None:
+            self._movie_buffer.close()
+            self._movie_buffer = None
+        self._movie_bytes = None
+
+    def closeEvent(self, event):
+        """Hentikan timer & thread latar dengan aman sebelum jendela ditutup."""
+        self.stop_rapid_move(silent=True)
+        self.stop_current_movie()
+        self.flush_history()
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+        for thread in list(self._scan_threads):
+            thread.cancel()
+        for thread in list(self._scan_threads):
+            thread.wait(3000)
+        if self.update_thread is not None and self.update_thread.isRunning():
+            self.update_thread.wait(6000)
+        super().closeEvent(event)
 
     def check_first_run(self):
         settings = load_settings()
@@ -868,27 +1645,34 @@ class ImageSorterApp(QMainWindow):
             save_settings(settings)
             self.show_notification("Welcome to ImageSorter! Organize your photos in seconds 😊")
         else:
-            msg = QMessageBox()
-            msg.setWindowTitle("Load Settings")
-            msg.setText("Would you like to load last settings?")
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg.setDefaultButton(QMessageBox.Yes)
-            msg.setIcon(QMessageBox.Question)
-            self.apply_message_box_style(msg)
-            result = msg.exec()
-
-            if result == QMessageBox.Yes:
-                self.load_custom_folders()
-                self.load_recent_folders()
-                self.theme_mode = settings.get("theme_mode", "system")
-                self.show_notification("Settings loaded from application directory.")
-            else:
-                self.set_default_settings()
-                self.show_notification("Default settings applied.")
+            # Muat pengaturan terakhir secara otomatis tanpa popup berisiko
+            self.load_custom_folders()
+            self.load_recent_folders()
+            self.theme_mode = settings.get("theme_mode", "system")
+            self.rapid_move_interval = clamp_rapid_interval(
+                settings.get("rapid_move_interval", RAPID_MOVE_DEFAULT_MS)
+            )
+            self.sync_menu_theme_checkboxes()
 
         self.apply_theme()
         self.update_folder_buttons()
         self.show_current_image(self.filtered_files)
+
+    def confirm_reset_default_settings(self):
+        """Konfirmasi sebelum mereset pengaturan ke default (riwayat Undo tetap aman)."""
+        msg = QMessageBox()
+        msg.setWindowTitle("Reset Default Settings")
+        msg.setText("Reset folder names, paths, and theme back to default settings?\n(Your Undo history will be preserved.)")
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setDefaultButton(QMessageBox.No)
+        msg.setIcon(QMessageBox.Question)
+        self.apply_message_box_style(msg)
+        if msg.exec() == QMessageBox.Yes:
+            self.set_default_settings()
+            self.apply_theme()
+            self.update_folder_buttons()
+            self.sync_menu_theme_checkboxes()
+            self.show_notification("Default settings restored.")
 
     def set_default_settings(self):
         print("[DEBUG] Using JSON-based set_default_settings")
@@ -898,6 +1682,7 @@ class ImageSorterApp(QMainWindow):
             "folder_paths": ["output/A", "output/B", "output/C", "output/D", "output/E"],
             "recent_folders": [],
             "theme_mode": "system",
+            "rapid_move_interval": RAPID_MOVE_DEFAULT_MS,
             "custom_theme": {
                 "bg_color": "#121212",
                 "text_color": "#FFFFFF",
@@ -905,36 +1690,34 @@ class ImageSorterApp(QMainWindow):
                 "btn_hover": "#444444",
                 "label_bg": "#1a1a1a",
                 "menu_bg": "#1a1a1a",
-                "menu_text": "#FFFFFF"
+                "menu_text": "#FFFFFF",
+                "main_border_color": "#00BFFF",
+                "next_border_color": "#32CD32",
+                "main_shadow": "0 0 10px rgba(0, 191, 255, 0.7)",
+                "next_shadow": "0 0 8px rgba(50, 205, 50, 0.5)"
             }
         }
         save_settings(settings)
         self.load_custom_folders()
         self.load_recent_folders()
         self.theme_mode = "system"
+        self.rapid_move_interval = RAPID_MOVE_DEFAULT_MS
         self.current_index = 0
         self.filtered_files = []
         self.image_files = []
-        self.nav_history = []
-        self.history = []
-        save_history(self.history)
+        self.nav_history.clear()
+        # Riwayat pemindahan (Undo) sengaja TIDAK dihapus: itu satu-satunya jejak
+        # untuk mengembalikan file. Mereset tampilan/pengaturan tidak boleh menghilangkannya.
         self.show_current_image(self.filtered_files)
 
     def open_custom_theme_editor(self):
         dialog = CustomThemeDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            settings = load_settings()
-            settings["custom_theme"] = {
-                "bg_color": dialog.bg_color,
-                "text_color": dialog.text_color,
-                "btn_bg": dialog.btn_bg,
-                "btn_hover": dialog.btn_hover,
-                "label_bg": dialog.label_bg,
-                "menu_bg": dialog.menu_bg,
-                "menu_text": dialog.menu_text
-            }
-            save_settings(settings)
+            # CustomThemeDialog.save_and_close() sudah menyimpan SELURUH key tema
+            # (termasuk warna border & shadow); jangan ditimpa ulang dengan subset.
             self.set_theme_mode("custom")
+        else:
+            self.sync_menu_theme_checkboxes()
 
     def update_recent_folders(self, folder_path):
         if folder_path in self.recent_folders:
@@ -972,13 +1755,12 @@ class ImageSorterApp(QMainWindow):
         if os.path.isdir(path):
             self.import_folder_common(path)
         elif os.path.isfile(path) and self.is_image_file(path):
+            self.stop_rapid_move(silent=True)
             self.show_loading(True)
             source_folder = os.path.dirname(path)
             self.update_recent_folders(source_folder)
-            self.image_files = [path]
-            self.thread = ImageValidationThread(self.image_files)
-            self.thread.finished.connect(lambda: self.process_valid_images_and_update_ui(source_folder))
-            self.thread.start()
+            self.cancel_running_scan()
+            self.load_file_list(source_folder, [path])
         else:
             self.show_loading(False)
             msg = QMessageBox()
@@ -989,83 +1771,67 @@ class ImageSorterApp(QMainWindow):
             msg.exec()
 
     def import_folder_common(self, folder_path):
+        self.stop_rapid_move(silent=True)
         self.show_loading(True)
         self.position_stack.setCurrentIndex(1)
         self.progress_bar.setValue(0)
         self.update_recent_folders(folder_path)
-        if folder_path in self.image_cache:
-            self.image_files = self.image_cache[folder_path]
-            self.current_index = 0
-            self.nav_history = []
-            self.source_info = f"Files successfully imported from: {folder_path}"
-            self.apply_filter()
-            self.show_notification(self.source_info)
-            self.show_current_image(self.filtered_files)
-            self.show_loading(False)
-            self.position_stack.setCurrentIndex(0)
+        # Selalu pindai ulang (tanpa cache daftar) agar file baru/terhapus langsung terlihat.
+        self.start_scan(folder_path)
+
+    def cancel_running_scan(self):
+        if self.scan_thread is not None and self.scan_thread.isRunning():
+            self.scan_thread.cancel()
+        self.scan_thread = None
+
+    def start_scan(self, folder_path):
+        """Pindai folder di thread latar; hasil pemindaian lama (import yang digantikan) diabaikan."""
+        self.cancel_running_scan()
+        readable_image_extensions()  # isi cache format Qt di thread utama sebelum thread latar jalan
+        self.progress_bar.setRange(0, 0)  # indikator sibuk: total belum diketahui
+        self.loading_label.setText("Scanning folder...")
+        thread = FolderScanThread(folder_path, self)
+        self._scan_threads.add(thread)
+        thread.progress_updated.connect(
+            lambda count, t=thread: self.on_scan_progress(t, count)
+        )
+        thread.finished.connect(lambda t=thread: self.on_scan_finished(t))
+        self.scan_thread = thread
+        thread.start()
+
+    def on_scan_progress(self, thread, count):
+        if thread is self.scan_thread:
+            self.loading_label.setText(f"Scanning folder...\n{count:,} images found")
+
+    def on_scan_finished(self, thread):
+        self._scan_threads.discard(thread)
+        if thread is not self.scan_thread:
+            thread.deleteLater()  # hasil import lama, abaikan
             return
-        supported_formats = ('*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp',
-                            '*.tiff', '*.heic', '*.heif', '*.raw', '*.psd')
-        all_files = []
-        for ext in supported_formats:
-            all_files.extend(glob(os.path.join(folder_path, ext)))
-        if not all_files:
+        self.scan_thread = None
+        files, error, folder_path = thread.files, thread.error, thread.folder_path
+        thread.deleteLater()
+        self.progress_bar.setRange(0, 100)
+        self.loading_label.setText("Loading folder...")
+        if error:
             self.show_loading(False)
             self.position_stack.setCurrentIndex(0)
             msg = QMessageBox()
-            msg.setWindowTitle("No Images")
-            msg.setText("No valid images found in this folder.")
+            msg.setWindowTitle("Import Error")
+            msg.setText(f"Could not read this folder:\n{error}")
             msg.setIcon(QMessageBox.Warning)
             self.apply_message_box_style(msg)
             msg.exec()
             return
-        self.image_files = all_files
-        self.thread = ImageValidationThread(all_files)
-        self.thread.progress_updated.connect(self.progress_bar.setValue)
-        self.thread.finished.connect(lambda: self.process_valid_images_and_update_ui(folder_path))
-        self.thread.start()
-
-    def process_valid_images(self):
-        self.image_files = self.thread.valid_images
-        if len(self.image_files) == 0:
-            msg = QMessageBox()
-            msg.setWindowTitle("No Images")
-            msg.setText("No valid images found in this folder.")
-            msg.setIcon(QMessageBox.Warning)
-            self.apply_message_box_style(msg)
-            msg.exec()
-            return
-
-        self.current_index = 0
-        self.show_current_image()
-
-    def get_images_from_folder(self, folder):
-        supported_formats = ('*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp', '*.tiff', '*.heic', '*.heif', '*.raw', '*.psd')
-        all_files = []
-        for ext in supported_formats:
-            all_files.extend(glob(os.path.join(folder, ext)))
-        return all_files
+        self.load_file_list(folder_path, files)
 
     def is_image_file(self, path):
-        supported_formats = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.heic', '.heif', '.raw', '.psd')
         ext = os.path.splitext(path)[1].lower()
-        return ext in supported_formats
+        return ext in SUPPORTED_IMAGE_EXTENSIONS
 
     def apply_theme(self):
         settings = load_settings()
-        palette = QApplication.palette()
-        base_color = palette.window().color()
-        brightness = base_color.red() * 0.299 + base_color.green() * 0.587 + base_color.blue() * 0.114
-        is_system_dark = brightness < 128
-
-        use_dark = False
-        if self.theme_mode == "dark":
-            use_dark = True
-        elif self.theme_mode == "light":
-            use_dark = False
-        elif self.theme_mode == "system":
-            use_dark = is_system_dark
-        elif self.theme_mode == "custom":
+        if self.theme_mode == "custom":
             custom_theme = settings.get("custom_theme", {})
             bg_color = custom_theme.get("bg_color", "#121212")
             text_color = custom_theme.get("text_color", "#FFFFFF")
@@ -1150,8 +1916,6 @@ class ImageSorterApp(QMainWindow):
             self.update_button_styles()
             self.update_folder_buttons()
             return
-        else:
-            use_dark = self.is_system_dark()
 
         if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
             self.setStyleSheet("""
@@ -1236,14 +2000,9 @@ class ImageSorterApp(QMainWindow):
             custom_theme = settings.get("custom_theme", {})
             bg_color = custom_theme.get("label_bg", "#1e1e1e" if is_dark else "#ffffff")
             text_color = custom_theme.get("text_color", "#FFFFFF" if is_dark else "#000000")
-            main_border_color = custom_theme.get("main_border_color", "#00FFFF")
-            next_border_color = custom_theme.get("next_border_color", "#FF00FF")
         else:
             bg_color = "#1e1e1e" if is_dark else "#ffffff"
             text_color = "white" if is_dark else "black"
-            main_border_color = "#00FFFF" if is_dark else "#FF4500"
-            next_border_color = "#FF00FF" if is_dark else "#9932CC"
-            next_shadow = "0 0 12px rgba(255, 0, 255, 0.7)" if is_dark else "0 0 12px rgba(153, 50, 204, 0.7)"
 
         self.image_label.setStyleSheet(f"""
             QLabel {{
@@ -1342,15 +2101,8 @@ class ImageSorterApp(QMainWindow):
         self.notification_label.setAlignment(Qt.AlignCenter)
 
         font_metrics = self.notification_label.fontMetrics()
-        text_width = font_metrics.horizontalAdvance(text) + 20
-        min_width = 300
-        max_width = 800
-        label_width = max(min_width, min(max_width, text_width))
-
-        label_height = 60
-        x = (self.width() - label_width) // 2
-        y = self.height() - 150
-        self.notification_label.setGeometry(x, y, label_width, label_height)
+        self._notification_text_width = font_metrics.horizontalAdvance(text) + 20
+        self.position_notification()
 
         self.notification_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
@@ -1371,6 +2123,16 @@ class ImageSorterApp(QMainWindow):
         self.fade_out.finished.connect(self.notification_label.hide)
 
         self.fade_in.start()
+
+    def position_notification(self):
+        """Letakkan notifikasi di tengah-bawah dan selalu muat di dalam jendela."""
+        available = max(120, self.width() - 20)
+        text_width = getattr(self, "_notification_text_width", 300)
+        label_width = min(available, max(300, min(800, text_width)))
+        label_height = 60
+        x = max(10, (self.width() - label_width) // 2)
+        y = max(40, self.height() - 150)
+        self.notification_label.setGeometry(x, y, label_width, label_height)
 
     def update_recent_folders_menu(self):
         if not hasattr(self, 'recent_folders_menu') or self.recent_folders_menu is None:
@@ -1399,9 +2161,14 @@ class ImageSorterApp(QMainWindow):
 
         self.import_folder_common(folder_path)
 
-    def process_valid_images_and_update_ui(self, folder_path):
-        self.image_files = self.thread.valid_images
+    def load_file_list(self, folder_path, files):
+        """Pasang daftar file hasil pemindaian ke tampilan."""
+        self.image_files = files
+        self.filtered_files = []
+        self.current_index = 0
+        self.nav_history.clear()
         if not self.image_files:
+            self.show_current_image(self.filtered_files)
             self.show_loading(False)
             self.position_stack.setCurrentIndex(0)
             msg = QMessageBox()
@@ -1412,16 +2179,10 @@ class ImageSorterApp(QMainWindow):
             msg.exec()
             return
 
-        # Initialize file existence cache
-        self.file_exists_cache = {path: os.path.exists(path) for path in self.image_files}
-        self.image_cache[folder_path] = self.image_files.copy()
-        
-        self.current_index = 0
-        self.nav_history = []
-        self.source_info = f"Files successfully imported from: {folder_path}"
+        count = len(self.image_files)
+        self.source_info = f"{count:,} image{'s' if count != 1 else ''} imported from: {folder_path}"
         self.apply_filter()
         self.show_notification(self.source_info)
-        self.show_current_image(self.filtered_files)
         self.show_loading(False)
         self.position_stack.setCurrentIndex(0)
 
@@ -1523,7 +2284,8 @@ class ImageSorterApp(QMainWindow):
         self.filter_combo = QComboBox()
         self.filter_combo.setToolTip("Select file extension to filter")
         self.filter_combo.addItem("All Files")
-        self.filter_combo.addItems([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".heic", ".heif", ".raw", ".psd"])
+        readable_exts = readable_image_extensions()
+        self.filter_combo.addItems([ext for ext in SUPPORTED_IMAGE_EXTENSIONS if ext in readable_exts])
         self.filter_combo.currentIndexChanged.connect(self.apply_filter)
         action_layout.addWidget(self.filter_combo)
         self.filter_combo.setCurrentIndex(0)
@@ -1573,9 +2335,24 @@ class ImageSorterApp(QMainWindow):
         file_menu = menu_bar.addMenu("File")
         import_action = QAction("Import Folder", self)
         import_action.setIcon(QIcon(resource_path("assets/icons/folder.png")))
-        import_action.setToolTip("Import images from folder")
+        import_action.setShortcut(QKeySequence("Ctrl+O"))
+        import_action.setToolTip("Import images from folder (Ctrl+O)")
         import_action.triggered.connect(self.import_folder)
         file_menu.addAction(import_action)
+        reveal_action = QAction("Show in File Explorer", self)
+        reveal_action.setIcon(QIcon(resource_path("assets/icons/folder.png")))
+        reveal_action.setShortcut(QKeySequence("Ctrl+E"))
+        reveal_action.setToolTip("Reveal current image in File Explorer (Ctrl+E)")
+        reveal_action.triggered.connect(self.reveal_in_explorer)
+        file_menu.addAction(reveal_action)
+
+        recycle_action = QAction("Move to Recycle Bin", self)
+        recycle_action.setIcon(QIcon(resource_path("assets/icons/clear_recent.png")))
+        recycle_action.setShortcut(QKeySequence("Delete"))
+        recycle_action.setToolTip("Move current image to Windows Recycle Bin (Delete)")
+        recycle_action.triggered.connect(self.delete_current_to_recycle_bin)
+        file_menu.addAction(recycle_action)
+
         export_action = QAction("Export Log", self)
         export_action.setIcon(QIcon(resource_path("assets/icons/export_log.png")))
         export_action.setToolTip("Export activity log to text file")
@@ -1614,6 +2391,24 @@ class ImageSorterApp(QMainWindow):
         view_menu.addAction(self.light_action)
         view_menu.addAction(self.dark_action)
         view_menu.addAction(self.system_action)
+        view_menu.addSeparator()
+
+        self.hide_moved_action = QAction("Hide Moved Images", self)
+        self.hide_moved_action.setCheckable(True)
+        self.hide_moved_action.setChecked(self.hide_moved)
+        self.hide_moved_action.setShortcut(QKeySequence("Ctrl+H"))
+        self.hide_moved_action.triggered.connect(self.toggle_hide_moved)
+        view_menu.addAction(self.hide_moved_action)
+
+        jump_action = QAction("Jump to Image...", self)
+        jump_action.setShortcut(QKeySequence("Ctrl+G"))
+        jump_action.triggered.connect(self.jump_to_image_dialog)
+        view_menu.addAction(jump_action)
+
+        preview_action = QAction("Full-Size Preview", self)
+        preview_action.setShortcut(QKeySequence("F"))
+        preview_action.triggered.connect(self.open_full_preview)
+        view_menu.addAction(preview_action)
 
         settings_menu = menu_bar.addMenu("Settings")
         settings_action = QAction("Folder Settings", self)
@@ -1625,18 +2420,36 @@ class ImageSorterApp(QMainWindow):
         settings_action.triggered.connect(self.open_settings)
         export_settings_action.triggered.connect(self.export_settings)
         import_settings_action.triggered.connect(self.import_settings)
+        rapid_move_action = QAction("Rapid Move Speed", self)
+        rapid_move_action.setIcon(QIcon(resource_path("assets/icons/skip.png")))
+        rapid_move_action.triggered.connect(self.open_rapid_move_settings)
+        reset_settings_action = QAction("Reset Default Settings", self)
+        reset_settings_action.setIcon(QIcon(resource_path("assets/icons/clear_recent.png")))
+        reset_settings_action.triggered.connect(self.confirm_reset_default_settings)
+
         settings_menu.addAction(settings_action)
         settings_menu.addAction(export_settings_action)
         settings_menu.addAction(import_settings_action)
+        settings_menu.addAction(rapid_move_action)
+        settings_menu.addSeparator()
+        settings_menu.addAction(reset_settings_action)
 
         help_menu = menu_bar.addMenu("Help")
+        shortcuts_action = QAction("Keyboard Shortcuts && Guide", self)
+        shortcuts_action.setIcon(QIcon(resource_path("assets/icons/about.png")))
+        shortcuts_action.setShortcut(QKeySequence("F1"))
+        shortcuts_action.setToolTip("View all keyboard shortcuts and usage tutorial (F1)")
+        shortcuts_action.triggered.connect(self.show_shortcuts_guide)
+        help_menu.addAction(shortcuts_action)
+        help_menu.addSeparator()
+
         about_action = QAction("About", self)
         about_action.setIcon(QIcon(resource_path("assets/icons/about.png")))
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
         
         update_action = QAction("Check for Updates", self)
-        update_action.setIcon(QIcon(resource_path("assets/icons/update.png")))
+        update_action.setIcon(QIcon(resource_path("assets/icons/down_arrow.png")))
         update_action.triggered.connect(self.check_for_updates)
         help_menu.addAction(update_action)
 
@@ -1655,9 +2468,11 @@ class ImageSorterApp(QMainWindow):
         """)
         self.notification_label.hide()
 
-        for i in range(5):
-            shortcut = QShortcut(QKeySequence(str(i + 1)), self)
-            shortcut.activated.connect(lambda idx=i: self.move_to_custom_folder(self.folder_paths[idx]))
+        # Tombol 1-5 ditangani secara seragam oleh eventFilter (tekan = pindah 1 gambar, tahan = rapid move).
+        home_shortcut = QShortcut(QKeySequence("Home"), self)
+        home_shortcut.activated.connect(self.show_first_image)
+        end_shortcut = QShortcut(QKeySequence("End"), self)
+        end_shortcut.activated.connect(self.show_last_image)
         next_shortcut = QShortcut(QKeySequence("Right"), self)
         next_shortcut.activated.connect(self.show_next)
         next_shortcut_d = QShortcut(QKeySequence("D"), self)
@@ -1672,53 +2487,9 @@ class ImageSorterApp(QMainWindow):
         skip_shortcut.activated.connect(self.skip_image)
 
     def check_for_updates(self):
-        current_version = AboutDialog.VERSION  # Use version from AboutDialog
-        api_url = "https://api.github.com/repos/Zy0x/Image-Sorter/releases/latest"
-        try:
-            response = requests.get(api_url, timeout=5)
-            response.raise_for_status()
-            release_info = response.json()
-            latest_version = release_info.get("tag_name", "").lstrip("v")  # Remove 'v' prefix, e.g., 'v1.1-Stable' -> '1.1-Stable'
-            release_notes = release_info.get("body", "No release notes provided.")
-            download_url = release_info.get("html_url", "")
-            
-            dialog = UpdateDialog(self, current_version, latest_version, release_notes, download_url)
-            dialog.exec_()
-            
-        except requests.RequestException as e:
-            print(f"[DEBUG] Error checking for updates: {e}")
-            dialog = UpdateDialog(self, current_version, None, "Failed to check for updates. Please check your internet connection.")
-            dialog.exec_()
-
-    def load_images_from_folder(self, folder_path):
-        if not os.path.isdir(folder_path):
-            return
-
-        self.show_loading(True)
-
-        supported_formats = ('*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp',
-                            '*.tiff', '*.heic', '*.heif', '*.raw', '*.psd')
-        all_files = []
-        for ext in supported_formats:
-            all_files.extend(glob(os.path.join(folder_path, ext)))
-
-        if not all_files:
-            self.show_loading(False)
-            msg = QMessageBox()
-            msg.setWindowTitle("No Images")
-            msg.setText("No valid images found in this folder.")
-            msg.setIcon(QMessageBox.Warning)
-            self.apply_message_box_style(msg)
-            msg.exec()
-            return
-
-        self.thread = ImageValidationThread(all_files)
-        self.thread.finished.connect(lambda: self.process_valid_images_and_update_ui(folder_path))
-        self.thread.start()
-        self.image_files = all_files
-        self.apply_filter()
-
-        self.update_recent_folders(folder_path)
+        """Cek update manual dari menu, tanpa membekukan UI."""
+        self.show_notification("Checking for updates...")
+        self.start_update_check(manual=True)
 
     def update_progress_bar_style(self):
         is_dark = self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark())
@@ -1749,11 +2520,6 @@ class ImageSorterApp(QMainWindow):
             }}
         """)
 
-    def toggle_dark_mode(self, enable):
-        self.dark_mode = enable
-        settings.setValue("theme_mode", self.theme_mode)
-        self.apply_theme()
-
     def set_theme_mode(self, mode):
         valid_modes = ["light", "dark", "system", "custom"]
         if mode not in valid_modes:
@@ -1778,7 +2544,7 @@ class ImageSorterApp(QMainWindow):
         info_dialog.setWindowFlags(Qt.FramelessWindowHint)
         info_dialog.setAttribute(Qt.WA_TranslucentBackground)
         self.apply_message_box_style(info_dialog)
-        info_dialog.exec_()
+        info_dialog.exec()
 
     def apply_message_box_style(self, message_box):
         print(f"Theme Mode: {self.theme_mode}")
@@ -1868,13 +2634,20 @@ class ImageSorterApp(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
 
+        self.folder_buttons = []  # Reset list
+
         light_colors = ["#FFD1DC", "#C1E1C1", "#FFE082", "#B3CDE0", "#F8C8DC"]
         dark_colors = ["#4A2C5A", "#3A5F3A", "#6B5A2C", "#3A4B5D", "#6B3F4D"]
 
         for i, (label, path) in enumerate(zip(self.folder_names, self.folder_paths)):
-            btn = QPushButton(f"{label}")
+            key_num = i + 1
+            btn = QPushButton(f"[{key_num}] {label}")
             btn.setIcon(QIcon(resource_path("assets/icons/folder.png")))
             btn.setIconSize(QSize(16, 16))
+            btn.setToolTip(
+                f"Move to {label} ({path})\n"
+                f"Shortcut: Press {key_num} • Hold click or key {key_num} for Rapid Move"
+            )
             if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
                 color = dark_colors[i % len(dark_colors)]
                 hover_color = self.darken_color(color, factor=0.75)
@@ -1900,6 +2673,13 @@ class ImageSorterApp(QMainWindow):
             """)
             btn.clicked.connect(lambda _, p=path: self.move_to_custom_folder(p))
             self.folder_layout.addWidget(btn)
+            self.folder_buttons.append(btn)
+
+        # Pasang event filter pada kelima tombol folder (A-E)
+        for btn in self.folder_buttons:
+            btn.installEventFilter(self)
+        if hasattr(self, "image_label"):
+            self.image_label.installEventFilter(self)
 
     def darken_color(self, hex_color, factor=0.8):
         hex_color = hex_color.lstrip('#')
@@ -1934,12 +2714,7 @@ class ImageSorterApp(QMainWindow):
         super().resizeEvent(event)
         self.update_button_widths()
         if hasattr(self, 'notification_label') and self.notification_label.isVisible():
-            label_width = 800
-            label_height = 60
-            x = (self.width() - label_width) // 2
-            # Keep notification below the fixed info area (30px height)
-            y = 30 + 10  # 30px for info area + 10px margin
-            self.notification_label.setGeometry(x, y, label_width, label_height)
+            self.position_notification()
 
     def set_modern_button_style(self, button):
         if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
@@ -1987,16 +2762,16 @@ class ImageSorterApp(QMainWindow):
             self.update_folder_buttons()
             self.show_current_image()
 
+    def open_rapid_move_settings(self):
+        dialog = RapidMoveSettingsDialog(self)
+        dialog.exec()
+        
     def import_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if not folder_path:
             return
 
         self.import_folder_common(folder_path)
-
-    def process_valid_images_and_hide_loading(self):
-        self.process_valid_images()
-        self.show_loading(False)
 
     def show_loading(self, show=True):
         if show:
@@ -2040,9 +2815,15 @@ class ImageSorterApp(QMainWindow):
 
         self.position_stack.setCurrentIndex(0)
         if files is None:
-            files = self.filtered_files or self.image_files
+            files = self.filtered_files
+        self.stop_current_movie()
         if not files:
-            self.image_label.setText("No Image Loaded")
+            for child in self.image_label.findChildren(QLabel):
+                child.deleteLater()
+            if self.image_files:
+                self.image_label.setText("No images match the filter.")
+            else:
+                self.image_label.setText(self.get_empty_state_text())
             self.next_image_label.setText("Next: None")
             self.file_info_label.setText("No image loaded.")
             self.position_info_label.setText("")
@@ -2061,9 +2842,22 @@ class ImageSorterApp(QMainWindow):
         new_path = self.get_new_path_from_history(path) or path
         is_moved = folder_name is not None
 
+        meta_text = ""
+        orig_w, orig_h, file_size, fmt_bytes, frame_count = 0, 0, 0, b"", 1
+        file_exists = os.path.exists(new_path)
+        if file_exists:
+            orig_w, orig_h, file_size, fmt_bytes, frame_count = read_image_metadata(new_path)
+            parts = []
+            if orig_w > 0 and orig_h > 0:
+                parts.append(f"{orig_w}×{orig_h}")
+            if file_size > 0:
+                parts.append(format_file_size(file_size))
+            if parts:
+                meta_text = f" <span style='color: #888888;'>({' • '.join(parts)})</span>"
+
         moved_status = f" <span style='color: red; font-weight: bold;'>(moved to {folder_name})</span>" if is_moved else ""
-        self.file_info_label.setText(f"{filename}{moved_status}")
-        self.file_info_label.setToolTip(self.file_info_label.text())
+        self.file_info_label.setText(f"{filename}{meta_text}{moved_status}")
+        self.file_info_label.setToolTip(f"{filename} ({new_path})")
 
         current_pos = self.current_index + 1
         total_files = len(files)
@@ -2072,16 +2866,35 @@ class ImageSorterApp(QMainWindow):
         for child in self.image_label.findChildren(QLabel):
             child.deleteLater()
 
-        # Use cached file existence
-        file_exists = self.file_exists_cache.get(new_path, os.path.exists(new_path))
-        self.file_exists_cache[new_path] = file_exists
-
         if file_exists:
-            pixmap = QPixmap(new_path)
+            pixmap = load_pixmap(new_path, 720, 500)
             if not pixmap.isNull():
                 resized_pixmap = resize_image(pixmap)
-                self.image_label.setPixmap(resized_pixmap)
-                self.image_label.setFixedSize(resized_pixmap.size())
+                target_size = resized_pixmap.size()
+                self.image_label.setFixedSize(target_size)
+                # Putar animasi GIF/WebP dari buffer memori agar tidak mengunci file di Windows
+                if frame_count and frame_count > 1 and file_size <= 30 * 1024 * 1024:
+                    try:
+                        with open(new_path, "rb") as f:
+                            raw_bytes = f.read()
+                        self._movie_bytes = QByteArray(raw_bytes)
+                        self._movie_buffer = QBuffer()
+                        self._movie_buffer.setData(self._movie_bytes)
+                        self._movie_buffer.open(QIODevice.ReadOnly)
+                        movie = QMovie(self._movie_buffer, QByteArray(fmt_bytes), self)
+                        movie.setScaledSize(target_size)
+                        if movie.isValid():
+                            self.current_movie = movie
+                            self.image_label.setMovie(movie)
+                            movie.start()
+                        else:
+                            self.stop_current_movie()
+                            self.image_label.setPixmap(resized_pixmap)
+                    except OSError:
+                        self.stop_current_movie()
+                        self.image_label.setPixmap(resized_pixmap)
+                else:
+                    self.image_label.setPixmap(resized_pixmap)
                 if is_moved:
                     watermark = QLabel(self.image_label)
                     watermark.setText("MOVED")
@@ -2112,12 +2925,8 @@ class ImageSorterApp(QMainWindow):
         if next_index is not None:
             next_path = files[next_index]
             new_next_path = self.get_new_path_from_history(next_path) or next_path
-            # Use cached file existence
-            next_file_exists = self.file_exists_cache.get(new_next_path, os.path.exists(new_next_path))
-            self.file_exists_cache[new_next_path] = next_file_exists
-
-            if next_file_exists:
-                next_pixmap = QPixmap(new_next_path)
+            if os.path.exists(new_next_path):
+                next_pixmap = load_pixmap(new_next_path, 200, 260)
                 if not next_pixmap.isNull():
                     resized_next = resize_next_preview(next_pixmap)
                     self.next_image_label.setPixmap(resized_next)
@@ -2163,7 +2972,7 @@ class ImageSorterApp(QMainWindow):
 
     def find_valid_next_index(self, start_index, files=None):
         if files is None:
-            files = self.filtered_files or self.image_files
+            files = self.filtered_files
         for i in range(start_index + 1, len(files)):
             path = files[i]
             new_path = self.get_new_path_from_history(path) or path
@@ -2173,7 +2982,7 @@ class ImageSorterApp(QMainWindow):
 
     def find_valid_previous_index(self, start_index, files=None):
         if files is None:
-            files = self.filtered_files or self.image_files
+            files = self.filtered_files
         for i in range(start_index - 1, -1, -1):
             path = files[i]
             # Check if file exists in original or new location
@@ -2194,12 +3003,135 @@ class ImageSorterApp(QMainWindow):
         valid_index = self.find_valid_next_index(self.current_index, self.filtered_files)
         if valid_index is not None:
             self.nav_history.append(self.current_index)
-            # Bersihkan nav_history dari indeks yang tidak valid
-            self.nav_history = [i for i in self.nav_history if i < len(self.filtered_files)]
             self.current_index = valid_index
             self.show_current_image(self.filtered_files)
         else:
             self.show_notification("No valid next image.")
+
+    def show_first_image(self):
+        if not self.filtered_files:
+            return
+        idx = self.find_valid_next_index(-1, self.filtered_files)
+        if idx is not None and idx != self.current_index:
+            self.nav_history.append(self.current_index)
+            self.current_index = idx
+            self.show_current_image(self.filtered_files)
+
+    def show_last_image(self):
+        if not self.filtered_files:
+            return
+        idx = self.find_valid_previous_index(len(self.filtered_files), self.filtered_files)
+        if idx is not None and idx != self.current_index:
+            self.nav_history.append(self.current_index)
+            self.current_index = idx
+            self.show_current_image(self.filtered_files)
+
+    def jump_to_image_dialog(self):
+        if not self.filtered_files:
+            self.show_notification("No images loaded.")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Jump to Image")
+        dlg.setMinimumWidth(300)
+        self.apply_message_box_style(dlg)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(10)
+        lbl = QLabel(f"Enter image number (1 – {len(self.filtered_files)}):")
+        lay.addWidget(lbl)
+        spin = QSpinBox()
+        spin.setRange(1, len(self.filtered_files))
+        spin.setValue(self.current_index + 1)
+        spin.setFixedHeight(34)
+        lay.addWidget(spin)
+        btns = QHBoxLayout()
+        btns.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dlg.reject)
+        go_btn = QPushButton("Go")
+        go_btn.setDefault(True)
+        go_btn.clicked.connect(dlg.accept)
+        btns.addWidget(cancel_btn)
+        btns.addWidget(go_btn)
+        lay.addLayout(btns)
+        if dlg.exec() == QDialog.Accepted:
+            target_idx = spin.value() - 1
+            if 0 <= target_idx < len(self.filtered_files):
+                self.nav_history.append(self.current_index)
+                self.current_index = target_idx
+                self.show_current_image(self.filtered_files)
+
+    def toggle_hide_moved(self, checked=None):
+        if checked is None:
+            self.hide_moved = not self.hide_moved
+        else:
+            self.hide_moved = bool(checked)
+        if hasattr(self, "hide_moved_action"):
+            self.hide_moved_action.setChecked(self.hide_moved)
+        self.apply_filter()
+        state = "hidden" if self.hide_moved else "visible"
+        self.show_notification(f"Moved images are now {state}.")
+
+    def get_current_actual_path(self):
+        if not self.filtered_files or not (0 <= self.current_index < len(self.filtered_files)):
+            return None, None
+        src_path = self.filtered_files[self.current_index]
+        actual_path = self.get_new_path_from_history(src_path) or src_path
+        return src_path, actual_path
+
+    def reveal_in_explorer(self):
+        _, actual_path = self.get_current_actual_path()
+        if not actual_path or not os.path.exists(actual_path):
+            self.show_notification("No valid image file to reveal.")
+            return
+        norm = os.path.normpath(actual_path)
+        try:
+            subprocess.Popen(["explorer", f"/select,{norm}"])
+        except OSError:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(norm)))
+
+    def delete_current_to_recycle_bin(self):
+        self.stop_rapid_move(silent=True)
+        src_path, actual_path = self.get_current_actual_path()
+        if not actual_path or not os.path.exists(actual_path):
+            self.show_notification("No image to delete.")
+            return
+        filename = os.path.basename(actual_path)
+        msg = QMessageBox()
+        msg.setWindowTitle("Move to Recycle Bin")
+        msg.setText(f"Move '{filename}' to the Windows Recycle Bin?")
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setDefaultButton(QMessageBox.Yes)
+        msg.setIcon(QMessageBox.Question)
+        self.apply_message_box_style(msg)
+        if msg.exec() != QMessageBox.Yes:
+            return
+        self.stop_current_movie()
+        if not send_to_recycle_bin(actual_path):
+            self.show_move_error("Error", f"Could not move '{filename}' to the Recycle Bin.")
+            return
+        norm_src = os.path.normcase(os.path.normpath(src_path))
+        if norm_src in self.history_cache:
+            del self.history_cache[norm_src]
+            self.history = [(s, d) for s, d in self.history if os.path.normcase(os.path.normpath(s)) != norm_src]
+            self.schedule_history_save()
+        self.log_message(f"Recycle Bin: {actual_path}")
+        if src_path in self.image_files:
+            self.image_files.remove(src_path)
+        if 0 <= self.current_index < len(self.filtered_files) and self.filtered_files[self.current_index] == src_path:
+            self.filtered_files.pop(self.current_index)
+        if self.current_index >= len(self.filtered_files):
+            self.current_index = max(0, len(self.filtered_files) - 1)
+        self.show_current_image(self.filtered_files)
+        self.show_notification(f"'{filename}' moved to Recycle Bin.")
+
+    def open_full_preview(self):
+        _, actual_path = self.get_current_actual_path()
+        if not actual_path or not os.path.exists(actual_path):
+            self.show_notification("No image to preview.")
+            return
+        dlg = ImagePreviewDialog(actual_path, self)
+        dlg.exec()
 
     def validate_history(self):
         valid_history = []
@@ -2212,132 +3144,252 @@ class ImageSorterApp(QMainWindow):
         self.history = valid_history
         print(f"[DEBUG] Validated history: {self.history}")
 
+    DEFAULT_FOLDER_PATHS = ["output/A", "output/B", "output/C", "output/D", "output/E"]
+
+    @staticmethod
+    def _norm_path(path):
+        return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+    def is_default_folder_path(self, folder_path):
+        """True jika path masih berupa path bawaan (output/A..E) yang belum diatur pengguna."""
+        norm = os.path.normcase(os.path.normpath(folder_path))
+        return norm in [os.path.normcase(os.path.normpath(p)) for p in self.DEFAULT_FOLDER_PATHS]
+
+    def get_folder_display_name(self, folder_path):
+        norm = os.path.normcase(os.path.normpath(folder_path))
+        for name, path in zip(self.folder_names, self.folder_paths):
+            if os.path.normcase(os.path.normpath(path)) == norm:
+                return name
+        return os.path.basename(os.path.normpath(folder_path))
+
+    @staticmethod
+    def get_unique_destination(dest_folder, filename):
+        """Kembalikan path tujuan yang belum dipakai. File yang sudah ada TIDAK PERNAH ditimpa:
+        'foto.jpg' -> 'foto (1).jpg' -> 'foto (2).jpg', dst."""
+        base, ext = os.path.splitext(filename)
+        candidate = os.path.join(dest_folder, filename)
+        counter = 1
+        while os.path.lexists(candidate):
+            candidate = os.path.join(dest_folder, f"{base} ({counter}){ext}")
+            counter += 1
+        return candidate
+
+    def show_move_error(self, title, text):
+        """Hentikan rapid move SEBELUM menampilkan dialog modal agar timer tidak terus berjalan
+        dan dialog tidak menumpuk."""
+        self.stop_rapid_move(silent=True)
+        msg = QMessageBox()
+        msg.setWindowTitle(title)
+        msg.setText(text)
+        msg.setIcon(QMessageBox.Critical if title.startswith("Error") else QMessageBox.Warning)
+        self.apply_message_box_style(msg)
+        msg.exec()
+
     def move_to_custom_folder(self, folder_path):
-        if not self.image_files or self.current_index >= len(self.filtered_files):
+        """Pindahkan gambar yang SEDANG DITAMPILKAN ke folder tujuan.
+        Mengembalikan True jika file benar-benar dipindahkan, False jika tidak."""
+        files = self.filtered_files
+        if not files or not (0 <= self.current_index < len(files)):
             self.show_notification("No image to move.")
-            return
+            return False
 
-        self.defer_ui_updates = True  # Defer UI updates during move
-
-        src_path = self.image_files[self.current_index]
-        if not os.path.exists(src_path) and not self.get_new_path_from_history(src_path):
+        # Sumber selalu diambil dari daftar yang sama dengan yang ditampilkan (filtered_files)
+        src_path = files[self.current_index]
+        current_dest = self.get_new_path_from_history(src_path)
+        if not os.path.exists(src_path) and not (current_dest and os.path.exists(current_dest)):
+            self.stop_rapid_move(silent=True)
             self.show_notification("Source file not found.")
             self.show_next()
-            self.defer_ui_updates = False
-            return
+            return False
 
-        # Default paths
-        default_paths = ["output/A", "output/B", "output/C", "output/D", "output/E"]
-        norm_folder_path = os.path.normcase(os.path.normpath(folder_path))
-
-        # Check if folder is default
-        is_default = norm_folder_path in [os.path.normcase(os.path.normpath(p)) for p in default_paths]
-
-        if is_default:
+        # Folder tujuan masih default -> minta pengguna mengatur folder terlebih dahulu
+        if self.is_default_folder_path(folder_path):
+            self.stop_rapid_move(silent=True)
+            norm_requested = os.path.normcase(os.path.normpath(folder_path))
+            folder_index = next(
+                (i for i, p in enumerate(self.folder_paths)
+                 if os.path.normcase(os.path.normpath(p)) == norm_requested),
+                None
+            )
             dialog = FolderSettingsDialog(self)
             if dialog.exec() != QDialog.Accepted:
                 self.show_notification("Move cancelled. Please set destination folder.")
-                self.defer_ui_updates = False
-                return
+                return False
 
             self.load_custom_folders()
             self.update_folder_buttons()
 
-            for i, path in enumerate(self.folder_paths):
-                if os.path.normcase(os.path.normpath(path)) == norm_folder_path:
-                    folder_path = self.folder_paths[i]
-                    break
-            else:
+            if folder_index is None or folder_index >= len(self.folder_paths):
                 self.show_notification("Destination folder invalid after settings.")
-                self.defer_ui_updates = False
-                return
+                return False
+            # Gunakan path BARU pada slot folder yang sama (bukan path default lama)
+            folder_path = self.folder_paths[folder_index]
 
-        dest_folder = folder_path
+        dest_folder = (folder_path or "").strip()
         if not dest_folder:
-            msg = QMessageBox()
-            msg.setWindowTitle("Error")
-            msg.setText("Destination folder not selected.")
-            msg.setIcon(QMessageBox.Warning)
-            self.apply_message_box_style(msg)
-            msg.exec()
-            self.defer_ui_updates = False
-            return
+            self.show_move_error("Error", "Destination folder not selected.")
+            return False
 
-        current_dest = self.get_new_path_from_history(src_path)
-        norm_dest_folder = os.path.normcase(os.path.normpath(dest_folder))
+        folder_name = self.get_folder_display_name(dest_folder)
+        source_to_move = current_dest if current_dest and os.path.exists(current_dest) else src_path
 
-        if current_dest:
-            current_dest_folder = os.path.normcase(os.path.normpath(os.path.dirname(current_dest)))
-            if norm_dest_folder == current_dest_folder:
-                folder_name = os.path.basename(os.path.normpath(dest_folder))
-                for name, path in zip(self.folder_names, self.folder_paths):
-                    if os.path.normcase(os.path.normpath(path)) == norm_dest_folder:
-                        folder_name = name
-                        break
-                self.show_notification(f"File already in {folder_name}.")
-                self.defer_ui_updates = False
-                return
+        # Sudah berada di folder tujuan -> tidak perlu dipindah
+        if self._norm_path(os.path.dirname(source_to_move)) == self._norm_path(dest_folder):
+            self.show_notification(f"File already in {folder_name}.")
+            return False
 
-        os.makedirs(dest_folder, exist_ok=True)
-        filename = os.path.basename(src_path)
-        dest_path = os.path.join(dest_folder, filename)
-
+        self.defer_ui_updates = True
         try:
-            source_to_move = current_dest if current_dest and os.path.exists(current_dest) else src_path
-            if not os.path.exists(source_to_move):
-                raise FileNotFoundError(f"File {source_to_move} not found.")
+            self.stop_current_movie()
+            os.makedirs(dest_folder, exist_ok=True)
+            filename = os.path.basename(src_path)
+            dest_path = self.get_unique_destination(dest_folder, filename)
+            renamed = os.path.basename(dest_path) != filename
 
             shutil.move(source_to_move, dest_path)
 
             # Update history and cache
             norm_src_path = os.path.normcase(os.path.normpath(src_path))
-            self.history = [(s, d) for s, d in self.history if os.path.normcase(os.path.normpath(s)) != norm_src_path]
+            if norm_src_path in self.history_cache:
+                # Hanya saat file yang sama dipindah lagi: buang entri lamanya (jarang terjadi)
+                self.history = [(s, d) for s, d in self.history
+                                if os.path.normcase(os.path.normpath(s)) != norm_src_path]
             self.history.append((src_path, dest_path))
             self.history_cache[norm_src_path] = dest_path
-            save_history(self.history)
-
-            # Update file existence cache
-            self.file_exists_cache[src_path] = False
-            self.file_exists_cache[dest_path] = True
+            self.schedule_history_save()
 
             self.log_message(f"Moved: {source_to_move} → {dest_path}")
 
-            # Simpan indeks saat ini sebelum apply_filter
             current_index_before_move = self.current_index
-
-            self.apply_filter()
-
-            # Pulihkan current_index ke indeks berikutnya yang valid
-            self.current_index = self.find_valid_next_index(current_index_before_move, self.filtered_files)
-            if self.current_index is None:
+            if self.hide_moved:
+                if 0 <= current_index_before_move < len(self.filtered_files):
+                    self.filtered_files.pop(current_index_before_move)
+                has_next = len(self.filtered_files) > 0 and current_index_before_move < len(self.filtered_files)
                 self.current_index = min(current_index_before_move, len(self.filtered_files) - 1) if self.filtered_files else 0
+            else:
+                next_index = self.find_valid_next_index(current_index_before_move, self.filtered_files)
+                has_next = next_index is not None
+                if has_next:
+                    self.current_index = next_index
+                else:
+                    self.current_index = min(current_index_before_move, len(self.filtered_files) - 1) if self.filtered_files else 0
 
-            folder_name = os.path.basename(os.path.normpath(folder_path))
-            for name, path in zip(self.folder_names, self.folder_paths):
-                if os.path.normcase(os.path.normpath(path)) == norm_dest_folder:
-                    folder_name = name
-                    break
-
-            is_second_move = current_dest is not None
-
-            # Re-enable UI updates and refresh
             self.defer_ui_updates = False
             self.nav_history.append(current_index_before_move)
             self.show_current_image(self.filtered_files)
 
-            if is_second_move:
-                self.show_notification(f"Image successfully moved to {folder_name}")
+            if renamed:
+                self.show_notification(
+                    f"Image moved to {folder_name} as \"{os.path.basename(dest_path)}\" (a file with the same name already existed)."
+                )
             else:
                 self.show_notification(f"Image successfully moved to {folder_name}")
 
+            # Tidak ada gambar berikutnya -> rapid move berhenti otomatis
+            if not has_next:
+                self.stop_rapid_move(silent=True)
+            return True
+
         except Exception as e:
-            msg = QMessageBox()
-            msg.setWindowTitle("Error")
-            msg.setText(f"Could not move file:\n{str(e)}")
-            msg.setIcon(QMessageBox.Critical)
-            self.apply_message_box_style(msg)
-            msg.exec()
             self.defer_ui_updates = False
+            self.show_move_error("Error", f"Could not move file:\n{str(e)}")
+            return False
+
+    def start_rapid_move(self, folder_index, source="mouse"):
+        """Mulai mode pindah cepat ke folder tertentu (index 0-3 = A-D)."""
+        if self.is_rapid_moving or not self.filtered_files:
+            return
+        if not (0 <= folder_index < len(self.folder_paths)):
+            return
+
+        folder_path = self.folder_paths[folder_index]
+        # Folder belum diatur: hanya satu pemindahan (dialog pengaturan akan muncul), TANPA timer.
+        if self.is_default_folder_path(folder_path):
+            self.move_to_custom_folder(folder_path)
+            return
+
+        self.is_rapid_moving = True
+        self.rapid_folder_index = folder_index
+        self.rapid_source = source
+        # Pindahkan gambar pertama segera
+        moved = self.move_to_custom_folder(folder_path)
+        if not moved or not self.is_rapid_moving:
+            self.stop_rapid_move(silent=True)
+            return
+        self.rapid_timer.start(clamp_rapid_interval(self.rapid_move_interval))
+
+    def rapid_move(self):
+        """Dipanggil oleh timer untuk memindahkan gambar berikutnya."""
+        if not self.is_rapid_moving or self.rapid_folder_index is None:
+            self.stop_rapid_move(silent=True)
+            return
+        # Pengaman: jika tombol mouse sudah tidak ditekan (event release hilang), hentikan.
+        if self.rapid_source == "mouse" and not (QApplication.mouseButtons() & Qt.LeftButton):
+            self.stop_rapid_move()
+            return
+        # Pengaman keyboard: jendela kehilangan fokus (key release tidak akan diterima)
+        if self.rapid_source == "key" and not self.isActiveWindow():
+            self.stop_rapid_move()
+            return
+        if not self.filtered_files or self.current_index >= len(self.filtered_files):
+            self.stop_rapid_move()
+            return
+        if not self.move_to_custom_folder(self.folder_paths[self.rapid_folder_index]):
+            self.stop_rapid_move(silent=True)
+
+    def stop_rapid_move(self, silent=False):
+        """Hentikan mode pindah cepat."""
+        self.rapid_timer.stop()
+        if self.is_rapid_moving:
+            self.is_rapid_moving = False
+            self.rapid_folder_index = None
+            self.rapid_source = None
+            if not silent:
+                self.show_notification("Rapid move stopped")
+
+    RAPID_KEYS = (Qt.Key_1, Qt.Key_2, Qt.Key_3, Qt.Key_4, Qt.Key_5)
+
+    def _is_rapid_key_event(self, obj, event):
+        """Key 1-5 tanpa Ctrl/Alt/Meta, ditujukan ke jendela utama, dan tidak ada dialog modal."""
+        if event.key() not in self.RAPID_KEYS:
+            return False
+        blocked = Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
+        if event.modifiers() & blocked:
+            return False
+        if QApplication.activeModalWidget() is not None:
+            return False
+        if not (hasattr(obj, "isWidgetType") and obj.isWidgetType()):
+            return False
+        return obj.window() is self
+
+    def eventFilter(self, obj, event):
+        """Tangani tombol keyboard 1-4 dan hold mouse pada tombol folder A-D."""
+        etype = event.type()
+        if etype in (QEvent.KeyPress, QEvent.KeyRelease) and self._is_rapid_key_event(obj, event):
+            if event.isAutoRepeat():
+                return True  # abaikan auto-repeat OS; kecepatan diatur timer rapid move
+            index = event.key() - Qt.Key_1
+            if etype == QEvent.KeyPress:
+                self.start_rapid_move(index, source="key")
+            else:
+                self.stop_rapid_move(silent=True)
+            return True
+        if etype == QEvent.WindowDeactivate and obj is self:
+            self.stop_rapid_move(silent=True)
+        if hasattr(self, "image_label") and obj is self.image_label:
+            if etype == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
+                if self.filtered_files:
+                    self.open_full_preview()
+                    return True
+        if obj in self.folder_buttons:
+            if etype == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                index = self.folder_buttons.index(obj)
+                self.start_rapid_move(index, source="mouse")
+                return True
+            elif etype == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                self.stop_rapid_move()
+                return True
+        return super().eventFilter(obj, event)
 
     def undo_action(self):
         if not self.history:
@@ -2352,12 +3404,19 @@ class ImageSorterApp(QMainWindow):
         self.defer_ui_updates = True  # Defer UI updates during undo
 
         src_path, dest_path = self.history.pop()
-        save_history(self.history)
+        self.schedule_history_save()
 
         try:
             if not os.path.exists(dest_path):
                 raise FileNotFoundError(f"Destination file {dest_path} not found.")
+            # Jangan pernah menimpa file lain yang kini berada di lokasi asal
+            if os.path.lexists(src_path):
+                raise FileExistsError(
+                    f"A file already exists at the original location:\n{src_path}\n"
+                    "Rename or move it first, then try Undo again."
+                )
 
+            os.makedirs(os.path.dirname(src_path) or ".", exist_ok=True)
             shutil.move(dest_path, src_path)
             self.log_message(f"Undo: {dest_path} → {src_path}")
 
@@ -2365,22 +3424,20 @@ class ImageSorterApp(QMainWindow):
             norm_src_path = os.path.normcase(os.path.normpath(src_path))
             if norm_src_path in self.history_cache:
                 del self.history_cache[norm_src_path]
-            self.file_exists_cache[src_path] = True
-            self.file_exists_cache[dest_path] = False
+            if self.hide_moved:
+                self.apply_filter()
 
-            # Update filtered_files
-            self.apply_filter()
+            # Cari posisi file yang dikembalikan (pencarian string cepat dulu, lalu fallback ternormalisasi)
+            try:
+                self.current_index = self.filtered_files.index(src_path)
+            except ValueError:
+                for i, path in enumerate(self.filtered_files):
+                    if os.path.normcase(os.path.normpath(path)) == norm_src_path:
+                        self.current_index = i
+                        break
+                else:
+                    self.current_index = min(self.current_index, len(self.filtered_files) - 1) if self.filtered_files else 0
 
-            # Find index of undone file in filtered_files
-            for i, path in enumerate(self.filtered_files):
-                if os.path.normcase(os.path.normpath(path)) == norm_src_path:
-                    self.current_index = i
-                    break
-            else:
-                self.current_index = min(self.current_index, len(self.filtered_files) - 1) if self.filtered_files else 0
-
-            # Clean nav_history
-            self.nav_history = [i for i in self.nav_history if i < len(self.filtered_files)]
             filename = os.path.basename(src_path)
 
             # Re-enable UI updates and refresh
@@ -2396,6 +3453,7 @@ class ImageSorterApp(QMainWindow):
             self.apply_message_box_style(msg)
             msg.exec()
             self.history.append((src_path, dest_path))
+            self.schedule_history_save()
             self.defer_ui_updates = False
 
     def skip_image(self):
@@ -2403,7 +3461,17 @@ class ImageSorterApp(QMainWindow):
         self.show_next()
 
     def export_log(self):
-        if not self.log_buffer:
+        if self.log_buffer:
+            self.write_log_to_file()
+        log_path = os.path.join(os.path.dirname(get_config_path()), "event.log")
+        log_content = ""
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    log_content = f.read()
+            except IOError:
+                log_content = ""
+        if not log_content.strip():
             msg = QMessageBox()
             msg.setWindowTitle("Export Log")
             msg.setText("No log to export.")
@@ -2423,8 +3491,7 @@ class ImageSorterApp(QMainWindow):
             return
         try:
             with open(file_path, "w", encoding="utf-8") as f:
-                for line in self.log_buffer:
-                    f.write(line + "\n")
+                f.write(log_content)
             msg = QMessageBox()
             msg.setWindowTitle("Export Log")
             msg.setText(f"Log successfully saved as '{file_path}'")
@@ -2439,9 +3506,31 @@ class ImageSorterApp(QMainWindow):
             self.apply_message_box_style(msg)
             msg.exec()
 
+    def get_empty_state_text(self):
+        """Teks panduan singkat pada area preview saat belum ada gambar yang dimuat."""
+        return (
+            "<div style='text-align:center; line-height:1.55;'>"
+            "<div style='font-size:18px; font-weight:bold; margin-bottom:8px;'>No Image Loaded</div>"
+            "<div style='font-size:13px; margin-bottom:14px;'>"
+            "Drag &amp; drop a folder/image here, or press <b>Ctrl+O</b> (<i>File → Import Folder</i>)"
+            "</div>"
+            "<div style='font-size:12px;'>"
+            "<b>[1]–[5]</b> Move to Folder A–E &nbsp;•&nbsp; "
+            "<b>Hold [1]–[5] / Button A–E</b> Rapid Move<br>"
+            "<b>← / A</b> Previous &nbsp;•&nbsp; <b>→ / D</b> Next &nbsp;•&nbsp; "
+            "<b>Space</b> Skip &nbsp;•&nbsp; <b>Ctrl+Z</b> Undo<br>"
+            "Press <b>F1</b> (<i>Help → Keyboard Shortcuts &amp; Guide</i>) for full tutorial"
+            "</div>"
+            "</div>"
+        )
+
+    def show_shortcuts_guide(self):
+        dialog = ShortcutsGuideDialog(self)
+        dialog.exec()
+
     def show_about(self):
         about_dialog = AboutDialog(self)
-        about_dialog.exec_()
+        about_dialog.exec()
 
     def export_settings(self):
         options = QFileDialog.Options()
@@ -2526,44 +3615,48 @@ class ImageSorterApp(QMainWindow):
 
     def apply_filter(self):
         selected_ext = self.filter_combo.currentText()
-        if selected_ext == self.last_filter and self.filtered_files:
-            return  # No need to re-filter if the filter hasn't changed
-
+        previous_path = (
+            self.filtered_files[self.current_index]
+            if not self.defer_ui_updates and 0 <= self.current_index < len(self.filtered_files)
+            else None
+        )
         self.last_filter = selected_ext
-        cache_key = selected_ext
 
-        # Check if filter result is cached
-        if cache_key in self.filter_cache:
-            self.filtered_files = self.filter_cache[cache_key]
+        # Selalu bangun ulang filtered_files dari image_files agar tidak basi saat ganti folder
+        if selected_ext == "All Files":
+            candidates = list(self.image_files)
         else:
+            wanted = selected_ext.lower()
+            candidates = [path for path in self.image_files if path.lower().endswith(wanted)]
+
+        if self.hide_moved and self.history_cache:
             self.filtered_files = [
-                path for path in self.image_files
-                if selected_ext == "All Files" or path.lower().endswith(selected_ext.lower())
+                path for path in candidates
+                if os.path.normcase(os.path.normpath(path)) not in self.history_cache
             ]
-            self.filter_cache[cache_key] = self.filtered_files[:]
+        else:
+            self.filtered_files = candidates
 
         print(f"[DEBUG] filtered_files: {len(self.filtered_files)} items")
 
-        # Reset current_index if current file is not in filtered_files
-        if self.filtered_files and (not self.image_files or self.current_index >= len(self.filtered_files)):
-            self.current_index = 0
-            valid_index = self.find_valid_next_index(-1, self.filtered_files)
-            if valid_index is not None:
-                self.current_index = valid_index
-            else:
-                for i, path in enumerate(self.filtered_files):
-                    if path in self.file_exists_cache and self.file_exists_cache[path]:
-                        self.current_index = i
-                        break
+        if self.defer_ui_updates:
+            return
 
-        self.position_stack.setCurrentIndex(0)
-        if not self.filtered_files:
-            self.image_label.setText("No images match the filter.")
-            self.next_image_label.setText("Next: None")
-            self.file_info_label.setText("No image loaded.")
-            self.position_info_label.setText("")
+        if previous_path and previous_path in self.filtered_files:
+            self.current_index = self.filtered_files.index(previous_path)
+        elif self.filtered_files:
+            if self.current_index >= len(self.filtered_files):
+                self.current_index = 0
+            cur_path = self.filtered_files[self.current_index]
+            cur_actual = self.get_new_path_from_history(cur_path) or cur_path
+            if not os.path.exists(cur_actual):
+                valid_index = self.find_valid_next_index(-1, self.filtered_files)
+                if valid_index is not None:
+                    self.current_index = valid_index
         else:
-            self.show_current_image(self.filtered_files)
+            self.current_index = 0
+
+        self.show_current_image(self.filtered_files)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
