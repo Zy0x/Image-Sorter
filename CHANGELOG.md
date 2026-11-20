@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.8 — 2026-11-20
+
+### Added — smart double-click zoom & drag-to-pan in Full-Size Preview
+- **Smart Cursor-Anchored Double-Click Zoom (`_smart_double_click_zoom`):** Double-clicking any point on the image inside `ImagePreviewDialog` zooms directly into that exact coordinate (~2.25× fit / at least 100%); double-clicking again when zoomed in toggles smoothly back to **Fit-to-Window**.
+- **Click-and-Drag Panning / Hand Tool (`Drag Move`):** When zoomed in beyond Fit, clicking and dragging with the left mouse button pans the image smoothly in 1:1 pixel sync with automatic `OpenHandCursor` / `ClosedHandCursor` feedback.
+- **Cursor-Anchored Mouse Wheel Zoom & Keyboard Controls:** Mouse-wheel scrolling zooms in and out anchored at the cursor position, accompanied by sleek 8px scrollbars and keyboard shortcuts (`+`/`=`, `-`, `0` for Fit, `1` for 100%).
+
 ## 2.1.7 — 2026-11-20
 
 ### Changed — editorial monochrome shortcut sheet (anti-slop redesign)

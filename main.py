@@ -459,7 +459,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.7-Stable"
+    VERSION = "2.1.8-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -853,21 +853,27 @@ class ShortcutsGuideDialog(QDialog):
 
 
 class ImagePreviewDialog(QDialog):
-    """Dialog pratinjau ukuran penuh dengan kontrol Zoom (+, -, Fit, 100%, roda mouse)."""
+    """Dialog pratinjau ukuran penuh dengan Smart Double-Click Zoom, Cursor-Anchored Wheel Zoom, dan Drag-to-Pan."""
     def __init__(self, image_path, parent=None):
         super().__init__(parent)
         self.image_path = image_path
         self.parent = parent
         self.zoom_factor = 1.0
+        self._fit_zoom = 1.0
         self._fit_mode = True
+        self._pan_active = False
+        self._pan_moved = False
+        self._pan_start_pos = None
+        self._pan_start_h = 0
+        self._pan_start_v = 0
         self.base_pixmap = load_pixmap(image_path)
 
         filename = os.path.basename(image_path)
         w = self.base_pixmap.width()
         h = self.base_pixmap.height()
         self.setWindowTitle(f"Preview — {filename} ({w}×{h})")
-        self.resize(960, 720)
-        self.setMinimumSize(480, 360)
+        self.resize(1000, 740)
+        self.setMinimumSize(520, 380)
 
         is_dark = True
         if self.parent and hasattr(self.parent, "theme_mode"):
@@ -875,43 +881,88 @@ class ImagePreviewDialog(QDialog):
                 self.parent.theme_mode in ("dark", "custom")
                 or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
             )
-        bg = "#141414" if is_dark else "#f5f5f5"
-        text = "#ffffff" if is_dark else "#1f2328"
-        btn_bg = "#2a2a2a" if is_dark else "#e0e0e0"
+        bg = "#141416" if is_dark else "#f5f5f7"
+        canvas_bg = "#0f0f11" if is_dark else "#ebedf0"
+        text = "#ededef" if is_dark else "#18181b"
+        muted = "#787882" if is_dark else "#71717a"
+        btn_bg = "#232328" if is_dark else "#e4e6ea"
+        btn_hover = "#2f2f36" if is_dark else "#d5d8de"
+        border = "#28282e" if is_dark else "#d0d4dc"
+        thumb = "#3a3a44" if is_dark else "#b8bec8"
 
         self.setStyleSheet(f"""
             QDialog {{ background-color: {bg}; color: {text}; }}
-            QScrollArea {{ background-color: {bg}; border: 1px solid #333; border-radius: 8px; }}
+            QScrollArea {{
+                background-color: {canvas_bg};
+                border: 1px solid {border};
+                border-radius: 8px;
+            }}
             QLabel {{ color: {text}; background: transparent; border: none; }}
             QPushButton {{
-                background-color: {btn_bg}; color: {text}; border: none;
-                padding: 6px 14px; font-weight: bold; border-radius: 6px; min-height: 28px;
+                background-color: {btn_bg};
+                color: {text};
+                border: 1px solid {border};
+                padding: 5px 13px;
+                font-size: 12px;
+                font-weight: 600;
+                border-radius: 6px;
+                min-height: 26px;
             }}
-            QPushButton:hover {{ background-color: #00BFFF; color: white; }}
+            QPushButton:hover {{ background-color: {btn_hover}; }}
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 8px;
+                margin: 2px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {thumb};
+                min-height: 28px;
+                border-radius: 3px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 8px;
+                margin: 2px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {thumb};
+                min-width: 28px;
+                border-radius: 3px;
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(12, 10, 12, 12)
         layout.setSpacing(8)
 
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(6)
         self.info_label = QLabel(f"{filename}  ({w}×{h})")
-        self.info_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        self.info_label.setStyleSheet("font-weight: 600; font-size: 13px;")
         toolbar.addWidget(self.info_label)
+
+        hint_label = QLabel("  ·  Double-Click: Zoom / Fit  ·  Drag: Pan  ·  Wheel: Zoom")
+        hint_label.setStyleSheet(f"font-size: 11px; color: {muted};")
+        toolbar.addWidget(hint_label)
         toolbar.addStretch()
 
-        zoom_out_btn = QPushButton("− Zoom Out")
+        zoom_out_btn = QPushButton("−")
+        zoom_out_btn.setToolTip("Zoom Out (−)")
         zoom_out_btn.clicked.connect(lambda: self.adjust_zoom(0.8))
-        zoom_in_btn = QPushButton("+ Zoom In")
+        zoom_in_btn = QPushButton("+")
+        zoom_in_btn.setToolTip("Zoom In (+)")
         zoom_in_btn.clicked.connect(lambda: self.adjust_zoom(1.25))
-        fit_btn = QPushButton("Fit")
+        fit_btn = QPushButton("Fit (0)")
         fit_btn.clicked.connect(self.fit_to_window)
-        actual_btn = QPushButton("100%")
+        actual_btn = QPushButton("100% (1)")
         actual_btn.clicked.connect(self.reset_actual_size)
         close_btn = QPushButton("Close (Esc)")
         close_btn.clicked.connect(self.accept)
 
         for b in (zoom_out_btn, zoom_in_btn, fit_btn, actual_btn, close_btn):
+            b.setCursor(Qt.PointingHandCursor)
             toolbar.addWidget(b)
         layout.addLayout(toolbar)
 
@@ -920,56 +971,197 @@ class ImagePreviewDialog(QDialog):
         self.scroll_area.setAlignment(Qt.AlignCenter)
         self.preview_label = QLabel()
         self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setStyleSheet(f"background-color: {canvas_bg};")
         self.scroll_area.setWidget(self.preview_label)
         layout.addWidget(self.scroll_area, stretch=1)
 
+        # Pasang eventFilter pada viewport dan label untuk Drag-to-Pan & Smart Double-Click Zoom
+        self.scroll_area.viewport().installEventFilter(self)
+        self.preview_label.installEventFilter(self)
+
         self.update_preview()
 
-    def adjust_zoom(self, multiplier):
+    def _compute_fit_zoom(self):
+        if self.base_pixmap.isNull():
+            return 1.0
+        vp = self.scroll_area.viewport().size()
+        tw = max(100, vp.width() - 8)
+        th = max(100, vp.height() - 8)
+        bw = max(1, self.base_pixmap.width())
+        bh = max(1, self.base_pixmap.height())
+        return min(tw / bw, th / bh)
+
+    def _is_pannable(self):
+        hbar = self.scroll_area.horizontalScrollBar()
+        vbar = self.scroll_area.verticalScrollBar()
+        return (hbar.maximum() > 0) or (vbar.maximum() > 0) or (not self._fit_mode and self.zoom_factor > self._fit_zoom * 1.02)
+
+    def _update_cursor(self):
+        if self._pan_active:
+            self.scroll_area.viewport().setCursor(Qt.ClosedHandCursor)
+        elif self._is_pannable():
+            self.scroll_area.viewport().setCursor(Qt.OpenHandCursor)
+        else:
+            self.scroll_area.viewport().setCursor(Qt.ArrowCursor)
+
+    def _zoom_to_at_pos(self, target_zoom, viewport_pos=None):
+        """Ubah zoom_factor ke target_zoom dengan titik di bawah kursor (viewport_pos) tetap terkunci."""
+        if self.base_pixmap.isNull():
+            return
+        vp = self.scroll_area.viewport()
+        vp_w, vp_h = vp.width(), vp.height()
+        if viewport_pos is None:
+            vx, vy = vp_w / 2.0, vp_h / 2.0
+        else:
+            vx, vy = float(viewport_pos.x()), float(viewport_pos.y())
+
+        hbar = self.scroll_area.horizontalScrollBar()
+        vbar = self.scroll_area.verticalScrollBar()
+
+        old_pix = self.preview_label.pixmap()
+        if old_pix is not None and not old_pix.isNull():
+            old_w, old_h = float(old_pix.width()), float(old_pix.height())
+        else:
+            old_w = max(1.0, self.base_pixmap.width() * self.zoom_factor)
+            old_h = max(1.0, self.base_pixmap.height() * self.zoom_factor)
+
+        offset_x = max(0.0, (vp_w - old_w) / 2.0)
+        offset_y = max(0.0, (vp_h - old_h) / 2.0)
+        img_x = hbar.value() + vx - offset_x
+        img_y = vbar.value() + vy - offset_y
+        fx = max(0.0, min(1.0, img_x / max(1.0, old_w)))
+        fy = max(0.0, min(1.0, img_y / max(1.0, old_h)))
+
         self._fit_mode = False
-        self.zoom_factor = max(0.1, min(8.0, self.zoom_factor * multiplier))
+        self.zoom_factor = max(0.1, min(8.0, float(target_zoom)))
         self.update_preview()
+
+        new_w = self.base_pixmap.width() * self.zoom_factor
+        new_h = self.base_pixmap.height() * self.zoom_factor
+        new_offset_x = max(0.0, (vp_w - new_w) / 2.0)
+        new_offset_y = max(0.0, (vp_h - new_h) / 2.0)
+        hbar.setValue(int(round(fx * new_w + new_offset_x - vx)))
+        vbar.setValue(int(round(fy * new_h + new_offset_y - vy)))
+        self._update_cursor()
+
+    def _smart_double_click_zoom(self, viewport_pos):
+        """Double-click di titik mana pun:
+        - Jika sedang Fit (atau zoom kecil): zoom in cerdas (2.2x dari Fit / minimal 100%) tepat ke titik yang diklik.
+        - Jika sudah di-zoom in: kembali ke Fit-to-Window."""
+        fit_z = self._compute_fit_zoom()
+        self._fit_zoom = fit_z
+        if self._fit_mode or self.zoom_factor <= fit_z * 1.05:
+            target = max(1.0, fit_z * 2.25) if fit_z < 0.9 else min(4.0, fit_z * 2.25)
+            self._zoom_to_at_pos(target, viewport_pos)
+        else:
+            self.fit_to_window()
+
+    def adjust_zoom(self, multiplier, viewport_pos=None):
+        self._zoom_to_at_pos(self.zoom_factor * multiplier, viewport_pos)
 
     def fit_to_window(self):
         self._fit_mode = True
         self.update_preview()
+        self._update_cursor()
 
     def reset_actual_size(self):
-        self._fit_mode = False
-        self.zoom_factor = 1.0
-        self.update_preview()
+        self._zoom_to_at_pos(1.0)
 
     def update_preview(self):
         if self.base_pixmap.isNull():
             self.preview_label.setText("Failed to load image.")
             return
         if self._fit_mode:
-            vp = self.scroll_area.viewport().size()
-            tw = max(200, vp.width() - 16)
-            th = max(200, vp.height() - 16)
-            scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.zoom_factor = scaled.width() / max(1, self.base_pixmap.width())
+            self._fit_zoom = self._compute_fit_zoom()
+            self.zoom_factor = self._fit_zoom
+        tw = max(16, int(round(self.base_pixmap.width() * self.zoom_factor)))
+        th = max(16, int(round(self.base_pixmap.height() * self.zoom_factor)))
+        scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        if self._fit_mode:
+            self.preview_label.setMinimumSize(1, 1)
         else:
-            tw = max(16, int(self.base_pixmap.width() * self.zoom_factor))
-            th = max(16, int(self.base_pixmap.height() * self.zoom_factor))
-            scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.preview_label.setMinimumSize(scaled.size())
         self.preview_label.setPixmap(scaled)
+        self.preview_label.resize(scaled.size())
+        QApplication.processEvents()
         pct = int(round(self.zoom_factor * 100))
+        mode_tag = "Fit" if self._fit_mode else f"{pct}%"
         self.info_label.setText(
-            f"{os.path.basename(self.image_path)}  ({self.base_pixmap.width()}×{self.base_pixmap.height()} • {pct}%)"
+            f"{os.path.basename(self.image_path)}  ({self.base_pixmap.width()}×{self.base_pixmap.height()} • {mode_tag})"
         )
+        self._update_cursor()
+
+    def _map_to_viewport(self, obj, pos):
+        vp = self.scroll_area.viewport()
+        if obj is vp:
+            return pos
+        return obj.mapTo(vp, pos)
+
+    def eventFilter(self, obj, event):
+        vp = self.scroll_area.viewport()
+        if obj in (vp, self.preview_label):
+            etype = event.type()
+            if etype == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
+                self._pan_active = False
+                vp_pos = self._map_to_viewport(obj, event.position().toPoint())
+                self._smart_double_click_zoom(vp_pos)
+                return True
+            if etype == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                if self._is_pannable():
+                    self._pan_active = True
+                    self._pan_moved = False
+                    self._pan_start_pos = event.globalPosition().toPoint()
+                    self._pan_start_h = self.scroll_area.horizontalScrollBar().value()
+                    self._pan_start_v = self.scroll_area.verticalScrollBar().value()
+                    self._update_cursor()
+                    return True
+            elif etype == QEvent.MouseMove and self._pan_active:
+                delta = event.globalPosition().toPoint() - self._pan_start_pos
+                if abs(delta.x()) > 2 or abs(delta.y()) > 2:
+                    self._pan_moved = True
+                self.scroll_area.horizontalScrollBar().setValue(self._pan_start_h - delta.x())
+                self.scroll_area.verticalScrollBar().setValue(self._pan_start_v - delta.y())
+                return True
+            elif etype == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                if self._pan_active:
+                    self._pan_active = False
+                    self._update_cursor()
+                    return True
+            elif etype == QEvent.Wheel:
+                delta = event.angleDelta().y()
+                vp_pos = self._map_to_viewport(obj, event.position().toPoint())
+                if delta > 0:
+                    self.adjust_zoom(1.18, vp_pos)
+                elif delta < 0:
+                    self.adjust_zoom(1 / 1.18, vp_pos)
+                return True
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key_Plus, Qt.Key_Equal):
+            self.adjust_zoom(1.25)
+            return
+        if key == Qt.Key_Minus:
+            self.adjust_zoom(0.8)
+            return
+        if key == Qt.Key_0:
+            self.fit_to_window()
+            return
+        if key == Qt.Key_1:
+            self.reset_actual_size()
+            return
+        super().keyPressEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._fit_mode:
+            self.update_preview()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._fit_mode:
             self.update_preview()
-
-    def wheelEvent(self, event):
-        delta = event.angleDelta().y()
-        if delta > 0:
-            self.adjust_zoom(1.15)
-        elif delta < 0:
-            self.adjust_zoom(1 / 1.15)
 
 
 class FolderScanThread(QThread):

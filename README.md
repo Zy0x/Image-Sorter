@@ -16,7 +16,7 @@
   <a href="https://github.com/Zy0x/Image-Sorter/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/releases/latest"><img src="https://img.shields.io/github/v/release/Zy0x/Image-Sorter?sort=semver&color=orange" alt="Latest Release"></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python Version"></a>
-  <a href="#"><img src="https://img.shields.io/badge/version-2.1.7--Stable-brightgreen.svg" alt="Version"></a>
+  <a href="#"><img src="https://img.shields.io/badge/version-2.1.8--Stable-brightgreen.svg" alt="Version"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/stargazers"><img src="https://img.shields.io/github/stars/Zy0x/Image-Sorter?style=social" alt="Stars"></a>
 </div>
 
@@ -39,7 +39,7 @@
 > * **One-Key & Rapid Move (`1`–`5`)** – Press keys `1`–`5` (or click Folder A–E) to move an image, or **hold** keys `1`–`5` / buttons A–E to sort continuously at your configured interval (50–1000 ms).
 > * **100,000+ File Engine** – Single-pass `os.scandir` background thread with natural filename sorting (`IMG_2` before `IMG_10`) and $O(1)$ move/undo operations.
 > * **Zero-Overwrite File Safety** – Automatically renames duplicate filenames (`photo (1).jpg`, `photo (2).jpg`) and protects original paths during Undo (`Ctrl+Z`).
-> * **Full-Size & Zoom Preview (`F`)** – Double-click the main image or press `F` to inspect details with Zoom In/Out, Fit, 100%, and mouse-wheel zoom.
+> * **Full-Size & Zoom Preview (`F`)** – Double-click the main image or press `F` to inspect details with **Smart Double-Click Zoom** (cursor-anchored toggle between Fit and 2.25×/100%), **Drag-to-Pan (`Drag Move`)**, cursor-anchored mouse-wheel zoom, and keyboard shortcuts (`+`/`−`, `0` Fit, `1` 100%).
 > * **Animated GIF / WebP & High-MP Support** – Plays animations from an in-memory buffer (never locking files on Windows), applies EXIF auto-rotation, and uses scaled decoding for 12–50 MP photos.
 > * **Fast Navigation & Filtering** – Filter by extension, toggle **Hide Moved Images (`Ctrl+H`)**, jump to any image number (`Ctrl+G`), or jump to start/end (`Home` / `End`).
 > * **Recycle Bin & Explorer Integration** – Move unwanted images to the Windows Recycle Bin (`Delete`) or reveal the current file in Explorer (`Ctrl+E`).

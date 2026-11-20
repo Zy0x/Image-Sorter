@@ -58,6 +58,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.8-Stable (Selesai)
+- [x] **Smart Cursor-Anchored Double-Click Zoom & Drag-to-Pan (`ImagePreviewDialog`):** Klik ganda pada titik mana pun di jendela *Full-Size Preview* langsung melakukan *zoom-in* tepat ke koordinat kursor (~2,25× fit / minimal 100%) dan klik ganda kedua mengembalikan tampilan ke *Fit-to-Window*; saat diperbesar, gambar dapat ditarik/digeser dengan klik-tahan mouse kiri (*Hand Tool / Drag Move* dengan kursor `OpenHand` / `ClosedHand`) serta mendukung *mouse-wheel zoom* berpusat pada posisi kursor.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Custom Jumlah Slot Folder Dinamis (3–10 Folder):** Menambah atau mengurangi jumlah tombol folder tujuan sesuai kebutuhan proyek.
 - [ ] **Deteksi Gambar Duplikat / Mirip (Perceptual Hash):** Menandai foto kembar dalam satu folder sebelum disortir.
