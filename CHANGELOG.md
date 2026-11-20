@@ -2,6 +2,12 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.4 — 2026-11-20
+
+### Changed — UI polish for shortcuts & quick guide
+- **Redesigned `ShortcutsGuideDialog` (`F1`):** Built with native Qt cards (`QFrame`), circular step badges, a 2-column `QGridLayout`, and 3D rounded keycap pill badges (`QLabel#keyBadge`) instead of raw HTML `<div>`/`<span>` blocks, so all 3 sections fit cleanly on one screen without scrollbars or clipped backgrounds.
+- **Redesigned Empty-State Quick Guide (`No Image Loaded`):** Formatted as a clean, centered 2-column shortcut table with contrasting row cards and balanced spacing.
+
 ## 2.1.3 — 2026-11-20
 
 ### Added

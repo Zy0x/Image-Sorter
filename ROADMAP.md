@@ -38,6 +38,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.4-Stable (Selesai)
+- [x] **Redesign Visual Panduan Shortcut (`F1` & Layar Awal):** Mengganti HTML `<div>`/`<span>` pada `ShortcutsGuideDialog` dengan kartu native `QFrame`, badge langkah melingkar, grid 2 kolom (`QGridLayout`), dan *keycap pill* 3D (`QLabel#keyBadge`) tanpa *scrollbar* yang memotong teks, serta merapikan tabel *quick-start* pada area *No Image Loaded*.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Custom Jumlah Slot Folder Dinamis (3–10 Folder):** Menambah atau mengurangi jumlah tombol folder tujuan sesuai kebutuhan proyek.
 - [ ] **Deteksi Gambar Duplikat / Mirip (Perceptual Hash):** Menandai foto kembar dalam satu folder sebelum disortir.
