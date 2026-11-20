@@ -53,6 +53,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.7-Stable (Selesai)
+- [x] **Minimalist Monochrome Keymap Design (Anti-Slop UI):** Menghapus seluruh emoji dekoratif, warna neon cyan, dan kotak gabungan lebar pada `ShortcutsGuideDialog` (`F1`), digantikan dengan *keycap* fisik individual (`[1]` `–` `[5]`, `[Ctrl]` `[Z]`, `[←]` `[→]`), garis pemisah tipis (*hairline divider*), dan tipografi monokrom bergaya perangkat lunak desktop profesional.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Custom Jumlah Slot Folder Dinamis (3–10 Folder):** Menambah atau mengurangi jumlah tombol folder tujuan sesuai kebutuhan proyek.
 - [ ] **Deteksi Gambar Duplikat / Mirip (Perceptual Hash):** Menandai foto kembar dalam satu folder sebelum disortir.

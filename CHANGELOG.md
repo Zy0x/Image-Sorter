@@ -2,6 +2,12 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.7 — 2026-11-20
+
+### Changed — editorial monochrome shortcut sheet (anti-slop redesign)
+- **Replaced generic card/emoji layout with a native typographic keymap (`ShortcutsGuideDialog`):** Removed decorative emojis, neon cyan accents, and wide combined pills in favor of individual physical keycaps (`[1]` `–` `[5]`, `[Ctrl]` `[Z]`, `[←]` `[→]`), hairline row dividers, and muted uppercase category headers (`SORTING`, `NAVIGATION`, `VIEW & INSPECT`, `FILE & MOUSE`).
+- **Refined empty-state palette:** Neutral monochrome key labels and muted descriptions.
+
 ## 2.1.6 — 2026-11-20
 
 ### Changed — streamlined navigation & distinct Skip shortcut

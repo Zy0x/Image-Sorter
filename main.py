@@ -459,7 +459,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.6-Stable"
+    VERSION = "2.1.7-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -635,12 +635,12 @@ class AboutDialog(QDialog):
 
 
 class ShortcutsGuideDialog(QDialog):
-    """Dialog panduan penggunaan & daftar lengkap shortcut dengan kartu QFrame & keycap native."""
+    """Referensi shortcut bergaya aplikasi desktop profesional (monokrom, keycap fisik, tanpa dekorasi berlebih)."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Keyboard Shortcuts & Quick Guide")
-        self.setMinimumSize(780, 660)
-        self.resize(820, 710)
+        self.setMinimumSize(680, 470)
+        self.resize(700, 490)
         self.parent = parent
 
         is_dark = True
@@ -650,16 +650,18 @@ class ShortcutsGuideDialog(QDialog):
                 or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
             )
 
-        bg = "#16171a" if is_dark else "#f8f9fa"
-        card_bg = "#212328" if is_dark else "#ffffff"
-        text = "#f1f3f5" if is_dark else "#1f2328"
-        muted = "#9aa0a6" if is_dark else "#57606a"
-        accent = "#38bdf8" if is_dark else "#0969da"
-        border = "#32363e" if is_dark else "#d8dee4"
-        key_bg = "#111215" if is_dark else "#eef1f4"
-        key_border = "#3e4451" if is_dark else "#c5cdd6"
-        key_text = "#7dd3fc" if is_dark else "#0550ae"
-        scroll_thumb = "#3e4451" if is_dark else "#c1c8d0"
+        bg = "#141416" if is_dark else "#ffffff"
+        panel_bg = "#1b1b1f" if is_dark else "#f6f7f9"
+        text = "#ededef" if is_dark else "#18181b"
+        label_col = "#c8c8d0" if is_dark else "#27272a"
+        muted = "#787882" if is_dark else "#71717a"
+        hairline = "#242429" if is_dark else "#e4e4e7"
+        key_bg = "#232328" if is_dark else "#f1f2f4"
+        key_border = "#36363e" if is_dark else "#d1d5db"
+        key_bottom = "#464650" if is_dark else "#b9bec7"
+        key_text = "#f4f4f6" if is_dark else "#18181b"
+        btn_bg = "#232328" if is_dark else "#f1f2f4"
+        btn_hover = "#2e2e35" if is_dark else "#e4e6ea"
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -671,240 +673,183 @@ class ShortcutsGuideDialog(QDialog):
                 background: transparent;
                 border: none;
             }}
-            QFrame#guideCard {{
-                background-color: {card_bg};
-                border: 1px solid {border};
-                border-radius: 12px;
+            QFrame#workflowBar {{
+                background-color: {panel_bg};
+                border: 1px solid {hairline};
+                border-radius: 6px;
             }}
-            QFrame#rowDivider {{
-                background-color: {border};
+            QFrame#hairline {{
+                background-color: {hairline};
                 max-height: 1px;
+                min-height: 1px;
                 border: none;
             }}
-            QLabel#sectionTitle {{
-                color: {accent};
-                font-size: 14px;
+            QLabel#catHeader {{
+                color: {muted};
+                font-size: 11px;
                 font-weight: bold;
+                letter-spacing: 0.8px;
             }}
-            QLabel#keyBadge {{
+            QLabel#actionLabel {{
+                color: {label_col};
+                font-size: 12px;
+            }}
+            QLabel#keyCap {{
                 background-color: {key_bg};
                 color: {key_text};
                 border: 1px solid {key_border};
-                border-bottom: 2px solid {key_border};
-                border-radius: 6px;
-                padding: 5px 12px;
-                min-height: 20px;
-                font-family: Consolas, "Cascadia Mono", monospace;
-                font-size: 12px;
-                font-weight: bold;
-            }}
-            QLabel#stepBadge {{
-                background-color: {accent};
-                color: #ffffff;
-                border-radius: 11px;
-                font-size: 12px;
-                font-weight: bold;
-            }}
-            QScrollArea {{
-                background-color: transparent;
-                border: none;
-            }}
-            QScrollBar:vertical {{
-                background: transparent;
-                width: 8px;
-                margin: 2px 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {scroll_thumb};
-                min-height: 30px;
+                border-bottom: 2px solid {key_bottom};
                 border-radius: 4px;
+                padding: 1px 7px;
+                font-family: "Segoe UI", "Inter", sans-serif;
+                font-size: 11px;
+                font-weight: 600;
             }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                height: 0px;
+            QLabel#keyJoin {{
+                color: {muted};
+                font-size: 11px;
+                padding: 0 1px;
+            }}
+            QPushButton#closeBtn {{
+                background-color: {btn_bg};
+                color: {text};
+                border: 1px solid {key_border};
+                border-radius: 5px;
+                padding: 5px 16px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton#closeBtn:hover {{
+                background-color: {btn_hover};
             }}
         """)
 
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(22, 16, 22, 16)
-        main_layout.setSpacing(10)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 18)
+        root.setSpacing(14)
 
-        # Header
-        header_box = QVBoxLayout()
-        header_box.setSpacing(2)
-        header = QLabel("⌨️  Keyboard Shortcuts & Quick Guide")
-        header.setStyleSheet(f"font-size: 19px; font-weight: bold; color: {text};")
-        header_box.addWidget(header)
+        # Header row
+        header_row = QHBoxLayout()
+        title_lbl = QLabel("Keyboard Shortcuts")
+        title_lbl.setStyleSheet(f"font-size: 16px; font-weight: 600; color: {text};")
+        header_row.addWidget(title_lbl)
+        header_row.addStretch()
+        esc_lbl = QLabel("F1 / Esc")
+        esc_lbl.setStyleSheet(f"font-size: 11px; color: {muted};")
+        header_row.addWidget(esc_lbl)
+        root.addLayout(header_row)
 
-        subtitle = QLabel("Sort thousands of images effortlessly using keyboard shortcuts or mouse controls.")
-        subtitle.setStyleSheet(f"font-size: 12px; color: {muted};")
-        subtitle.setWordWrap(True)
-        header_box.addWidget(subtitle)
-        main_layout.addLayout(header_box)
+        # Subtle workflow strip (single compact bar, no emojis or giant circles)
+        wf_bar = QFrame()
+        wf_bar.setObjectName("workflowBar")
+        wf_lay = QHBoxLayout(wf_bar)
+        wf_lay.setContentsMargins(12, 8, 12, 8)
+        wf_lay.setSpacing(8)
+        wf_text = QLabel(
+            f"<span style='color:{muted};'>Workflow:</span> &nbsp;"
+            f"<b>1.</b> Set folders (<i>Settings → Folder Settings</i>) &nbsp;·&nbsp; "
+            f"<b>2.</b> Import (<b>Ctrl+O</b> or drop) &nbsp;·&nbsp; "
+            f"<b>3.</b> Press or hold <b>1–5</b> to sort"
+        )
+        wf_text.setStyleSheet("font-size: 12px;")
+        wf_lay.addWidget(wf_text)
+        root.addWidget(wf_bar)
 
-        # Scrollable content area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        content = QWidget()
-        content.setStyleSheet(f"background-color: {bg};")
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 2, 4, 2)
-        content_layout.setSpacing(10)
+        # Two-column keymap table
+        cols = QHBoxLayout()
+        cols.setSpacing(32)
 
-        # --- Card 1: Quick Workflow (3 Steps) ---
-        workflow_card = QFrame()
-        workflow_card.setObjectName("guideCard")
-        wf_layout = QVBoxLayout(workflow_card)
-        wf_layout.setContentsMargins(16, 11, 16, 12)
-        wf_layout.setSpacing(6)
-
-        wf_title = QLabel("🚀  Quick Workflow (3 Steps)")
-        wf_title.setObjectName("sectionTitle")
-        wf_layout.addWidget(wf_title)
-
-        steps = [
-            ("1", "Set Destination Folders",
-             "Open Settings → Folder Settings (or click any folder button on first use) to set paths for Folders A–E."),
-            ("2", "Import Images",
-             "Drag & drop any folder or image onto the window, or press Ctrl+O (File → Import Folder)."),
-            ("3", "Sort at Lightning Speed",
-             "Press 1–5 to move 1 image, or hold 1–5 (or hold left-click on Folder A–E) for continuous Rapid Move."),
-        ]
-        for num, st_title, st_desc in steps:
-            row = QHBoxLayout()
-            row.setSpacing(10)
-            badge = QLabel(num)
-            badge.setFixedSize(20, 20)
-            badge.setAlignment(Qt.AlignCenter)
-            badge.setStyleSheet(
-                f"background-color: {accent}; color: {'#111215' if is_dark else '#ffffff'};"
-                f" border-radius: 10px; font-size: 11px; font-weight: bold;"
-            )
-            row.addWidget(badge, 0, Qt.AlignTop)
-
-            txt = QLabel(f"<b>{st_title}:</b> <span style='color:{muted};'>{st_desc}</span>")
-            txt.setWordWrap(True)
-            txt.setStyleSheet("font-size: 12px;")
-            row.addWidget(txt, 1)
-            wf_layout.addLayout(row)
-
-        content_layout.addWidget(workflow_card)
-
-        # --- Card 2: Keyboard Shortcuts (2-Column Grid) ---
-        shortcuts_card = QFrame()
-        shortcuts_card.setObjectName("guideCard")
-        sc_layout = QVBoxLayout(shortcuts_card)
-        sc_layout.setContentsMargins(16, 11, 16, 12)
-        sc_layout.setSpacing(8)
-
-        sc_title = QLabel("⌨️  Keyboard Shortcuts")
-        sc_title.setObjectName("sectionTitle")
-        sc_layout.addWidget(sc_title)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(20)
-        grid.setVerticalSpacing(7)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(3, 1)
-
-        left_shortcuts = [
-            ("1 – 5", "Move image to Folder A–E"),
-            ("Hold 1 – 5", "Rapid Move to Folder A–E"),
-            ("←  /  →", "Previous / Next image"),
-            ("Space", "Skip to next unmoved image"),
-            ("Home / End", "First / last image"),
-            ("Ctrl + G", "Jump to specific image #"),
-        ]
-        right_shortcuts = [
-            ("Ctrl + Z", "Undo last move safely"),
-            ("Ctrl + O", "Import folder"),
-            ("Ctrl + H", "Toggle Hide Moved Images"),
-            ("F", "Full-Size / Zoom Preview"),
-            ("Ctrl + E", "Show image in File Explorer"),
-            ("Delete", "Move image to Recycle Bin"),
+        left_sections = [
+            ("SORTING", [
+                ("Move to Folder A–E", [("key", "1"), ("join", "–"), ("key", "5")]),
+                ("Rapid Move (continuous)", [("join", "Hold"), ("key", "1"), ("join", "–"), ("key", "5")]),
+                ("Undo last move", [("key", "Ctrl"), ("key", "Z")]),
+            ]),
+            ("NAVIGATION", [
+                ("Previous / Next image", [("key", "←"), ("key", "→")]),
+                ("Skip to next unmoved", [("key", "Space")]),
+                ("First / Last image", [("key", "Home"), ("key", "End")]),
+                ("Jump to image number", [("key", "Ctrl"), ("key", "G")]),
+            ]),
         ]
 
-        for r_idx, (k_str, desc_str) in enumerate(left_shortcuts):
-            key_lbl = QLabel(k_str)
-            key_lbl.setObjectName("keyBadge")
-            key_lbl.setAlignment(Qt.AlignCenter)
-            key_lbl.setFixedHeight(26)
-            desc_lbl = QLabel(desc_str)
-            desc_lbl.setWordWrap(True)
-            desc_lbl.setStyleSheet("font-size: 12px;")
-            grid.addWidget(key_lbl, r_idx, 0)
-            grid.addWidget(desc_lbl, r_idx, 1)
-
-        for r_idx, (k_str, desc_str) in enumerate(right_shortcuts):
-            key_lbl = QLabel(k_str)
-            key_lbl.setObjectName("keyBadge")
-            key_lbl.setAlignment(Qt.AlignCenter)
-            key_lbl.setFixedHeight(26)
-            desc_lbl = QLabel(desc_str)
-            desc_lbl.setWordWrap(True)
-            desc_lbl.setStyleSheet("font-size: 12px;")
-            grid.addWidget(key_lbl, r_idx, 2)
-            grid.addWidget(desc_lbl, r_idx, 3)
-
-        sc_layout.addLayout(grid)
-        content_layout.addWidget(shortcuts_card)
-
-        # --- Card 3: Mouse Controls & File Safety ---
-        mouse_card = QFrame()
-        mouse_card.setObjectName("guideCard")
-        mc_layout = QVBoxLayout(mouse_card)
-        mc_layout.setContentsMargins(16, 11, 16, 12)
-        mc_layout.setSpacing(5)
-
-        mc_title = QLabel("🖱️  Mouse Controls & File Safety")
-        mc_title.setObjectName("sectionTitle")
-        mc_layout.addWidget(mc_title)
-
-        tips = [
-            ("Click / Hold Folder A–E", "Single click moves 1 image; holding left-click runs Rapid Move (speed in Settings → Rapid Move Speed)."),
-            ("Double-Click Main Image", "Opens Full-Size Preview with Zoom In (+), Zoom Out (−), Fit, 100%, and mouse-wheel zoom."),
-            ("Zero-Overwrite Protection", "Duplicate filenames in destination folders are automatically renamed (e.g. photo (1).jpg) — existing files are never overwritten."),
+        right_sections = [
+            ("VIEW & INSPECT", [
+                ("Full-size zoom preview", [("key", "F")]),
+                ("Hide moved images", [("key", "Ctrl"), ("key", "H")]),
+                ("Shortcuts reference", [("key", "F1")]),
+            ]),
+            ("FILE & MOUSE", [
+                ("Import folder", [("key", "Ctrl"), ("key", "O")]),
+                ("Show in File Explorer", [("key", "Ctrl"), ("key", "E")]),
+                ("Move to Recycle Bin", [("key", "Delete")]),
+                ("Rapid Move with mouse", [("join", "Hold"), ("key", "Click A–E")]),
+                ("Zoom preview with mouse", [("key", "Double-Click")]),
+            ]),
         ]
-        for tip_head, tip_body in tips:
-            tip_lbl = QLabel(f"•  <b>{tip_head}:</b> <span style='color:{muted};'>{tip_body}</span>")
-            tip_lbl.setWordWrap(True)
-            tip_lbl.setStyleSheet("font-size: 12px;")
-            mc_layout.addWidget(tip_lbl)
 
-        content_layout.addWidget(mouse_card)
-        content_layout.addStretch()
+        cols.addLayout(self._build_column(left_sections), 1)
+        cols.addLayout(self._build_column(right_sections), 1)
+        root.addLayout(cols, 1)
 
-        scroll.setWidget(content)
-        main_layout.addWidget(scroll, stretch=1)
+        # Footer
+        footer = QHBoxLayout()
+        note = QLabel("Duplicate filenames in destination folders are auto-renamed — existing files are never overwritten.")
+        note.setStyleSheet(f"font-size: 11px; color: {muted};")
+        footer.addWidget(note)
+        footer.addStretch()
 
-        # Footer button
-        btn_layout = QHBoxLayout()
-        hint_lbl = QLabel("Tip: Press F1 anytime to open this guide.")
-        hint_lbl.setStyleSheet(f"font-size: 12px; color: {muted};")
-        btn_layout.addWidget(hint_lbl)
-        btn_layout.addStretch()
-
-        close_btn = QPushButton("Got It")
-        close_btn.setFixedHeight(36)
-        close_btn.setMinimumWidth(120)
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("closeBtn")
+        close_btn.setFixedHeight(30)
         close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                border: none;
-                padding: 8px 22px;
-                font-size: 13px;
-                font-weight: bold;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-        """)
         close_btn.clicked.connect(self.accept)
-        btn_layout.addWidget(close_btn)
-        main_layout.addLayout(btn_layout)
+        footer.addWidget(close_btn)
+        root.addLayout(footer)
+
+    def _build_column(self, sections):
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        for s_idx, (sec_title, rows) in enumerate(sections):
+            if s_idx > 0:
+                col.addSpacing(10)
+            hdr = QLabel(sec_title)
+            hdr.setObjectName("catHeader")
+            col.addWidget(hdr)
+            col.addSpacing(2)
+
+            for r_idx, (label_text, tokens) in enumerate(rows):
+                row_widget = QWidget()
+                row_widget.setFixedHeight(28)
+                row_lay = QHBoxLayout(row_widget)
+                row_lay.setContentsMargins(0, 2, 0, 2)
+                row_lay.setSpacing(4)
+
+                act_lbl = QLabel(label_text)
+                act_lbl.setObjectName("actionLabel")
+                row_lay.addWidget(act_lbl)
+                row_lay.addStretch()
+
+                for kind, val in tokens:
+                    t_lbl = QLabel(val)
+                    if kind == "key":
+                        t_lbl.setObjectName("keyCap")
+                        t_lbl.setAlignment(Qt.AlignCenter)
+                        t_lbl.setFixedHeight(22)
+                        if len(val) == 1:
+                            t_lbl.setMinimumWidth(24)
+                    else:
+                        t_lbl.setObjectName("keyJoin")
+                        t_lbl.setAlignment(Qt.AlignCenter)
+                    row_lay.addWidget(t_lbl)
+
+                col.addWidget(row_widget)
+                div = QFrame()
+                div.setObjectName("hairline")
+                col.addWidget(div)
+
+        col.addStretch()
+        return col
 
 
 class ImagePreviewDialog(QDialog):
@@ -3854,47 +3799,47 @@ class ImageSorterApp(QMainWindow):
             msg.exec()
 
     def get_empty_state_text(self):
-        """Teks panduan singkat yang rapi pada area preview saat belum ada gambar yang dimuat."""
+        """Teks panduan singkat bergaya monokrom bersih saat belum ada gambar yang dimuat."""
         is_dark = (
             self.theme_mode in ("dark", "custom")
             or (self.theme_mode == "system" and self.is_system_dark())
         )
-        title_col = "#f1f3f5" if is_dark else "#1f2328"
-        sub_col = "#9aa0a6" if is_dark else "#57606a"
-        key_col = "#38bdf8" if is_dark else "#0969da"
-        row_bg = "#25272c" if is_dark else "#f0f3f6"
+        title_col = "#ededef" if is_dark else "#18181b"
+        sub_col = "#787882" if is_dark else "#71717a"
+        key_col = "#e4e4e7" if is_dark else "#18181b"
+        desc_col = "#9e9ea8" if is_dark else "#52525b"
+        row_bg = "#18181c" if is_dark else "#f4f4f6"
 
         return (
             f"<div align='center'>"
-            f"<p style='font-size:20px; font-weight:bold; color:{title_col}; margin-bottom:6px;'>No Image Loaded</p>"
-            f"<p style='font-size:13px; color:{sub_col}; margin-top:0px; margin-bottom:16px;'>"
-            f"Drag &amp; drop a folder or image here,<br>"
-            f"or press <font face='Consolas' color='{key_col}'><b>Ctrl+O</b></font> to import"
+            f"<p style='font-size:17px; font-weight:600; color:{title_col}; margin-bottom:4px;'>No Image Loaded</p>"
+            f"<p style='font-size:12px; color:{sub_col}; margin-top:0px; margin-bottom:16px;'>"
+            f"Drop a folder or image here, or press <font face='Consolas' color='{key_col}'><b>Ctrl+O</b></font>"
             f"</p>"
-            f"<table align='center' width='320' cellspacing='4' cellpadding='7' style='font-size:12px;'>"
+            f"<table align='center' width='310' cellspacing='3' cellpadding='6' style='font-size:12px;'>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left' width='44%'><font face='Consolas' color='{key_col}'><b>[1] – [5]</b></font></td>"
-            f"<td align='left'>Move to Folder A – E</td>"
+            f"<td align='left' width='42%'><font face='Consolas' color='{key_col}'><b>[1] – [5]</b></font></td>"
+            f"<td align='left'><font color='{desc_col}'>Move to Folder A–E</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
             f"<td align='left'><font face='Consolas' color='{key_col}'><b>Hold [1] – [5]</b></font></td>"
-            f"<td align='left'>Rapid Move (or hold A–E)</td>"
+            f"<td align='left'><font color='{desc_col}'>Rapid Move</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>← &nbsp;•&nbsp; →</b></font></td>"
-            f"<td align='left'>Previous / Next image</td>"
+            f"<td align='left'><font face='Consolas' color='{key_col}'><b>←  /  →</b></font></td>"
+            f"<td align='left'><font color='{desc_col}'>Previous / Next image</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
             f"<td align='left'><font face='Consolas' color='{key_col}'><b>Space</b></font></td>"
-            f"<td align='left'>Skip to next unmoved image</td>"
+            f"<td align='left'><font color='{desc_col}'>Skip to next unmoved</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Ctrl+Z &nbsp;•&nbsp; F</b></font></td>"
-            f"<td align='left'>Undo move / Zoom Preview</td>"
+            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Ctrl+Z  /  F</b></font></td>"
+            f"<td align='left'><font color='{desc_col}'>Undo / Zoom preview</font></td>"
             f"</tr>"
             f"</table>"
-            f"<p style='font-size:12px; color:{sub_col}; margin-top:14px;'>"
-            f"Press <font face='Consolas' color='{key_col}'><b>F1</b></font> for full Keyboard Shortcuts &amp; Guide"
+            f"<p style='font-size:11px; color:{sub_col}; margin-top:14px;'>"
+            f"Press <font face='Consolas' color='{key_col}'><b>F1</b></font> for all shortcuts"
             f"</p>"
             f"</div>"
         )
