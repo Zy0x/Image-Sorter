@@ -263,12 +263,26 @@ def load_settings():
         print(f"[DEBUG] Error loading settings: {e}")
     return default_settings
 
+_LAST_INTERNAL_SETTINGS_SIG = None
+
+
+def _file_sig(path):
+    """Kembalikan (mtime_ns, size) untuk mendeteksi perubahan file di disk."""
+    try:
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
 def save_settings(settings):
     """Save settings to settings.json."""
+    global _LAST_INTERNAL_SETTINGS_SIG
     config_path = get_config_path()
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=4)
+        _LAST_INTERNAL_SETTINGS_SIG = _file_sig(config_path)
         print(f"[DEBUG] Settings saved to {config_path}")
     except IOError as e:
         print(f"[DEBUG] Error saving settings: {e}")
@@ -445,7 +459,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.4-Stable"
+    VERSION = "2.1.5-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -1636,6 +1650,7 @@ class ImageSorterApp(QMainWindow):
         self.resize(900, 700)
         self.setAcceptDrops(True)
         self.image_files = []
+        self.current_folder_path = ""
         self.current_index = 0
         self.nav_history = deque(maxlen=500)
         self.folder_names = []
@@ -1696,9 +1711,11 @@ class ImageSorterApp(QMainWindow):
         self.load_recent_folders()
         self.apply_theme()
         self.show_current_image(self.filtered_files)
-        # Tangkap tombol 1-4 di level aplikasi agar rapid move keyboard tetap jalan
+        # Tangkap tombol 1-5 di level aplikasi agar rapid move keyboard tetap jalan
         # walaupun fokus sedang berada di tombol/combobox di jendela utama.
         QApplication.instance().installEventFilter(self)
+        self.init_hot_reload()
+        self.restore_hot_reload_state()
 
     def start_update_check(self, manual=False):
         """Mulai pengecekan pembaruan di thread terpisah (tidak memblokir UI)."""
@@ -1763,8 +1780,175 @@ class ImageSorterApp(QMainWindow):
             self._movie_buffer = None
         self._movie_bytes = None
 
+    def init_hot_reload(self):
+        """Pantau perubahan pada main.py, utils/image_utils.py, dan config/settings.json.
+        Jika file kode diedit, aplikasi otomatis memuat ulang tampilan terbaru di posisi
+        dan sesi yang sama tanpa perlu tutup-buka manual."""
+        self._hot_reload_timer = None
+        if getattr(sys, "frozen", False) or os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        self._watched_code_files = [
+            os.path.abspath(__file__),
+            os.path.join(app_dir, "utils", "image_utils.py"),
+        ]
+        self._code_sigs = {p: _file_sig(p) for p in self._watched_code_files}
+        self._pending_code_reload = False
+        self._settings_watch_path = get_config_path()
+        self._settings_sig = _file_sig(self._settings_watch_path)
+
+        self._hot_reload_timer = QTimer(self)
+        self._hot_reload_timer.setInterval(700)
+        self._hot_reload_timer.timeout.connect(self._check_hot_reload)
+        self._hot_reload_timer.start()
+
+    def _check_hot_reload(self):
+        if self.is_rapid_moving:
+            return
+        # 1. Cek apakah settings.json diubah dari luar aplikasi
+        cur_settings_sig = _file_sig(self._settings_watch_path)
+        if cur_settings_sig and cur_settings_sig != self._settings_sig:
+            self._settings_sig = cur_settings_sig
+            if cur_settings_sig != _LAST_INTERNAL_SETTINGS_SIG:
+                self.reload_external_settings()
+
+        # 2. Cek apakah file kode (main.py / image_utils.py) diubah
+        changed = False
+        for path in self._watched_code_files:
+            sig = _file_sig(path)
+            if sig and sig != self._code_sigs.get(path):
+                self._code_sigs[path] = sig
+                changed = True
+        if changed:
+            # Tunggu 1 siklus agar penulisan file oleh editor selesai 100%
+            self._pending_code_reload = True
+            return
+        if self._pending_code_reload:
+            self._pending_code_reload = False
+            # Pastikan sintaks Python valid di memori sebelum me-reload proses
+            for path in self._watched_code_files:
+                try:
+                    with open(path, "rb") as f:
+                        source_bytes = f.read()
+                    compile(source_bytes, path, "exec")
+                except Exception as e:
+                    print(f"[HOT-RELOAD] Waiting for valid syntax in {path}: {e}")
+                    return
+            self.trigger_hot_reload()
+
+    def reload_external_settings(self):
+        """Terapkan perubahan settings.json secara langsung tanpa restart jendela."""
+        settings = load_settings()
+        self.load_custom_folders()
+        self.load_recent_folders()
+        self.theme_mode = settings.get("theme_mode", "system")
+        self.rapid_move_interval = clamp_rapid_interval(
+            settings.get("rapid_move_interval", RAPID_MOVE_DEFAULT_MS)
+        )
+        self.sync_menu_theme_checkboxes()
+        self.apply_theme()
+        self.update_folder_buttons()
+        self.show_current_image(self.filtered_files)
+        self.show_notification("⚡ Settings reloaded automatically")
+
+    def _hot_reload_state_path(self):
+        return os.path.join(os.path.dirname(get_config_path()), ".hot_reload_state.json")
+
+    def trigger_hot_reload(self):
+        """Simpan state sesi saat ini, jalankan proses baru, dan tutup proses lama."""
+        if self._hot_reload_timer is not None:
+            self._hot_reload_timer.stop()
+        modal = QApplication.activeModalWidget()
+        active_dialog = type(modal).__name__ if modal is not None else None
+        geom = self.geometry()
+        state = {
+            "timestamp": time.time(),
+            "geometry": [geom.x(), geom.y(), geom.width(), geom.height()],
+            "maximized": self.isMaximized(),
+            "folder_path": self.current_folder_path,
+            "current_index": self.current_index,
+            "filter_text": self.filter_combo.currentText() if hasattr(self, "filter_combo") else "All Files",
+            "hide_moved": self.hide_moved,
+            "active_dialog": active_dialog,
+        }
+        try:
+            with open(self._hot_reload_state_path(), "w", encoding="utf-8") as f:
+                json.dump(state, f)
+        except OSError:
+            pass
+        if modal is not None:
+            modal.close()
+        self.stop_rapid_move(silent=True)
+        self.stop_current_movie()
+        self.flush_history()
+        try:
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
+        except OSError as e:
+            print(f"[HOT-RELOAD] Failed to spawn new instance: {e}")
+            return
+        self.close()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
+    def restore_hot_reload_state(self):
+        """Pulihkan posisi jendela, folder, gambar aktif, dan dialog setelah hot-reload."""
+        state_path = self._hot_reload_state_path()
+        if not os.path.exists(state_path):
+            return
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            state = None
+        try:
+            os.remove(state_path)
+        except OSError:
+            pass
+        if not state or time.time() - state.get("timestamp", 0) > 20:
+            return
+
+        geom = state.get("geometry")
+        if isinstance(geom, list) and len(geom) == 4:
+            self.setGeometry(geom[0], geom[1], geom[2], geom[3])
+        if state.get("maximized"):
+            self.showMaximized()
+
+        self.hide_moved = bool(state.get("hide_moved", False))
+        if hasattr(self, "hide_moved_action"):
+            self.hide_moved_action.setChecked(self.hide_moved)
+
+        filter_text = state.get("filter_text", "All Files")
+        if hasattr(self, "filter_combo"):
+            idx = self.filter_combo.findText(filter_text)
+            if idx >= 0:
+                self.filter_combo.blockSignals(True)
+                self.filter_combo.setCurrentIndex(idx)
+                self.filter_combo.blockSignals(False)
+
+        folder_path = state.get("folder_path") or ""
+        if folder_path and os.path.isdir(folder_path):
+            files = scan_image_files(folder_path)
+            if files:
+                self.current_folder_path = folder_path
+                self.image_files = files
+                self.apply_filter()
+                saved_idx = int(state.get("current_index", 0))
+                if 0 <= saved_idx < len(self.filtered_files):
+                    self.current_index = saved_idx
+                    self.show_current_image(self.filtered_files)
+
+        self.show_notification("⚡ Live Reloaded — displaying latest changes")
+        active_dialog = state.get("active_dialog")
+        if active_dialog == "ShortcutsGuideDialog":
+            QTimer.singleShot(150, self.show_shortcuts_guide)
+        elif active_dialog == "AboutDialog":
+            QTimer.singleShot(150, self.show_about)
+
     def closeEvent(self, event):
         """Hentikan timer & thread latar dengan aman sebelum jendela ditutup."""
+        if getattr(self, "_hot_reload_timer", None) is not None:
+            self._hot_reload_timer.stop()
         self.stop_rapid_move(silent=True)
         self.stop_current_movie()
         self.flush_history()
@@ -2307,6 +2491,7 @@ class ImageSorterApp(QMainWindow):
 
     def load_file_list(self, folder_path, files):
         """Pasang daftar file hasil pemindaian ke tampilan."""
+        self.current_folder_path = folder_path if files else ""
         self.image_files = files
         self.filtered_files = []
         self.current_index = 0

@@ -2,6 +2,11 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.5 — 2026-11-20
+
+### Added — live hot-reload
+- **Automatic Live Hot-Reload (`init_hot_reload`):** Watches `main.py`, `utils/image_utils.py`, and `config/settings.json` while running from source. Editing `settings.json` refreshes themes and folder buttons in-place; editing code files validates syntax in memory and seamlessly reloads the window at the exact same position, folder, image index, filter, and open dialog without manual close/reopen.
+
 ## 2.1.4 — 2026-11-20
 
 ### Changed — UI polish for shortcuts & quick guide

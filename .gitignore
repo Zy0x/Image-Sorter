@@ -13,3 +13,4 @@ dist/
 # Temporary files
 *.tmp
 config/.write_test
+config/.hot_reload_state.json
