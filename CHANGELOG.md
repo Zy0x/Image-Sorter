@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.14 — 2026-11-22
+
+### Improved — Studio Slate UI redesign, vector icons & interactive video seekbar
+- **Unified Studio Slate Visual Identity (`_get_ui_tokens`):** Replaced pitch-black voids, harsh neon red/magenta glow shadows, and opaque flat folder blocks with a cohesive obsidian/warm-paper palette, soft ambient card depth, `UP NEXT` queue rail framing, flush edge-to-edge action bar alignment, and middle-elided header metadata badges.
+- **High-DPI Vector Icon System (`make_vector_icon`):** Replaced pixelated/wordy PNG button badges (`BACK`, `NEXT`, `SKIP`, legacy folder icons) with 2× DPI anti-aliased `QPainter` vector icons that dynamically adapt to Light, Dark, System, and Custom themes.
+- **Unified Frosted Media HUD & Interactive Video Seek Scrubber (`_ClickSeekSlider`):** Combined Play/Pause (`P`), Sound/Mute (`M`), live timecodes (`0:00 / 0:14`), and click-anywhere timeline scrubbing into one floating frosted-glass capsule at the bottom of video previews, and redesigned `ImagePreviewDialog` into an uncluttered header + bottom media dock layout.
+
 ## 2.1.13 — 2026-11-22
 
 ### Added & Improved — hardware-synced video + audio playback, Play/Pause & Mute controls

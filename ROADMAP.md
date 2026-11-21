@@ -93,6 +93,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.14-Stable (Selesai)
+- [x] **Studio Slate UI Redesign, Ikon Vektor 2× DPI & Interactive Video Seekbar:** Pembaruan antarmuka bergaya studio (*Obsidian Dark* & *Warm Gallery Light*), penghapusan glow neon dan ikon PNG lama dengan ikon vektor adaptif, kartu tujuan `[1]`–`[9]` bertema aksen lembut minimal sentuh 44px, antrean `UP NEXT`, serta kapsul kontrol video terpadu lengkap dengan *seekbar* interaktif di layar utama maupun *Full-Size Preview*.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.

@@ -36,8 +36,15 @@ from PySide6.QtWidgets import (
     QProgressBar, QStackedLayout, QScrollArea, QTextEdit,
     QSpinBox, QSlider, QGridLayout
 )
-from PySide6.QtGui import QAction, QImageReader, QIcon, QShortcut, QKeySequence, QDesktopServices, QMovie, QPixmap
-from PySide6.QtCore import Qt, QPropertyAnimation, QTimer, QThread, QSize, Signal, QUrl, QEvent, QByteArray, QBuffer, QIODevice
+from PySide6.QtGui import (
+    QAction, QImageReader, QIcon, QShortcut, QKeySequence,
+    QDesktopServices, QMovie, QPixmap, QPainter, QPen, QColor,
+    QPolygonF, QFontMetrics
+)
+from PySide6.QtCore import (
+    Qt, QPropertyAnimation, QTimer, QThread, QSize, Signal,
+    QUrl, QEvent, QByteArray, QBuffer, QIODevice, QPointF, QRectF
+)
 try:
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
     _HAS_QTMULTIMEDIA = True
@@ -70,6 +77,122 @@ from utils.image_utils import (
 )
 
 _RESOLVED_CONFIG_DIR = None
+_VECTOR_ICON_CACHE = {}
+
+
+def _hex_rgba(hex_color: str, alpha: int) -> str:
+    c = QColor(hex_color)
+    return f"rgba({c.red()}, {c.green()}, {c.blue()}, {max(0, min(255, int(alpha)))})"
+
+
+def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon:
+    """Bangun ikon vektor anti-aliased 2x DPI (cached) untuk menggantikan ikon raster lama."""
+    key = (kind, color, int(size))
+    cached = _VECTOR_ICON_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    dpr = 2.0
+    px_size = int(size * dpr)
+    pix = QPixmap(px_size, px_size)
+    pix.fill(Qt.transparent)
+    pix.setDevicePixelRatio(dpr)
+
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    qcol = QColor(color)
+    pen = QPen(qcol, 1.65, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+
+    s = float(size)
+    mid = s * 0.5
+
+    if kind == "prev":
+        p.drawPolyline(QPolygonF([QPointF(s * 0.64, s * 0.22), QPointF(s * 0.32, mid), QPointF(s * 0.64, s * 0.78)]))
+    elif kind == "next":
+        p.drawPolyline(QPolygonF([QPointF(s * 0.36, s * 0.22), QPointF(s * 0.68, mid), QPointF(s * 0.36, s * 0.78)]))
+    elif kind == "undo":
+        p.drawArc(QRectF(s * 0.26, s * 0.34, s * 0.54, s * 0.46), 280 * 16, 200 * 16)
+        p.drawLine(QPointF(s * 0.26, s * 0.36), QPointF(s * 0.54, s * 0.36))
+        p.drawPolyline(QPolygonF([QPointF(s * 0.36, s * 0.20), QPointF(s * 0.20, s * 0.36), QPointF(s * 0.36, s * 0.52)]))
+    elif kind == "skip":
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        p.drawPolygon(QPolygonF([QPointF(s * 0.22, s * 0.24), QPointF(s * 0.62, mid), QPointF(s * 0.22, s * 0.76)]))
+        p.drawRoundedRect(QRectF(s * 0.68, s * 0.24, s * 0.14, s * 0.52), 1.0, 1.0)
+    elif kind == "folder":
+        path_pts = QPolygonF([
+            QPointF(s * 0.14, s * 0.28),
+            QPointF(s * 0.42, s * 0.28),
+            QPointF(s * 0.50, s * 0.38),
+            QPointF(s * 0.86, s * 0.38),
+            QPointF(s * 0.86, s * 0.78),
+            QPointF(s * 0.14, s * 0.78),
+        ])
+        p.setBrush(_hex_rgba(color, 36))
+        p.drawPolygon(path_pts)
+    elif kind == "play":
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        p.drawPolygon(QPolygonF([QPointF(s * 0.30, s * 0.20), QPointF(s * 0.78, mid), QPointF(s * 0.30, s * 0.80)]))
+    elif kind == "pause":
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        bw = max(2.2, s * 0.16)
+        p.drawRoundedRect(QRectF(s * 0.26, s * 0.22, bw, s * 0.56), 1.0, 1.0)
+        p.drawRoundedRect(QRectF(s * 0.58, s * 0.22, bw, s * 0.56), 1.0, 1.0)
+    elif kind in ("sound_on", "sound_off"):
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        speaker = QPolygonF([
+            QPointF(s * 0.16, s * 0.38),
+            QPointF(s * 0.33, s * 0.38),
+            QPointF(s * 0.54, s * 0.20),
+            QPointF(s * 0.54, s * 0.80),
+            QPointF(s * 0.33, s * 0.62),
+            QPointF(s * 0.16, s * 0.62),
+        ])
+        p.drawPolygon(speaker)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(qcol, 1.45, Qt.SolidLine, Qt.RoundCap))
+        if kind == "sound_on":
+            p.drawArc(QRectF(s * 0.48, s * 0.32, s * 0.24, s * 0.36), -50 * 16, 100 * 16)
+            p.drawArc(QRectF(s * 0.52, s * 0.20, s * 0.36, s * 0.60), -52 * 16, 104 * 16)
+        else:
+            p.drawLine(QPointF(s * 0.62, s * 0.34), QPointF(s * 0.86, s * 0.66))
+            p.drawLine(QPointF(s * 0.86, s * 0.34), QPointF(s * 0.62, s * 0.66))
+    elif kind == "step_prev":
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(QRectF(s * 0.22, s * 0.24, s * 0.12, s * 0.52), 1.0, 1.0)
+        p.drawPolygon(QPolygonF([QPointF(s * 0.76, s * 0.24), QPointF(s * 0.38, mid), QPointF(s * 0.76, s * 0.76)]))
+    elif kind == "step_next":
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        p.drawPolygon(QPolygonF([QPointF(s * 0.24, s * 0.24), QPointF(s * 0.62, mid), QPointF(s * 0.24, s * 0.76)]))
+        p.drawRoundedRect(QRectF(s * 0.66, s * 0.24, s * 0.12, s * 0.52), 1.0, 1.0)
+
+    p.end()
+    icon = QIcon(pix)
+    _VECTOR_ICON_CACHE[key] = icon
+    return icon
+
+
+class _ClickSeekSlider(QSlider):
+    """Slider horizontal yang mendukung klik langsung ke posisi waktu mana pun secara instan."""
+    seek_clicked = Signal(int)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.width() > 0:
+            span = max(1, self.maximum() - self.minimum())
+            ratio = max(0.0, min(1.0, event.position().x() / float(self.width())))
+            val = self.minimum() + int(round(ratio * span))
+            self.setValue(val)
+            self.seek_clicked.emit(val)
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
 
 def get_config_path():
@@ -481,17 +604,25 @@ class UpdateDialog(QDialog):
             use_dark = self.parent.theme_mode == "dark" or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
             if use_dark:
                 self.setStyleSheet("""
-                    QDialog { background-color: #1e1e1e; color: white; }
-                    QLabel { color: white; background-color: transparent; border: none; }
-                    QPushButton { background-color: #2e2e2e; color: white; }
-                    QPushButton:hover { background-color: #444444; }
+                    QDialog { background-color: #111318; color: #f0f2f5; }
+                    QLabel { color: #f0f2f5; background-color: transparent; border: none; }
+                    QPushButton {
+                        background-color: #1c1f29; color: #f0f2f5;
+                        border: 1px solid #2b303f; border-radius: 7px;
+                        padding: 6px 14px; font-weight: 600; min-height: 28px;
+                    }
+                    QPushButton:hover { background-color: #252a37; border-color: #3a4154; }
                 """)
             else:
                 self.setStyleSheet("""
-                    QDialog { background-color: #f9f9f9; color: black; }
-                    QLabel { color: black; background-color: transparent; border: none; }
-                    QPushButton { background-color: #e0e0e0; color: black; }
-                    QPushButton:hover { background-color: #d0d0d0; }
+                    QDialog { background-color: #f6f7fa; color: #16181d; }
+                    QLabel { color: #16181d; background-color: transparent; border: none; }
+                    QPushButton {
+                        background-color: #ffffff; color: #16181d;
+                        border: 1px solid #d5d9e2; border-radius: 7px;
+                        padding: 6px 14px; font-weight: 600; min-height: 28px;
+                    }
+                    QPushButton:hover { background-color: #eceff5; border-color: #bcc2d0; }
                 """)
 
     def is_newer_version(self, current, latest):
@@ -556,7 +687,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.13-Stable"
+    VERSION = "2.1.14-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -1034,6 +1165,8 @@ class ImagePreviewDialog(QDialog):
         self._audio_bytes = None
         self._using_qtmm_video = False
         self._frame_step_mode = False
+        self._seeking_preview = False
+        self._video_duration_ms = 0
         self._audio_muted = bool(getattr(parent, "video_muted", False)) if parent else False
 
         is_vid = is_video_file(image_path)
@@ -1062,10 +1195,12 @@ class ImagePreviewDialog(QDialog):
             vw, vh, _vsz, _vfps, _vcnt, _vdur = read_video_metadata(image_path)
             if vw > 0 and vh > 0:
                 w, h = vw, vh
+            if _vdur > 0:
+                self._video_duration_ms = int(round(_vdur * 1000))
         self._orig_w, self._orig_h = w, h
         self.setWindowTitle(f"Preview — {filename} ({w}×{h})")
-        self.resize(1000, 740)
-        self.setMinimumSize(520, 380)
+        self.resize(1040, 760)
+        self.setMinimumSize(580, 420)
 
         is_dark = True
         if self.parent and hasattr(self.parent, "theme_mode"):
@@ -1073,34 +1208,59 @@ class ImagePreviewDialog(QDialog):
                 self.parent.theme_mode in ("dark", "custom")
                 or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
             )
-        bg = "#141416" if is_dark else "#f5f5f7"
-        canvas_bg = "#0f0f11" if is_dark else "#ebedf0"
-        text = "#ededef" if is_dark else "#18181b"
-        muted = "#787882" if is_dark else "#71717a"
-        btn_bg = "#232328" if is_dark else "#e4e6ea"
-        btn_hover = "#2f2f36" if is_dark else "#d5d8de"
-        border = "#28282e" if is_dark else "#d0d4dc"
-        thumb = "#3a3a44" if is_dark else "#b8bec8"
+        bg = "#101218" if is_dark else "#f4f5f8"
+        bar_bg = "#171a23" if is_dark else "#ffffff"
+        canvas_bg = "#0c0e13" if is_dark else "#e9ecf2"
+        text = "#eff1f5" if is_dark else "#16181d"
+        muted = "#848b9c" if is_dark else "#666d7c"
+        btn_bg = "#1e222d" if is_dark else "#f1f3f7"
+        btn_hover = "#282d3b" if is_dark else "#e4e7ee"
+        border = "#272b38" if is_dark else "#d4d8e2"
+        thumb = "#3a4052" if is_dark else "#b8bec8"
+        accent = "#3b82f6" if is_dark else "#2563eb"
+        self._icon_ink = text
 
         self.setStyleSheet(f"""
             QDialog {{ background-color: {bg}; color: {text}; }}
+            QFrame#previewHeaderBar, QFrame#previewFooterBar {{
+                background-color: {bar_bg};
+                border: 1px solid {border};
+                border-radius: 9px;
+            }}
             QScrollArea {{
                 background-color: {canvas_bg};
                 border: 1px solid {border};
-                border-radius: 8px;
+                border-radius: 10px;
             }}
             QLabel {{ color: {text}; background: transparent; border: none; }}
             QPushButton {{
                 background-color: {btn_bg};
                 color: {text};
                 border: 1px solid {border};
-                padding: 5px 12px;
+                padding: 4px 11px;
                 font-size: 12px;
                 font-weight: 600;
                 border-radius: 6px;
                 min-height: 26px;
             }}
-            QPushButton:hover {{ background-color: {btn_hover}; }}
+            QPushButton:hover {{ background-color: {btn_hover}; border-color: {accent}; }}
+            QSlider::groove:horizontal {{
+                background: {border};
+                height: 4px;
+                border-radius: 2px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {accent};
+                height: 4px;
+                border-radius: 2px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {text};
+                width: 11px;
+                height: 11px;
+                margin: -4px 0;
+                border-radius: 5px;
+            }}
             QScrollBar:vertical {{
                 background: transparent;
                 width: 8px;
@@ -1126,62 +1286,50 @@ class ImagePreviewDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
 
-        toolbar = QHBoxLayout()
+        # ---- Header Bar Rapi: Info File (kiri) + Kontrol Zoom & Close (kanan) ----
+        header_frame = QFrame()
+        header_frame.setObjectName("previewHeaderBar")
+        toolbar = QHBoxLayout(header_frame)
+        toolbar.setContentsMargins(12, 6, 8, 6)
         toolbar.setSpacing(6)
+
         self.info_label = QLabel(f"{filename}  ({w}×{h})")
         self.info_label.setStyleSheet("font-weight: 600; font-size: 13px;")
-        toolbar.addWidget(self.info_label)
-
-        hint_label = QLabel("  ·  Double-Click: Zoom / Fit  ·  Drag: Pan  ·  Wheel: Zoom")
-        hint_label.setStyleSheet(f"font-size: 11px; color: {muted};")
-        toolbar.addWidget(hint_label)
-        toolbar.addStretch()
-
-        self.prev_frame_btn = None
-        self.play_pause_btn = None
-        self.next_frame_btn = None
-        self.mute_btn = None
-        if len(self.anim_frames) > 1 or is_vid:
-            self.prev_frame_btn = QPushButton("⟨")
-            self.prev_frame_btn.setToolTip("Previous Frame ([)")
-            self.prev_frame_btn.clicked.connect(lambda: self.step_frame(-1))
-            self.play_pause_btn = QPushButton("Pause")
-            self.play_pause_btn.setToolTip("Play / Pause Animation (Space / P)")
-            self.play_pause_btn.clicked.connect(self.toggle_animation)
-            self.next_frame_btn = QPushButton("⟩")
-            self.next_frame_btn.setToolTip("Next Frame (])")
-            self.next_frame_btn.clicked.connect(lambda: self.step_frame(1))
-            for ab in (self.prev_frame_btn, self.play_pause_btn, self.next_frame_btn):
-                ab.setCursor(Qt.PointingHandCursor)
-                toolbar.addWidget(ab)
-            if is_vid:
-                mute_txt = "Muted (M)" if self._audio_muted else "Sound On (M)"
-                self.mute_btn = QPushButton(mute_txt)
-                self.mute_btn.setToolTip("Toggle Video Sound Mute / Unmute (M)")
-                self.mute_btn.setCursor(Qt.PointingHandCursor)
-                self.mute_btn.clicked.connect(self.toggle_audio_mute)
-                toolbar.addWidget(self.mute_btn)
+        self.info_label.setToolTip(image_path)
+        self.info_label.setMinimumWidth(160)
+        toolbar.addWidget(self.info_label, stretch=1)
 
         zoom_out_btn = QPushButton("−")
         zoom_out_btn.setToolTip("Zoom Out (−)")
+        zoom_out_btn.setFixedWidth(32)
         zoom_out_btn.clicked.connect(lambda: self.adjust_zoom(0.8))
-        zoom_in_btn = QPushButton("+")
-        zoom_in_btn.setToolTip("Zoom In (+)")
-        zoom_in_btn.clicked.connect(lambda: self.adjust_zoom(1.25))
         fit_btn = QPushButton("Fit (0)")
         fit_btn.clicked.connect(self.fit_to_window)
         actual_btn = QPushButton("100% (1)")
         actual_btn.clicked.connect(self.reset_actual_size)
+        zoom_in_btn = QPushButton("+")
+        zoom_in_btn.setToolTip("Zoom In (+)")
+        zoom_in_btn.setFixedWidth(32)
+        zoom_in_btn.clicked.connect(lambda: self.adjust_zoom(1.25))
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFixedHeight(18)
+        sep.setStyleSheet(f"color: {border}; background: {border}; border: none;")
+
         close_btn = QPushButton("Close (Esc)")
         close_btn.clicked.connect(self.accept)
 
-        for b in (zoom_out_btn, zoom_in_btn, fit_btn, actual_btn, close_btn):
+        for b in (zoom_out_btn, fit_btn, actual_btn, zoom_in_btn):
             b.setCursor(Qt.PointingHandCursor)
             toolbar.addWidget(b)
-        layout.addLayout(toolbar)
+        toolbar.addWidget(sep)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        toolbar.addWidget(close_btn)
+        layout.addWidget(header_frame)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -1191,6 +1339,85 @@ class ImagePreviewDialog(QDialog):
         self.preview_label.setStyleSheet(f"background-color: {canvas_bg};")
         self.scroll_area.setWidget(self.preview_label)
         layout.addWidget(self.scroll_area, stretch=1)
+
+        # ---- Footer Bar: Kontrol Video/Animasi & Seekbar (kiri) + Hint Interaksi (kanan) ----
+        footer_frame = QFrame()
+        footer_frame.setObjectName("previewFooterBar")
+        footer_lay = QHBoxLayout(footer_frame)
+        footer_lay.setContentsMargins(10, 6, 12, 6)
+        footer_lay.setSpacing(8)
+
+        self.prev_frame_btn = None
+        self.play_pause_btn = None
+        self.next_frame_btn = None
+        self.mute_btn = None
+        self.seek_slider = None
+        self.cur_time_lbl = None
+        self.tot_time_lbl = None
+
+        if len(self.anim_frames) > 1 or is_vid:
+            self.prev_frame_btn = QPushButton("")
+            self.prev_frame_btn.setIcon(make_vector_icon("step_prev", self._icon_ink, 13))
+            self.prev_frame_btn.setIconSize(QSize(13, 13))
+            self.prev_frame_btn.setFixedWidth(34)
+            self.prev_frame_btn.setToolTip("Previous Frame ([)")
+            self.prev_frame_btn.clicked.connect(lambda: self.step_frame(-1))
+
+            self.play_pause_btn = QPushButton("Pause")
+            self.play_pause_btn.setIcon(make_vector_icon("pause", self._icon_ink, 13))
+            self.play_pause_btn.setIconSize(QSize(13, 13))
+            self.play_pause_btn.setToolTip("Play / Pause (Space / P)")
+            self.play_pause_btn.clicked.connect(self.toggle_animation)
+
+            self.next_frame_btn = QPushButton("")
+            self.next_frame_btn.setIcon(make_vector_icon("step_next", self._icon_ink, 13))
+            self.next_frame_btn.setIconSize(QSize(13, 13))
+            self.next_frame_btn.setFixedWidth(34)
+            self.next_frame_btn.setToolTip("Next Frame (])")
+            self.next_frame_btn.clicked.connect(lambda: self.step_frame(1))
+
+            for ab in (self.prev_frame_btn, self.play_pause_btn, self.next_frame_btn):
+                ab.setCursor(Qt.PointingHandCursor)
+                ab.setFocusPolicy(Qt.NoFocus)
+                footer_lay.addWidget(ab)
+
+            if is_vid:
+                self.cur_time_lbl = QLabel("0:00")
+                self.cur_time_lbl.setStyleSheet(f"font-size: 11px; color: {text}; font-family: Consolas, monospace;")
+                self.seek_slider = _ClickSeekSlider(Qt.Horizontal)
+                self.seek_slider.setRange(0, max(100, self._video_duration_ms))
+                self.seek_slider.setFocusPolicy(Qt.NoFocus)
+                self.seek_slider.setMinimumWidth(140)
+                self.seek_slider.sliderPressed.connect(lambda: setattr(self, "_seeking_preview", True))
+                self.seek_slider.sliderMoved.connect(lambda v: self.cur_time_lbl.setText(format_duration(v / 1000.0)))
+                self.seek_slider.sliderReleased.connect(self._on_preview_seek_released)
+                self.seek_slider.seek_clicked.connect(self._on_preview_seek_clicked)
+                tot_txt = format_duration(self._video_duration_ms / 1000.0) if self._video_duration_ms > 0 else "0:00"
+                self.tot_time_lbl = QLabel(tot_txt)
+                self.tot_time_lbl.setStyleSheet(f"font-size: 11px; color: {muted}; font-family: Consolas, monospace;")
+
+                footer_lay.addWidget(self.cur_time_lbl)
+                footer_lay.addWidget(self.seek_slider, stretch=1)
+                footer_lay.addWidget(self.tot_time_lbl)
+
+                mute_txt = "Muted (M)" if self._audio_muted else "Sound On (M)"
+                mute_icon = "sound_off" if self._audio_muted else "sound_on"
+                self.mute_btn = QPushButton(mute_txt)
+                self.mute_btn.setIcon(make_vector_icon(mute_icon, self._icon_ink, 14))
+                self.mute_btn.setIconSize(QSize(14, 14))
+                self.mute_btn.setToolTip("Toggle Video Sound Mute / Unmute (M)")
+                self.mute_btn.setCursor(Qt.PointingHandCursor)
+                self.mute_btn.setFocusPolicy(Qt.NoFocus)
+                self.mute_btn.clicked.connect(self.toggle_audio_mute)
+                footer_lay.addWidget(self.mute_btn)
+
+        if self.seek_slider is None:
+            footer_lay.addStretch(1)
+
+        hint_label = QLabel("Double-Click: Zoom · Drag: Pan · Wheel: Zoom")
+        hint_label.setStyleSheet(f"font-size: 11px; color: {muted};")
+        footer_lay.addWidget(hint_label)
+        layout.addWidget(footer_frame)
 
         # Pasang eventFilter pada viewport dan label untuk Drag-to-Pan & Smart Double-Click Zoom
         self.scroll_area.viewport().installEventFilter(self)
@@ -1236,11 +1463,40 @@ class ImagePreviewDialog(QDialog):
             ) = session
             self._using_qtmm_video = True
             self._frame_step_mode = False
+            self._audio_player.positionChanged.connect(self._on_preview_position_changed)
+            self._audio_player.durationChanged.connect(self._on_preview_duration_changed)
             if self._anim_playing:
                 self._audio_player.play()
         except Exception as e:
             print(f"[DEBUG] Preview media init warning: {e}")
             self._using_qtmm_video = False
+
+    def _on_preview_position_changed(self, pos_ms: int):
+        if self._seeking_preview:
+            return
+        if self.seek_slider is not None:
+            self.seek_slider.setValue(int(pos_ms))
+        if self.cur_time_lbl is not None:
+            self.cur_time_lbl.setText(format_duration(pos_ms / 1000.0))
+
+    def _on_preview_duration_changed(self, dur_ms: int):
+        if dur_ms > 0:
+            self._video_duration_ms = int(dur_ms)
+            if self.seek_slider is not None:
+                self.seek_slider.setRange(0, int(dur_ms))
+            if self.tot_time_lbl is not None:
+                self.tot_time_lbl.setText(format_duration(dur_ms / 1000.0))
+
+    def _on_preview_seek_released(self):
+        self._seeking_preview = False
+        if self._audio_player is not None and self.seek_slider is not None:
+            self._audio_player.setPosition(int(self.seek_slider.value()))
+
+    def _on_preview_seek_clicked(self, pos_ms: int):
+        if self.cur_time_lbl is not None:
+            self.cur_time_lbl.setText(format_duration(pos_ms / 1000.0))
+        if self._audio_player is not None:
+            self._audio_player.setPosition(int(pos_ms))
 
     def _on_preview_media_error(self, error, error_string=""):
         print(f"[DEBUG] Preview QtMultimedia error ({error}): {error_string}")
@@ -1299,6 +1555,7 @@ class ImagePreviewDialog(QDialog):
             self._audio_output.setMuted(self._audio_muted)
         if self.mute_btn is not None:
             self.mute_btn.setText("Muted (M)" if self._audio_muted else "Sound On (M)")
+            self.mute_btn.setIcon(make_vector_icon("sound_off" if self._audio_muted else "sound_on", self._icon_ink, 14))
         if self.parent and hasattr(self.parent, "set_video_muted"):
             self.parent.set_video_muted(self._audio_muted, notify=False)
 
@@ -1348,6 +1605,7 @@ class ImagePreviewDialog(QDialog):
         self._anim_playing = not self._anim_playing
         if self.play_pause_btn is not None:
             self.play_pause_btn.setText("Pause" if self._anim_playing else "Play")
+            self.play_pause_btn.setIcon(make_vector_icon("pause" if self._anim_playing else "play", self._icon_ink, 13))
         if self._anim_playing:
             self._frame_step_mode = False
             if self._using_qtmm_video and self._audio_player is not None:
@@ -1371,6 +1629,7 @@ class ImagePreviewDialog(QDialog):
             self._audio_player.pause()
         if self.play_pause_btn is not None:
             self.play_pause_btn.setText("Play")
+            self.play_pause_btn.setIcon(make_vector_icon("play", self._icon_ink, 13))
         self._anim_index = (self._anim_index + delta) % len(self.anim_frames)
         self.base_pixmap = self.anim_frames[self._anim_index][0]
         self._render_current_frame_preserve_scroll()
@@ -1466,12 +1725,15 @@ class ImagePreviewDialog(QDialog):
         mode_tag = "Fit" if self._fit_mode else f"{pct}%"
         frame_tag = ""
         if self._using_qtmm_video and not self._frame_step_mode:
-            frame_tag = " • Video" if self._anim_playing else " • Video · Paused"
+            frame_tag = " · Video" if self._anim_playing else " · Video · Paused"
         elif len(self.anim_frames) > 1:
             state_tag = "" if self._anim_playing else " · Paused"
-            frame_tag = f" • Frame {self._anim_index + 1}/{len(self.anim_frames)}{state_tag}"
+            frame_tag = f" · Frame {self._anim_index + 1}/{len(self.anim_frames)}{state_tag}"
+        elided_name = QFontMetrics(self.info_label.font()).elidedText(
+            os.path.basename(self.image_path), Qt.ElideMiddle, 360
+        )
         self.info_label.setText(
-            f"{os.path.basename(self.image_path)}  ({self.base_pixmap.width()}×{self.base_pixmap.height()} • {mode_tag}{frame_tag})"
+            f"{elided_name}   ({self.base_pixmap.width()}×{self.base_pixmap.height()} · {mode_tag}{frame_tag})"
         )
 
     def _get_scaled_frame(self, frame_idx: int, tw: int, th: int) -> QPixmap:
@@ -2354,7 +2616,7 @@ class ImageSorterApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ImageSorter")
-        self.resize(900, 700)
+        self.resize(1020, 760)
         self.setAcceptDrops(True)
         self.image_files = []
         self.current_folder_path = ""
@@ -2418,9 +2680,14 @@ class ImageSorterApp(QMainWindow):
         self._main_video_using_qtmm = False
         self._qtmm_first_frame_shown = False
         self._main_paused = False
+        self._seeking_main_video = False
+        self._video_duration_ms = 0
         self._video_controls = []
         self._play_pause_btn = None
         self._mute_btn = None
+        self._video_seek_slider = None
+        self._hud_cur_time = None
+        self._hud_tot_time = None
         self.folder_slot_count = clamp_folder_slots(settings.get("folder_slot_count", DEFAULT_FOLDER_SLOTS))
         self.pixmap_cache = PixmapLRUCache(max_entries=36)
         self._prefetch_timer = QTimer(self)
@@ -2595,6 +2862,8 @@ class ImageSorterApp(QMainWindow):
             ) = session
             self._main_video_using_qtmm = True
             self._qtmm_first_frame_shown = False
+            self._main_audio_player.positionChanged.connect(self._on_main_player_position)
+            self._main_audio_player.durationChanged.connect(self._on_main_player_duration)
             if self._main_paused:
                 self._main_audio_player.pause()
             else:
@@ -2603,6 +2872,39 @@ class ImageSorterApp(QMainWindow):
             print(f"[DEBUG] Main QtMultimedia init warning: {e}")
             self._stop_main_audio()
             self._start_main_video_fallback(video_path)
+
+    def _on_main_player_position(self, pos_ms: int):
+        if getattr(self, "_seeking_main_video", False):
+            return
+        slider = getattr(self, "_video_seek_slider", None)
+        if slider is not None:
+            slider.setValue(int(pos_ms))
+        cur_lbl = getattr(self, "_hud_cur_time", None)
+        if cur_lbl is not None:
+            cur_lbl.setText(format_duration(pos_ms / 1000.0))
+
+    def _on_main_player_duration(self, dur_ms: int):
+        if dur_ms > 0:
+            self._video_duration_ms = int(dur_ms)
+            slider = getattr(self, "_video_seek_slider", None)
+            if slider is not None:
+                slider.setRange(0, int(dur_ms))
+            tot_lbl = getattr(self, "_hud_tot_time", None)
+            if tot_lbl is not None:
+                tot_lbl.setText(format_duration(dur_ms / 1000.0))
+
+    def _on_main_seek_released(self):
+        self._seeking_main_video = False
+        slider = getattr(self, "_video_seek_slider", None)
+        if self._main_audio_player is not None and slider is not None:
+            self._main_audio_player.setPosition(int(slider.value()))
+
+    def _on_main_seek_clicked(self, pos_ms: int):
+        cur_lbl = getattr(self, "_hud_cur_time", None)
+        if cur_lbl is not None:
+            cur_lbl.setText(format_duration(pos_ms / 1000.0))
+        if self._main_audio_player is not None:
+            self._main_audio_player.setPosition(int(pos_ms))
 
     def _on_main_video_error(self, error, error_string=""):
         vpath = getattr(self, "_video_decode_path", None)
@@ -2667,7 +2969,7 @@ class ImageSorterApp(QMainWindow):
         self._main_audio_buffer = None
         self._main_audio_bytes = None
 
-    # ---------------- Tombol Play/Pause & Mute di atas pratinjau ----------------
+    # ---------------- HUD Kontrol Media + Seekbar Modern di atas pratinjau ----------------
     def _clear_video_controls(self):
         for w in getattr(self, "_video_controls", []):
             try:
@@ -2678,61 +2980,148 @@ class ImageSorterApp(QMainWindow):
         self._video_controls = []
         self._play_pause_btn = None
         self._mute_btn = None
+        self._video_seek_slider = None
+        self._hud_cur_time = None
+        self._hud_tot_time = None
+        self._seeking_main_video = False
 
-    def _build_video_controls(self, target_size, is_video: bool):
-        """Kontrol kecil semi-transparan di pojok kiri bawah pratinjau (Play/Pause + Mute)."""
+    def _build_video_controls(self, target_size, is_video: bool, duration_s: float = 0.0):
+        """Bangun kapsul media frosted-glass terpadu: Seekbar + Timecode (video), Play/Pause (P), & Sound/Muted (M)."""
         self._clear_video_controls()
-        btn_style = """
-            QPushButton {
-                background-color: rgba(18, 18, 22, 200);
-                color: #ededef;
-                border: 1px solid rgba(255, 255, 255, 45);
-                border-radius: 6px;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0px 6px;
-            }
-            QPushButton:hover { background-color: rgba(40, 40, 48, 230); }
-        """
         w_lbl = max(120, int(target_size.width()))
         h_lbl = max(60, int(target_size.height()))
-        avail_w = (w_lbl - 96) if is_video else (w_lbl - 20)
-        if is_video:
-            btn_w = 74 if w_lbl >= 245 else max(48, (avail_w - 6) // 2)
-            gap = 6
-        else:
-            btn_w = max(64, min(78, avail_w))
-            gap = 0
-        x = 10
-        y = h_lbl - 38
-        self._play_pause_btn = QPushButton(self.image_label)
-        self._play_pause_btn.setStyleSheet(btn_style)
+
+        hud = QFrame(self.image_label)
+        hud.setObjectName("mainMediaHud")
+        hud.setStyleSheet("""
+            QFrame#mainMediaHud {
+                background-color: rgba(14, 16, 22, 218);
+                border: 1px solid rgba(255, 255, 255, 36);
+                border-radius: 12px;
+            }
+            QLabel {
+                color: #e6e8ee;
+                background: transparent;
+                border: none;
+                font-family: Consolas, monospace;
+                font-size: 10px;
+            }
+            QPushButton {
+                background-color: rgba(255, 255, 255, 20);
+                color: #f0f2f5;
+                border: 1px solid rgba(255, 255, 255, 28);
+                border-radius: 7px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 0px 8px;
+                min-height: 22px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 42);
+                border-color: rgba(255, 255, 255, 68);
+            }
+            QSlider::groove:horizontal {
+                background: rgba(255, 255, 255, 45);
+                height: 4px;
+                border-radius: 2px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #3b82f6;
+                height: 4px;
+                border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background: #ffffff;
+                width: 10px;
+                height: 10px;
+                margin: -3px 0;
+                border-radius: 5px;
+            }
+        """)
+
+        self._play_pause_btn = QPushButton("Pause")
         self._play_pause_btn.setCursor(Qt.PointingHandCursor)
         self._play_pause_btn.setFocusPolicy(Qt.NoFocus)
         self._play_pause_btn.setToolTip("Play / Pause (P)")
         self._play_pause_btn.clicked.connect(self.toggle_main_playback)
-        self._play_pause_btn.setGeometry(x, y, btn_w, 28)
-        self._play_pause_btn.show()
-        self._play_pause_btn.raise_()
-        self._video_controls.append(self._play_pause_btn)
+
         if is_video:
-            self._mute_btn = QPushButton(self.image_label)
-            self._mute_btn.setStyleSheet(btn_style)
+            hud_w = min(360, max(150, w_lbl - 16))
+            use_two_rows = hud_w >= 210 and h_lbl >= 120
+            hud_h = 56 if use_two_rows else 34
+            x = max(6, (w_lbl - hud_w) // 2)
+            y = max(6, h_lbl - hud_h - 10)
+            hud.setGeometry(x, y, hud_w, hud_h)
+
+            outer = QVBoxLayout(hud)
+            outer.setContentsMargins(10, 5 if use_two_rows else 4, 10, 5 if use_two_rows else 4)
+            outer.setSpacing(4)
+
+            dur_ms = int(round(duration_s * 1000)) if duration_s > 0 else self._video_duration_ms
+            if use_two_rows:
+                seek_row = QHBoxLayout()
+                seek_row.setContentsMargins(0, 0, 0, 0)
+                seek_row.setSpacing(6)
+                self._hud_cur_time = QLabel("0:00")
+                self._hud_cur_time.setFixedWidth(30)
+                self._video_seek_slider = _ClickSeekSlider(Qt.Horizontal)
+                self._video_seek_slider.setRange(0, max(100, dur_ms))
+                self._video_seek_slider.setFocusPolicy(Qt.NoFocus)
+                self._video_seek_slider.sliderPressed.connect(lambda: setattr(self, "_seeking_main_video", True))
+                self._video_seek_slider.sliderMoved.connect(
+                    lambda v: self._hud_cur_time.setText(format_duration(v / 1000.0)) if self._hud_cur_time else None
+                )
+                self._video_seek_slider.sliderReleased.connect(self._on_main_seek_released)
+                self._video_seek_slider.seek_clicked.connect(self._on_main_seek_clicked)
+                self._hud_tot_time = QLabel(format_duration(dur_ms / 1000.0) if dur_ms > 0 else "0:00")
+                self._hud_tot_time.setFixedWidth(30)
+                self._hud_tot_time.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                seek_row.addWidget(self._hud_cur_time)
+                seek_row.addWidget(self._video_seek_slider, stretch=1)
+                seek_row.addWidget(self._hud_tot_time)
+                outer.addLayout(seek_row)
+
+            btn_row = QHBoxLayout()
+            btn_row.setContentsMargins(0, 0, 0, 0)
+            btn_row.setSpacing(8)
+            btn_row.addStretch()
+            self._play_pause_btn.setFixedHeight(24)
+            btn_row.addWidget(self._play_pause_btn)
+
+            self._mute_btn = QPushButton("Sound")
             self._mute_btn.setCursor(Qt.PointingHandCursor)
             self._mute_btn.setFocusPolicy(Qt.NoFocus)
             self._mute_btn.setToolTip("Mute / Unmute (M)")
             self._mute_btn.clicked.connect(self.toggle_main_mute)
-            self._mute_btn.setGeometry(x + btn_w + gap, y, btn_w, 28)
-            self._mute_btn.show()
-            self._mute_btn.raise_()
-            self._video_controls.append(self._mute_btn)
+            self._mute_btn.setFixedHeight(24)
+            btn_row.addWidget(self._mute_btn)
+            btn_row.addStretch()
+            outer.addLayout(btn_row)
+        else:
+            hud_w = min(116, max(84, w_lbl - 16))
+            hud_h = 34
+            x = max(6, (w_lbl - hud_w) // 2)
+            y = max(6, h_lbl - hud_h - 10)
+            hud.setGeometry(x, y, hud_w, hud_h)
+            lay = QHBoxLayout(hud)
+            lay.setContentsMargins(8, 4, 8, 4)
+            self._play_pause_btn.setFixedHeight(24)
+            lay.addWidget(self._play_pause_btn)
+
+        hud.show()
+        hud.raise_()
+        self._video_controls.append(hud)
         self._refresh_video_controls()
 
     def _refresh_video_controls(self):
         if self._play_pause_btn is not None:
-            self._play_pause_btn.setText("▶ Play" if self._main_paused else "❚❚ Pause")
+            self._play_pause_btn.setText("Play" if self._main_paused else "Pause")
+            self._play_pause_btn.setIcon(make_vector_icon("play" if self._main_paused else "pause", "#f0f2f5", 12))
+            self._play_pause_btn.setIconSize(QSize(12, 12))
         if self._mute_btn is not None:
             self._mute_btn.setText("Muted" if self.video_muted else "Sound")
+            self._mute_btn.setIcon(make_vector_icon("sound_off" if self.video_muted else "sound_on", "#f0f2f5", 12))
+            self._mute_btn.setIconSize(QSize(12, 12))
 
     def toggle_main_playback(self):
         """Play/Pause video atau animasi yang sedang tampil di layar utama (tombol P)."""
@@ -3233,156 +3622,143 @@ class ImageSorterApp(QMainWindow):
         ext = os.path.splitext(path)[1].lower()
         return ext in SUPPORTED_IMAGE_EXTENSIONS
 
-    def apply_theme(self):
-        settings = load_settings()
+    def _get_ui_tokens(self):
+        """Kembalikan palet design-token terpadu untuk tema Dark, Light, dan Custom."""
+        is_dark = self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark())
         if self.theme_mode == "custom":
-            custom_theme = settings.get("custom_theme", {})
-            bg_color = custom_theme.get("bg_color", "#121212")
-            text_color = custom_theme.get("text_color", "#FFFFFF")
-            btn_bg = custom_theme.get("btn_bg", "#2e2e2e")
-            btn_hover = custom_theme.get("btn_hover", "#444444")
-            label_bg = custom_theme.get("label_bg", "#1a1a1a")
-            menu_bg = custom_theme.get("menu_bg", "#1a1a1a")
-            menu_text = custom_theme.get("menu_text", "#FFFFFF")
-            main_border_color = custom_theme.get("main_border_color", "#00BFFF")
-            next_border_color = custom_theme.get("next_border_color", "#32CD32")
-            main_shadow = custom_theme.get("main_shadow", "0 0 15px rgba(0, 191, 255, 0.6)")
-            next_shadow = custom_theme.get("next_shadow", "0 0 10px rgba(50, 205, 50, 0.4)")
+            ct = load_settings().get("custom_theme", {})
+            bg = ct.get("bg_color", "#111318")
+            dark_custom = QColor(bg).lightness() < 128
+            return {
+                "is_dark": dark_custom,
+                "win_bg": bg,
+                "stage_bg": ct.get("label_bg", "#151821"),
+                "surface": ct.get("btn_bg", "#1c1f29"),
+                "surface_hover": ct.get("btn_hover", "#262a37"),
+                "surface_pressed": ct.get("btn_hover", "#2f3444"),
+                "border": "#303545" if dark_custom else "#cfd5e2",
+                "border_strong": ct.get("main_border_color", "#3b82f6"),
+                "next_border": ct.get("next_border_color", "#10b981"),
+                "text": ct.get("text_color", "#f0f2f5"),
+                "text_muted": "#9aa1b2" if dark_custom else "#5f6675",
+                "card_bg": ct.get("label_bg", "#161922"),
+                "next_card_bg": ct.get("label_bg", "#14171f"),
+                "menu_bg": ct.get("menu_bg", "#13161e"),
+                "menu_text": ct.get("menu_text", "#f0f2f5"),
+                "accent": ct.get("main_border_color", "#3b82f6"),
+            }
+        if is_dark:
+            return {
+                "is_dark": True,
+                "win_bg": "#0e1015",
+                "stage_bg": "#13161d",
+                "surface": "#181b23",
+                "surface_hover": "#212633",
+                "surface_pressed": "#2a3040",
+                "border": "#262a36",
+                "border_strong": "#363c4d",
+                "next_border": "#282c39",
+                "text": "#f0f2f5",
+                "text_muted": "#8b91a1",
+                "card_bg": "#151820",
+                "next_card_bg": "#151820",
+                "menu_bg": "#12141b",
+                "menu_text": "#f0f2f5",
+                "accent": "#3b82f6",
+            }
+        return {
+            "is_dark": False,
+            "win_bg": "#f3f4f7",
+            "stage_bg": "#e9ecf2",
+            "surface": "#ffffff",
+            "surface_hover": "#f0f2f6",
+            "surface_pressed": "#e4e7ee",
+            "border": "#d6dae3",
+            "border_strong": "#bfc6d4",
+            "next_border": "#d0d5e0",
+            "text": "#16181d",
+            "text_muted": "#646b7a",
+            "card_bg": "#ffffff",
+            "next_card_bg": "#f8f9fb",
+            "menu_bg": "#ffffff",
+            "menu_text": "#16181d",
+            "accent": "#2563eb",
+        }
 
-            main_bg_gradient = f"qradialgradient(cx:0.5, cy:0.5, radius:0.5, stop:0 {main_border_color}32, stop:1 transparent)"
-            next_bg_gradient = f"qradialgradient(cx:0.5, cy:0.5, radius:0.5, stop:0 {next_border_color}1E, stop:1 transparent)"
-
-            self.setStyleSheet(f"""
-                QMainWindow {{ background-color: {bg_color}; }}
-                QLabel {{
-                    color: {text_color};
-                    background-color: {label_bg};
-                    border: 1px solid #333;
-                }}
-                QPushButton {{
-                    background-color: {btn_bg};
-                    color: {text_color};
-                    border: none;
-                    padding: 6px 12px;
-                    font-weight: bold;
-                    border-radius: 8px;
-                    min-height: 26px;
-                }}
-                QPushButton:hover {{ background-color: {btn_hover}; }}
-                QPushButton:pressed {{ background-color: {btn_hover}; }}
-                QMenuBar {{
-                    background-color: {menu_bg};
-                    color: {menu_text};
-                }}
-                QMenuBar::item:selected {{ background-color: #333333; }}
-                QMenu {{
-                    background-color: {menu_bg};
-                    color: {menu_text};
-                    border: 1px solid #333;
-                }}
-                QMenu::item:selected {{ background-color: #333333; }}
-            """)
-            self.image_label.setStyleSheet(f"""
-                QLabel {{
-                    color: {text_color};
-                    background: {main_bg_gradient};
-                    border: 3px solid {main_border_color};
-                    border-radius: 12px;
-                    box-shadow: {main_shadow};
-                    padding: 8px;
-                    transition: all 0.3s ease;
-                }}
-                QLabel:hover {{
-                    transform: scale(1.02);
-                    box-shadow: 0 0 25px {main_border_color}CC;
-                    border: 4px solid {main_border_color};
-                }}
-            """)
-            self.next_image_label.setStyleSheet(f"""
-                QLabel {{
-                    color: {text_color};
-                    background: {next_bg_gradient};
-                    border: 2px dashed {next_border_color};
-                    border-radius: 10px;
-                    box-shadow: {next_shadow};
-                    padding: 6px;
-                    transition: all 0.3s ease;
-                }}
-                QLabel:hover {{
-                    transform: scale(1.01);
-                    box-shadow: 0 0 15px {next_border_color}99;
-                    opacity: 0.9;
-                }}
-            """)
-            self.image_label.setMouseTracking(True)
-            self.next_image_label.setMouseTracking(True)
-            
-            self.update_button_styles()
-            self.update_folder_buttons()
-            return
-
-        if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
-            self.setStyleSheet("""
-                QMainWindow { background-color: #000000; }
-                QLabel {
-                    color: white;
-                    background-color: #000000;
-                    border: 1px solid #222;
-                }
-                QPushButton {
-                    background-color: #111111;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    font-weight: bold;
-                    border-radius: 8px;
-                    min-height: 26px;
-                }
-                QPushButton:hover { background-color: #222222; }
-                QPushButton:pressed { background-color: #333333; }
-                QMenuBar {
-                    background-color: #000000;
-                    color: white;
-                }
-                QMenuBar::item:selected { background-color: #111111; }
-                QMenu {
-                    background-color: #000000;
-                    color: white;
-                    border: 1px solid #222;
-                }
-                QMenu::item:selected { background-color: #111111; }
-            """)
-        else:
-            self.setStyleSheet("""
-                QMainWindow { background-color: #ffffff; }
-                QLabel {
-                    color: black;
-                    background-color: #f0f0f0;
-                    border: 1px solid #ccc;
-                }
-                QPushButton {
-                    background-color: #e0e0e0;
-                    color: black;
-                    border: none;
-                    padding: 6px 12px;
-                    font-weight: bold;
-                    border-radius: 8px;
-                    min-height: 26px;
-                }
-                QPushButton:hover { background-color: #d0d0d0; }
-                QPushButton:pressed { background-color: #c0c0c0; }
-                QMenuBar {
-                    background-color: #f0f0f0;
-                    color: black;
-                }
-                QMenuBar::item:selected { background-color: #dcdcdc; }
-                QMenu {
-                    background-color: #ffffff;
-                    color: black;
-                    border: 1px solid #ccc;
-                }
-                QMenu::item:selected { background-color: #eaeaea; }
-            """)
+    def apply_theme(self):
+        t = self._get_ui_tokens()
+        self.setStyleSheet(f"""
+            QMainWindow {{ background-color: {t["win_bg"]}; }}
+            QWidget {{ color: {t["text"]}; }}
+            QFrame#studioStage {{
+                background-color: {t["stage_bg"]};
+                border: 1px solid {t["border"]};
+                border-radius: 14px;
+            }}
+            QLabel {{
+                color: {t["text"]};
+                background-color: transparent;
+                border: none;
+            }}
+            QLabel#headerFileBar, QLabel#headerCounterBar {{
+                background-color: {t["surface"]};
+                color: {t["text"]};
+                border: 1px solid {t["border"]};
+                border-radius: 9px;
+                padding: 0px 12px;
+                font-size: 12px;
+            }}
+            QLabel#headerCounterBar {{
+                font-weight: 700;
+                font-family: Consolas, monospace;
+            }}
+            QLabel#nextEyebrowLabel {{
+                color: {t["text_muted"]};
+                background: transparent;
+                border: none;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 1.5px;
+            }}
+            QPushButton {{
+                background-color: {t["surface"]};
+                color: {t["text"]};
+                border: 1px solid {t["border"]};
+                padding: 6px 14px;
+                font-weight: 600;
+                border-radius: 9px;
+                min-height: 26px;
+            }}
+            QPushButton:hover {{
+                background-color: {t["surface_hover"]};
+                border-color: {t["border_strong"]};
+            }}
+            QPushButton:pressed {{ background-color: {t["surface_pressed"]}; }}
+            QMenuBar {{
+                background-color: {t["menu_bg"]};
+                color: {t["menu_text"]};
+                border-bottom: 1px solid {t["border"]};
+                padding: 2px 6px;
+            }}
+            QMenuBar::item {{
+                padding: 5px 10px;
+                border-radius: 5px;
+                background: transparent;
+            }}
+            QMenuBar::item:selected {{ background-color: {t["surface_hover"]}; }}
+            QMenu {{
+                background-color: {t["menu_bg"]};
+                color: {t["menu_text"]};
+                border: 1px solid {t["border"]};
+                border-radius: 8px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 20px;
+                border-radius: 5px;
+            }}
+            QMenu::item:selected {{ background-color: {t["surface_hover"]}; }}
+        """)
 
         self.update_progress_bar_style()
         self.update_label_styles()
@@ -3397,66 +3773,39 @@ class ImageSorterApp(QMainWindow):
         self.custom_action.setChecked(self.theme_mode == "custom")
 
     def update_label_styles(self):
-        settings = load_settings()
-        is_dark = self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark())
-        
-        if self.theme_mode == "custom":
-            custom_theme = settings.get("custom_theme", {})
-            bg_color = custom_theme.get("label_bg", "#1e1e1e" if is_dark else "#ffffff")
-            text_color = custom_theme.get("text_color", "#FFFFFF" if is_dark else "#000000")
-        else:
-            bg_color = "#1e1e1e" if is_dark else "#ffffff"
-            text_color = "white" if is_dark else "black"
+        t = self._get_ui_tokens()
+        main_bwidth = "2px" if self.theme_mode == "custom" else "1px"
+        next_bwidth = "2px dashed" if self.theme_mode == "custom" else "1px solid"
 
         self.image_label.setStyleSheet(f"""
             QLabel {{
-                color: {text_color};
-                background: {bg_color};
-                border: 6px solid transparent;
-                border-radius: 20px;
-                padding: 10px;
-            }}
-            QLabel:hover {{
-                border-width: 8px;
-            }}
-        """ if is_dark else f"""
-            QLabel {{
-                color: {text_color};
-                background: {bg_color};
-                border: 6px solid transparent;
-                border-radius: 20px;
-                padding: 10px;
-            }}
-            QLabel:hover {{
-                border-width: 8px;
+                color: {t["text"]};
+                background-color: {t["card_bg"]};
+                border: {main_bwidth} solid {t["border_strong"]};
+                border-radius: 10px;
+                padding: 0px;
             }}
         """)
 
         self.next_image_label.setStyleSheet(f"""
             QLabel {{
-                color: {text_color};
-                background: {bg_color};
-                border: 5px dashed transparent;
-                border-radius: 15px;
-                padding: 8px;
-            }}
-            QLabel:hover {{
-                border-width: 6px;
-                opacity: 1.0;
-            }}
-        """ if is_dark else f"""
-            QLabel {{
-                color: {text_color};
-                background: {bg_color};
-                border: 5px dashed transparent;
-                border-radius: 15px;
-                padding: 8px;
-            }}
-            QLabel:hover {{
-                border-width: 6px;
-                opacity: 1.0;
+                color: {t["text_muted"]};
+                background-color: {t["next_card_bg"]};
+                border: {next_bwidth} {t["next_border"]};
+                border-radius: 10px;
+                padding: 0px;
+                font-size: 12px;
             }}
         """)
+
+        if hasattr(self, "_main_shadow_effect") and self._main_shadow_effect is not None:
+            self._main_shadow_effect.setColor(QColor(0, 0, 0, 115) if t["is_dark"] else QColor(15, 23, 42, 36))
+            self._main_shadow_effect.setBlurRadius(28)
+            self._main_shadow_effect.setOffset(0, 8)
+        if hasattr(self, "_next_shadow_effect") and self._next_shadow_effect is not None:
+            self._next_shadow_effect.setColor(QColor(0, 0, 0, 70) if t["is_dark"] else QColor(15, 23, 42, 24))
+            self._next_shadow_effect.setBlurRadius(16)
+            self._next_shadow_effect.setOffset(0, 4)
 
         self.image_label.setMouseTracking(True)
         self.next_image_label.setMouseTracking(True)
@@ -3468,8 +3817,17 @@ class ImageSorterApp(QMainWindow):
         return brightness < 128
 
     def update_button_styles(self):
-        for btn in [self.undo_btn, self.skip_btn, self.prev_btn, self.next_btn]:
+        t = self._get_ui_tokens()
+        for btn in [self.undo_btn, self.skip_btn, self.prev_btn, self.next_btn, self.filter_combo]:
             self.set_modern_button_style(btn)
+        self.prev_btn.setIcon(make_vector_icon("prev", t["text"], 15))
+        self.prev_btn.setIconSize(QSize(15, 15))
+        self.next_btn.setIcon(make_vector_icon("next", t["text"], 15))
+        self.next_btn.setIconSize(QSize(15, 15))
+        self.undo_btn.setIcon(make_vector_icon("undo", t["text"], 15))
+        self.undo_btn.setIconSize(QSize(15, 15))
+        self.skip_btn.setIcon(make_vector_icon("skip", t["text"], 15))
+        self.skip_btn.setIconSize(QSize(15, 15))
 
     def show_notification(self, text):
         if hasattr(self, 'fade_in') and self.fade_in.state() == QPropertyAnimation.Running:
@@ -3479,63 +3837,55 @@ class ImageSorterApp(QMainWindow):
 
         self.notification_label.setText(text)
 
-        if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
-            self.notification_label.setStyleSheet("""
-                font-size: 14px;
-                font-weight: bold;
-                padding: 10px;
-                border-radius: 8px;
-                color: white;
-                background-color: rgba(30, 30, 30, 220);
-                text-align: center;
-            """)
-        else:
-            self.notification_label.setStyleSheet("""
-                font-size: 14px;
-                font-weight: bold;
-                padding: 10px;
-                border-radius: 8px;
-                color: black;
-                background-color: rgba(255, 255, 255, 220);
-                border: 1px solid #ccc;
-                text-align: center;
-            """)
+        t = self._get_ui_tokens()
+        bg_rgba = "rgba(22, 25, 34, 232)" if t["is_dark"] else "rgba(255, 255, 255, 240)"
+        self.notification_label.setStyleSheet(f"""
+            font-size: 12px;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 10px;
+            color: {t["text"]};
+            background-color: {bg_rgba};
+            border: 1px solid {t["border_strong"]};
+            text-align: center;
+        """)
 
         self.notification_label.setWordWrap(True)
         self.notification_label.setAlignment(Qt.AlignCenter)
 
         font_metrics = self.notification_label.fontMetrics()
-        self._notification_text_width = font_metrics.horizontalAdvance(text) + 20
+        self._notification_text_width = font_metrics.horizontalAdvance(text) + 36
         self.position_notification()
 
         self.notification_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
         self.notification_label.setWindowOpacity(0.0)
         self.notification_label.show()
+        self.notification_label.raise_()
 
         self.fade_in = QPropertyAnimation(self.notification_label, b"windowOpacity")
-        self.fade_in.setDuration(500)
+        self.fade_in.setDuration(180)
         self.fade_in.setStartValue(0.0)
         self.fade_in.setEndValue(1.0)
 
         self.fade_out = QPropertyAnimation(self.notification_label, b"windowOpacity")
-        self.fade_out.setDuration(500)
+        self.fade_out.setDuration(220)
         self.fade_out.setStartValue(1.0)
         self.fade_out.setEndValue(0.0)
 
-        self.fade_in.finished.connect(lambda: QTimer.singleShot(2500, self.fade_out.start))
+        self.fade_in.finished.connect(lambda: QTimer.singleShot(2100, self.fade_out.start))
         self.fade_out.finished.connect(self.notification_label.hide)
 
         self.fade_in.start()
 
     def position_notification(self):
-        """Letakkan notifikasi di tengah-bawah dan selalu muat di dalam jendela."""
-        available = max(120, self.width() - 20)
-        text_width = getattr(self, "_notification_text_width", 300)
-        label_width = min(available, max(300, min(800, text_width)))
-        label_height = 60
-        x = max(10, (self.width() - label_width) // 2)
-        y = max(40, self.height() - 150)
+        """Letakkan notifikasi mengambang di bawah panggung media tanpa menutupi tombol kontrol."""
+        available = max(140, self.width() - 40)
+        text_width = getattr(self, "_notification_text_width", 280)
+        label_width = min(available, max(260, min(680, text_width)))
+        label_height = 42
+        x = max(20, (self.width() - label_width) // 2)
+        y = max(56, self.height() - 220)
         self.notification_label.setGeometry(x, y, label_width, label_height)
 
     def update_recent_folders_menu(self):
@@ -3599,48 +3949,75 @@ class ImageSorterApp(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(16, 10, 16, 14)
+        main_layout.setSpacing(10)
 
         self.image_label = QLabel("Current Image")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setFixedSize(450, 500)
-        main_shadow_effect = QGraphicsDropShadowEffect(self)
-        main_shadow_effect.setBlurRadius(40)
-        main_shadow_effect.setColor(Qt.blue if self.theme_mode == "dark" else Qt.red)
-        main_shadow_effect.setOffset(0, 0)
-        self.image_label.setGraphicsEffect(main_shadow_effect)
+        self._main_shadow_effect = QGraphicsDropShadowEffect(self)
+        self._main_shadow_effect.setBlurRadius(28)
+        self._main_shadow_effect.setColor(QColor(0, 0, 0, 115))
+        self._main_shadow_effect.setOffset(0, 8)
+        self.image_label.setGraphicsEffect(self._main_shadow_effect)
 
-        self.next_image_label = QLabel("Next Image")
+        self.next_image_label = QLabel("Next\nImage")
         self.next_image_label.setAlignment(Qt.AlignCenter)
-        self.next_image_label.setMinimumSize(300, 360)
+        self.next_image_label.setMinimumSize(220, 280)
         self.next_image_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        next_shadow_effect = QGraphicsDropShadowEffect(self)
-        next_shadow_effect.setBlurRadius(10)
-        next_shadow_effect.setColor(Qt.green if self.theme_mode == "dark" else Qt.magenta)
-        next_shadow_effect.setOffset(0, 0)
-        self.next_image_label.setGraphicsEffect(next_shadow_effect)
+        self._next_shadow_effect = QGraphicsDropShadowEffect(self)
+        self._next_shadow_effect.setBlurRadius(16)
+        self._next_shadow_effect.setColor(QColor(0, 0, 0, 70))
+        self._next_shadow_effect.setOffset(0, 4)
+        self.next_image_label.setGraphicsEffect(self._next_shadow_effect)
         self.update_label_styles()
 
-        preview_layout = QHBoxLayout()
-        preview_layout.addWidget(self.image_label)
-        preview_layout.addWidget(self.next_image_label)
+        self.stage_frame = QFrame()
+        self.stage_frame.setObjectName("studioStage")
+        preview_layout = QHBoxLayout(self.stage_frame)
+        preview_layout.setContentsMargins(20, 16, 20, 16)
+        preview_layout.setSpacing(24)
+
+        main_stage_box = QWidget()
+        main_stage_lay = QVBoxLayout(main_stage_box)
+        main_stage_lay.setContentsMargins(0, 0, 0, 0)
+        main_stage_lay.addStretch()
+        main_stage_lay.addWidget(self.image_label, 0, Qt.AlignCenter)
+        main_stage_lay.addStretch()
+
+        next_stage_box = QWidget()
+        next_stage_lay = QVBoxLayout(next_stage_box)
+        next_stage_lay.setContentsMargins(0, 0, 0, 0)
+        next_stage_lay.setSpacing(8)
+        next_stage_lay.addStretch()
+        self.next_eyebrow = QLabel("UP NEXT")
+        self.next_eyebrow.setObjectName("nextEyebrowLabel")
+        self.next_eyebrow.setAlignment(Qt.AlignCenter)
+        next_stage_lay.addWidget(self.next_eyebrow, 0, Qt.AlignCenter)
+        next_stage_lay.addWidget(self.next_image_label, 0, Qt.AlignCenter)
+        next_stage_lay.addStretch()
+
+        preview_layout.addWidget(main_stage_box, stretch=3)
+        preview_layout.addWidget(next_stage_box, stretch=1)
 
         info_layout = QHBoxLayout()
+        info_layout.setSpacing(8)
 
         self.file_info_label = QLabel("No image loaded.")
-        self.file_info_label.setStyleSheet("font-size: 12px; padding: 5px;")
+        self.file_info_label.setObjectName("headerFileBar")
         self.file_info_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.file_info_label.setFixedHeight(30)
-        self.file_info_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.file_info_label.setFixedHeight(34)
+        self.file_info_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.position_container = QWidget()
         self.position_stack = QStackedLayout(self.position_container)
-        self.position_container.setFixedHeight(30)
+        self.position_container.setFixedHeight(34)
+        self.position_container.setMinimumWidth(88)
         self.position_stack.setContentsMargins(0, 0, 0, 0)
 
-        self.position_info_label = QLabel("")
-        self.position_info_label.setStyleSheet("font-size: 12px; padding: 5px;")
-        self.position_info_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.file_info_label.setFixedHeight(30)
+        self.position_info_label = QLabel("0 / 0")
+        self.position_info_label.setObjectName("headerCounterBar")
+        self.position_info_label.setAlignment(Qt.AlignCenter)
         self.position_info_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         self.progress_bar = QProgressBar()
@@ -3650,32 +4027,31 @@ class ImageSorterApp(QMainWindow):
         self.progress_bar.setFormat("%p%")
         self.update_progress_bar_style()
         self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.progress_bar.setFixedHeight(30)
+        self.progress_bar.setFixedHeight(34)
 
         self.position_stack.addWidget(self.position_info_label)
         self.position_stack.addWidget(self.progress_bar)
         self.position_stack.setCurrentIndex(0)
 
-        info_layout.addWidget(self.file_info_label)
+        info_layout.addWidget(self.file_info_label, stretch=1)
         info_layout.addWidget(self.position_container)
 
-        info_layout.setStretch(0, 8)
-        info_layout.setStretch(1, 1)
-
         main_layout.addLayout(info_layout)
-        main_layout.addLayout(preview_layout)
+        main_layout.addWidget(self.stage_frame, stretch=1)
 
         nav_layout = QHBoxLayout()
         nav_layout.setSpacing(10)
         self.prev_btn = QPushButton("Previous")
-        self.prev_btn.setToolTip("Go to previous image (Left Arrow ←)")
+        self.prev_btn.setToolTip("Go to previous media (Left Arrow ←)")
+        self.prev_btn.setCursor(Qt.PointingHandCursor)
         self.set_modern_button_style(self.prev_btn)
         self.prev_btn.clicked.connect(self.show_previous)
         self.prev_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         nav_layout.addWidget(self.prev_btn)
 
         self.next_btn = QPushButton("Next")
-        self.next_btn.setToolTip("Go to next image (Right Arrow →)")
+        self.next_btn.setToolTip("Go to next media (Right Arrow →)")
+        self.next_btn.setCursor(Qt.PointingHandCursor)
         self.set_modern_button_style(self.next_btn)
         self.next_btn.clicked.connect(self.show_next)
         self.next_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -3692,6 +4068,7 @@ class ImageSorterApp(QMainWindow):
         action_layout.setSpacing(10)
         self.filter_combo = QComboBox()
         self.filter_combo.setToolTip("Select file extension or media type to filter")
+        self.filter_combo.setCursor(Qt.PointingHandCursor)
         self.filter_combo.addItem("All Files")
         self.filter_combo.addItem("All Images")
         self.filter_combo.addItem("All Videos")
@@ -3700,47 +4077,36 @@ class ImageSorterApp(QMainWindow):
         readable_exts = readable_image_extensions()
         self.filter_combo.addItems([ext for ext in SUPPORTED_IMAGE_EXTENSIONS if ext in readable_exts])
         self.filter_combo.currentIndexChanged.connect(self.apply_filter)
-        action_layout.addWidget(self.filter_combo)
+        self.set_modern_button_style(self.filter_combo)
+        action_layout.addWidget(self.filter_combo, stretch=2)
         self.filter_combo.setCurrentIndex(0)
 
         self.undo_btn = QPushButton("Undo")
         self.undo_btn.setToolTip("Undo the last move (Ctrl+Z)")
+        self.undo_btn.setCursor(Qt.PointingHandCursor)
         self.set_modern_button_style(self.undo_btn)
         self.undo_btn.clicked.connect(self.undo_action)
-        action_layout.addWidget(self.undo_btn)
+        action_layout.addWidget(self.undo_btn, stretch=5)
 
         self.skip_btn = QPushButton("Skip")
-        self.skip_btn.setToolTip("Skip to next unmoved image (Space)")
+        self.skip_btn.setToolTip("Skip to next unmoved media (Space)")
+        self.skip_btn.setCursor(Qt.PointingHandCursor)
         self.set_modern_button_style(self.skip_btn)
         self.skip_btn.clicked.connect(self.skip_image)
-        action_layout.addWidget(self.skip_btn)
-        action_layout.addStretch()
+        action_layout.addWidget(self.skip_btn, stretch=5)
 
         self.setWindowIcon(QIcon(resource_path("assets/icons/app_icon.png")))
-        self.prev_btn.setIcon(QIcon(resource_path("assets/icons/prev.png")))
-        self.next_btn.setIcon(QIcon(resource_path("assets/icons/next.png")))
-        self.undo_btn.setIcon(QIcon(resource_path("assets/icons/undo.png")))
-        self.skip_btn.setIcon(QIcon(resource_path("assets/icons/skip.png")))
-
-        large_icon_size = QSize(48, 48)
-        small_icon_size = QSize(20, 20)
-        self.prev_btn.setIconSize(large_icon_size)
-        self.next_btn.setIconSize(large_icon_size)
-        self.undo_btn.setIconSize(small_icon_size)
-        self.skip_btn.setIconSize(large_icon_size)
-
+        self.update_button_styles()
         self.update_button_widths()
 
         button_container = QWidget()
-        button_container.setFixedHeight(150)
         button_layout = QVBoxLayout(button_container)
-        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setContentsMargins(0, 2, 0, 0)
         button_layout.setSpacing(8)
         button_layout.addLayout(nav_layout)
         button_layout.addLayout(self.folder_layout)
         button_layout.addLayout(action_layout)
 
-        main_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
         main_layout.addWidget(button_container)
 
         menu_bar = QMenuBar(self)
@@ -3917,31 +4283,21 @@ class ImageSorterApp(QMainWindow):
         self.start_update_check(manual=True)
 
     def update_progress_bar_style(self):
-        is_dark = self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark())
-        if self.theme_mode == "custom":
-            settings = load_settings()
-            custom_theme = settings.get("custom_theme", {})
-            bg_color = custom_theme.get("bg_color", "#121212")
-            text_color = custom_theme.get("text_color", "#FFFFFF")
-            bar_color = custom_theme.get("main_border_color", "#8700C6DF")
-        else:
-            bg_color = "#1e1e1e" if is_dark else "#f0f0f0"
-            text_color = "white" if is_dark else "black"
-            bar_color = "#8700C6DF" if is_dark else "#FF4500"
-
+        t = self._get_ui_tokens()
         self.progress_bar.setStyleSheet(f"""
             QProgressBar {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 1px solid {text_color};
-                border-radius: 5px;
+                background-color: {t["surface"]};
+                color: {t["text"]};
+                border: 1px solid {t["border"]};
+                border-radius: 9px;
                 text-align: center;
                 font-size: 12px;
+                font-weight: 600;
                 padding: 2px;
             }}
             QProgressBar::chunk {{
-                background-color: {bar_color};
-                border-radius: 4px;
+                background-color: {t["accent"]};
+                border-radius: 7px;
             }}
         """)
 
@@ -4066,7 +4422,6 @@ class ImageSorterApp(QMainWindow):
         self.update_recent_folders_menu()
 
     def update_folder_buttons(self):
-        # Remove all existing folder buttons
         while self.folder_layout.count():
             item = self.folder_layout.takeAt(0)
             w_btn = item.widget()
@@ -4074,59 +4429,69 @@ class ImageSorterApp(QMainWindow):
                 w_btn.hide()
                 w_btn.deleteLater()
 
-        self.folder_buttons = []  # Reset list
+        self.folder_buttons = []
+        t = self._get_ui_tokens()
 
-        light_colors = [
-            "#FFD1DC", "#C1E1C1", "#FFE082", "#B3CDE0", "#F8C8DC",
-            "#D6CDEA", "#B8E6D4", "#FFD8B1", "#D0E1F9",
-        ]
-        dark_colors = [
-            "#4A2C5A", "#3A5F3A", "#6B5A2C", "#3A4B5D", "#6B3F4D",
-            "#3F3B6C", "#2E5A54", "#6A4832", "#35495E",
+        slot_accents = [
+            "#8b5cf6", "#10b981", "#f59e0b", "#38bdf8", "#f43f5e",
+            "#6366f1", "#14b8a6", "#fb7185", "#94a3b8",
         ]
 
         slot_count = len(self.folder_names)
-        pad_h = 10 if slot_count >= 7 else 16
+        pad_h = 8 if slot_count >= 7 else 14
         font_sz = "11px" if slot_count >= 8 else "12px"
+        icon_sz = 14 if slot_count >= 7 else 16
 
         for i, (label, path) in enumerate(zip(self.folder_names, self.folder_paths)):
             key_num = i + 1
+            accent = slot_accents[i % len(slot_accents)]
+            icon_col = accent if t["is_dark"] else self.darken_color(accent, factor=0.72)
+
             btn = QPushButton(f"[{key_num}] {label}")
-            btn.setIcon(QIcon(resource_path("assets/icons/folder.png")))
-            btn.setIconSize(QSize(15 if slot_count >= 7 else 16, 15 if slot_count >= 7 else 16))
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setIcon(make_vector_icon("folder", icon_col, icon_sz))
+            btn.setIconSize(QSize(icon_sz, icon_sz))
             btn.setToolTip(
                 f"Move to {label} ({path})\n"
                 f"Shortcut: Press {key_num} • Hold click or key {key_num} for Rapid Move"
             )
-            if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
-                color = dark_colors[i % len(dark_colors)]
-                hover_color = self.darken_color(color, factor=0.75)
-                text_color = "white"
+
+            if t["is_dark"]:
+                bg_rgba = _hex_rgba(accent, 34)
+                hover_rgba = _hex_rgba(accent, 62)
+                press_rgba = _hex_rgba(accent, 88)
+                border_rgba = _hex_rgba(accent, 98)
+                border_hover = _hex_rgba(accent, 185)
             else:
-                color = light_colors[i % len(light_colors)]
-                hover_color = self.darken_color(color, factor=0.9)
-                text_color = "black"
+                bg_rgba = _hex_rgba(accent, 22)
+                hover_rgba = _hex_rgba(accent, 44)
+                press_rgba = _hex_rgba(accent, 64)
+                border_rgba = _hex_rgba(accent, 95)
+                border_hover = _hex_rgba(accent, 175)
 
             btn.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {color};
-                    color: {text_color};
-                    border: none;
-                    padding: 10px {pad_h}px;
+                    background-color: {bg_rgba};
+                    color: {t["text"]};
+                    border: 1px solid {border_rgba};
+                    padding: 8px {pad_h}px;
                     font-size: {font_sz};
-                    font-weight: bold;
+                    font-weight: 600;
                     border-radius: 10px;
-                    min-height: 34px;
+                    min-height: 44px;
                 }}
                 QPushButton:hover {{
-                    background-color: {hover_color};
+                    background-color: {hover_rgba};
+                    border-color: {border_hover};
+                }}
+                QPushButton:pressed {{
+                    background-color: {press_rgba};
                 }}
             """)
             btn.clicked.connect(lambda _, p=path: self.move_to_custom_folder(p))
             self.folder_layout.addWidget(btn)
             self.folder_buttons.append(btn)
 
-        # Pasang event filter pada seluruh tombol folder aktif (1-9)
         for btn in self.folder_buttons:
             btn.installEventFilter(self)
         if hasattr(self, "image_label"):
@@ -4143,22 +4508,14 @@ class ImageSorterApp(QMainWindow):
         return f"#{r:02x}{g:02x}{b:02x}"
 
     def update_button_widths(self):
-        """Adjust widths for Filter, Undo, and Skip buttons dynamically."""
-        window_width = self.width()
-        # Filter button takes 15% of window width, with a minimum of 100px
-        filter_width = max(int(window_width * 0.15), 100)
-        # Remaining space is divided equally between Undo and Skip
-        remaining_width = window_width - filter_width - 40  # Account for spacing (10px each side, assuming 4 spacings)
-        button_width = max(int(remaining_width / 2), 80)  # Divide remaining space, min 80px
-
-        self.filter_combo.setMinimumWidth(filter_width)
-        self.filter_combo.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-
+        """Pertahankan proporsi minimum Filter/Undo/Skip agar sejajar sempurna di setiap resolusi."""
+        window_width = max(640, self.width())
+        filter_min = max(120, min(220, int(window_width * 0.16)))
+        self.filter_combo.setMinimumWidth(filter_min)
+        self.filter_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for btn in [self.undo_btn, self.skip_btn]:
-            btn.setMinimumWidth(button_width)
-            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-
-        print(f"[DEBUG] Window width: {window_width}, Filter width: {filter_width}, Button width (undo/skip): {button_width}")
+            btn.setMinimumWidth(110)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def resizeEvent(self, event):
         """Handle window resize events."""
@@ -4168,43 +4525,54 @@ class ImageSorterApp(QMainWindow):
             self.position_notification()
 
     def set_modern_button_style(self, button):
-        if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
-            bg_color = "#111111"
-            hover_color = "#222222"
-            text_color = "white"
-        else:
-            bg_color = "#e0e0e0"
-            hover_color = "#d0d0d0"
-            text_color = "black"
-
-        # Use a smaller min-height for Filter, Undo, and Skip buttons
-        button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: none;
-                padding: 6px 12px;
-                font-weight: bold;
-                border-radius: 8px;
-                min-height: 24px;  /* Smaller height than folder buttons (34px) */
-            }}
-            QPushButton:hover {{ background-color: {hover_color}; }}
-            QPushButton:pressed {{ background-color: {hover_color}; }}
-        """)
+        t = self._get_ui_tokens()
         if isinstance(button, QComboBox):
             button.setStyleSheet(f"""
                 QComboBox {{
-                    background-color: {bg_color};
-                    color: {text_color};
-                    border: none;
+                    background-color: {t["surface"]};
+                    color: {t["text"]};
+                    border: 1px solid {t["border"]};
                     padding: 6px 12px;
-                    font-weight: bold;
-                    border-radius: 8px;
-                    min-height: 24px;  /* Match button height */
+                    font-size: 12px;
+                    font-weight: 600;
+                    border-radius: 9px;
+                    min-height: 26px;
                 }}
-                QComboBox:hover {{ background-color: {hover_color}; }}
-                QComboBox::drop-down {{ border: none; }}
+                QComboBox:hover {{
+                    background-color: {t["surface_hover"]};
+                    border-color: {t["border_strong"]};
+                }}
+                QComboBox::drop-down {{
+                    border: none;
+                    width: 24px;
+                }}
+                QComboBox QAbstractItemView {{
+                    background-color: {t["menu_bg"]};
+                    color: {t["text"]};
+                    border: 1px solid {t["border"]};
+                    selection-background-color: {t["surface_hover"]};
+                    padding: 4px;
+                }}
             """)
+            return
+
+        button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {t["surface"]};
+                color: {t["text"]};
+                border: 1px solid {t["border"]};
+                padding: 6px 14px;
+                font-size: 12px;
+                font-weight: 600;
+                border-radius: 9px;
+                min-height: 26px;
+            }}
+            QPushButton:hover {{
+                background-color: {t["surface_hover"]};
+                border-color: {t["border_strong"]};
+            }}
+            QPushButton:pressed {{ background-color: {t["surface_pressed"]}; }}
+        """)
 
     def open_settings(self):
         dialog = FolderSettingsDialog(self)
@@ -4275,11 +4643,11 @@ class ImageSorterApp(QMainWindow):
                 self.image_label.setText("No images match the filter.")
             else:
                 self.image_label.setText(self.get_empty_state_text())
-            self.next_image_label.setText("Next: None")
+            self.next_image_label.setText("No upcoming\nmedia")
             self.file_info_label.setText("No image loaded.")
-            self.position_info_label.setText("")
-            self.image_label.setFixedSize(450, 500)
-            self.next_image_label.setFixedSize(250, 310)
+            self.position_info_label.setText("0 / 0")
+            self.image_label.setFixedSize(460, 500)
+            self.next_image_label.setFixedSize(220, 280)
             return
 
         if self.current_index >= len(files):
@@ -4320,13 +4688,21 @@ class ImageSorterApp(QMainWindow):
             if parts:
                 meta_text = f" <span style='color: #888888;'>({' • '.join(parts)})</span>"
 
-        moved_status = f" <span style='color: red; font-weight: bold;'>(moved to {folder_name})</span>" if is_moved else ""
-        self.file_info_label.setText(f"{filename}{meta_text}{moved_status}")
-        self.file_info_label.setToolTip(f"{filename} ({new_path})")
+        t = self._get_ui_tokens()
+        max_name_w = max(200, (self.file_info_label.width() or 540) - 270)
+        display_name = QFontMetrics(self.file_info_label.font()).elidedText(filename, Qt.ElideMiddle, max_name_w)
+        if meta_text:
+            meta_text = meta_text.replace("#888888", t["text_muted"])
+        moved_status = (
+            f" <span style='color: #10b981; font-weight: 600;'>· moved to {folder_name}</span>"
+            if is_moved else ""
+        )
+        self.file_info_label.setText(f"<b>{display_name}</b>{meta_text}{moved_status}")
+        self.file_info_label.setToolTip(f"{filename}\n{new_path}")
 
         current_pos = self.current_index + 1
         total_files = len(files)
-        self.position_info_label.setText(f"{current_pos}/{total_files}")
+        self.position_info_label.setText(f"{current_pos} / {total_files}")
 
         for child in self.image_label.findChildren(QLabel):
             child.deleteLater()
@@ -4379,54 +4755,60 @@ class ImageSorterApp(QMainWindow):
                                     started_anim = True
                 if not started_anim:
                     self.image_label.setPixmap(resized_pixmap)
-                if is_video:
+                if is_video and self.is_rapid_moving:
                     vbadge = QLabel(self.image_label)
                     dur_str = format_duration(video_duration) if video_duration > 0 else "VIDEO"
                     vbadge.setText(f"▶ {dur_str}")
                     vbadge.setStyleSheet("""
-                        background-color: rgba(18, 18, 22, 195);
-                        color: #ededef;
+                        background-color: rgba(14, 16, 22, 205);
+                        color: #f0f2f5;
                         border: 1px solid rgba(255, 255, 255, 40);
                         font-weight: 600;
                         font-size: 11px;
                         padding: 4px 8px;
-                        border-radius: 5px;
+                        border-radius: 6px;
                     """)
                     vbadge.setAlignment(Qt.AlignCenter)
                     vbadge.adjustSize()
-                    bw = max(68, vbadge.width() + 10)
-                    bh = 26
+                    bw = max(64, vbadge.width() + 10)
+                    bh = 24
                     vbadge.setGeometry(target_size.width() - bw - 10, target_size.height() - bh - 10, bw, bh)
                     vbadge.show()
                     vbadge.raise_()
                 if not self.is_rapid_moving and (is_video or started_anim):
-                    self._build_video_controls(target_size, is_video=is_video)
+                    self._build_video_controls(target_size, is_video=is_video, duration_s=video_duration)
                 if is_moved:
                     watermark = QLabel(self.image_label)
                     watermark.setText("MOVED")
                     watermark.setStyleSheet("""
-                        background-color: rgba(255, 0, 0, 150);
-                        color: white;
-                        font-weight: bold;
-                        font-size: 12px;
-                        padding: 10px;
-                        border-radius: 5px;
+                        background-color: rgba(220, 38, 38, 210);
+                        color: #ffffff;
+                        border: 1px solid rgba(255, 255, 255, 55);
+                        font-weight: 700;
+                        font-size: 11px;
+                        letter-spacing: 1px;
+                        padding: 4px 10px;
+                        border-radius: 7px;
                     """)
                     watermark.setAlignment(Qt.AlignCenter)
-                    watermark.setGeometry(10, 10, 120, 40)
+                    watermark.setGeometry(10, 10, 88, 28)
                     watermark.show()
                     watermark.raise_()
             else:
-                self.image_label.setText("Failed to load image.")
-                self.apply_info_style(self.image_label)
+                self.image_label.setText(
+                    "<div style='padding:16px; color:#f59e0b; font-weight:600;'>Failed to load media.</div>"
+                )
                 self.image_label.setAlignment(Qt.AlignCenter)
-                self.image_label.setFixedSize(450, 500)
+                self.image_label.setFixedSize(460, 500)
         else:
-            msg = f"File has been moved to:<br><span style='color: red; font-weight: bold;'>{folder_name}</span>" if folder_name else "File not found"
+            msg = (
+                f"<div style='padding:16px;'>File moved to:<br>"
+                f"<span style='color:#10b981; font-weight:700;'>{folder_name}</span></div>"
+                if folder_name else "<div style='padding:16px; color:#9aa1b2;'>File not found</div>"
+            )
             self.image_label.setText(msg)
-            self.apply_info_style(self.image_label)
             self.image_label.setAlignment(Qt.AlignCenter)
-            self.image_label.setFixedSize(450, 500)
+            self.image_label.setFixedSize(460, 500)
 
         next_index = self.find_valid_next_index(self.current_index, files)
         if next_index is not None:
@@ -4439,14 +4821,14 @@ class ImageSorterApp(QMainWindow):
                     self.next_image_label.setPixmap(resized_next)
                     self.next_image_label.setFixedSize(resized_next.size())
                 else:
-                    self.next_image_label.setText("Next\nImage")
-                    self.next_image_label.setFixedSize(250, 310)
+                    self.next_image_label.setText("No upcoming\nmedia")
+                    self.next_image_label.setFixedSize(220, 280)
             else:
-                self.next_image_label.setText("Next\nImage")
-                self.next_image_label.setFixedSize(250, 310)
+                self.next_image_label.setText("No upcoming\nmedia")
+                self.next_image_label.setFixedSize(220, 280)
         else:
-            self.next_image_label.setText("Next\nImage")
-            self.next_image_label.setFixedSize(250, 310)
+            self.next_image_label.setText("No upcoming\nmedia")
+            self.next_image_label.setFixedSize(220, 280)
 
         # Jadwalkan pre-fetch cerdas di waktu idle (12ms) untuk gambar sekitar (prev, next, next+1)
         if hasattr(self, "_prefetch_timer"):
@@ -4475,20 +4857,14 @@ class ImageSorterApp(QMainWindow):
                         self.pixmap_cache.get_pixmap(actual, 200, 260)
 
     def apply_info_style(self, label):
-        if self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark()):
-            label.setStyleSheet("""
-                background-color: #444;
-                border: 1px solid #666;
-                color: #FFD700;
-                padding: 10px;
-            """)
-        else:
-            label.setStyleSheet("""
-                background-color: #fff3cd;
-                border: 1px solid #ffc107;
-                color: #CC7700;
-                padding: 10px;
-            """)
+        t = self._get_ui_tokens()
+        label.setStyleSheet(f"""
+            background-color: {t["card_bg"]};
+            border: 1px solid {t["border_strong"]};
+            border-radius: 10px;
+            color: {t["text"]};
+            padding: 12px;
+        """)
 
     def get_folder_name_from_history(self, path):
         normalized_path = os.path.normcase(os.path.normpath(path))
