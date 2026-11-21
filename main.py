@@ -545,7 +545,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.10-Stable"
+    VERSION = "2.1.11-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -2090,6 +2090,11 @@ class ImageSorterApp(QMainWindow):
         self._main_anim_timer = QTimer(self)
         self._main_anim_timer.setSingleShot(True)
         self._main_anim_timer.timeout.connect(self._advance_main_anim_frame)
+        self._video_decode_path = None
+        self._video_decode_timer = QTimer(self)
+        self._video_decode_timer.setSingleShot(True)
+        self._video_decode_timer.setInterval(75)
+        self._video_decode_timer.timeout.connect(self._start_deferred_video_anim)
         # Rapid move variables
         self.is_rapid_moving = False
         self.rapid_folder_index = None
@@ -2198,6 +2203,9 @@ class ImageSorterApp(QMainWindow):
 
     def stop_current_movie(self):
         """Hentikan animasi QMovie / timer frame aktif dan lepaskan buffer memori."""
+        if getattr(self, "_video_decode_timer", None) is not None:
+            self._video_decode_timer.stop()
+        self._video_decode_path = None
         if getattr(self, "_main_anim_timer", None) is not None:
             self._main_anim_timer.stop()
         self._main_anim_frames = []
@@ -2221,6 +2229,24 @@ class ImageSorterApp(QMainWindow):
         pix, delay = self._main_anim_frames[self._main_anim_index]
         self.image_label.setPixmap(pix)
         self._main_anim_timer.start(max(20, int(delay)))
+
+    def _start_deferred_video_anim(self):
+        """Mulai ekstraksi & pemutaran frame video setelah pengguna berhenti menekan navigasi selama 75ms."""
+        vpath = getattr(self, "_video_decode_path", None)
+        if not vpath or self.is_rapid_moving or self.defer_ui_updates or not os.path.exists(vpath):
+            return
+        _, cur_actual = self.get_current_actual_path()
+        if not cur_actual or os.path.normcase(os.path.normpath(cur_actual)) != os.path.normcase(os.path.normpath(vpath)):
+            return
+        raw_frames = self.pixmap_cache.get_animation_frames(vpath, 720, 500, max_frames=60)
+        if len(raw_frames) > 1:
+            self._main_anim_frames = [
+                (resize_image(fpix), fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
+            ]
+            if len(self._main_anim_frames) > 1:
+                self._main_anim_index = 0
+                self.image_label.setPixmap(self._main_anim_frames[0][0])
+                self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
 
     def init_hot_reload(self):
         """Pantau perubahan pada main.py, utils/image_utils.py, dan config/settings.json.
@@ -3682,7 +3708,7 @@ class ImageSorterApp(QMainWindow):
         file_exists = os.path.exists(new_path)
         if file_exists:
             if is_video:
-                orig_w, orig_h, file_size, _fps, frame_count, video_duration = read_video_metadata(new_path)
+                orig_w, orig_h, file_size, _fps, frame_count, video_duration = self.pixmap_cache.get_video_metadata(new_path)
                 fmt_bytes = os.path.splitext(new_path)[1].lstrip(".").lower().encode("ascii", "ignore")
             else:
                 orig_w, orig_h, file_size, fmt_bytes, frame_count = self.pixmap_cache.get_metadata(new_path)
@@ -3719,9 +3745,10 @@ class ImageSorterApp(QMainWindow):
                 resized_pixmap = resize_image(pixmap)
                 target_size = resized_pixmap.size()
                 self.image_label.setFixedSize(target_size)
-                # Putar animasi GIF/WebP/APNG/AVIF atau Video dari buffer/frame memori agar tidak mengunci file di Windows
+                # Putar animasi GIF/WebP/APNG/AVIF atau Video dari buffer/frame memori agar tidak mengunci file di Windows.
+                # Saat Rapid Move berlangsung, lewati ekstraksi multi-frame penuh agar kecepatan pemindahan maksimal.
                 started_anim = False
-                if frame_count and frame_count > 1 and file_size <= 50 * 1024 * 1024:
+                if not self.is_rapid_moving and frame_count and frame_count > 1 and file_size <= 50 * 1024 * 1024:
                     if not is_video and fmt_bytes in (b"gif", b"webp"):
                         try:
                             with open(new_path, "rb") as f:
@@ -3742,16 +3769,21 @@ class ImageSorterApp(QMainWindow):
                         except OSError:
                             self.stop_current_movie()
                     if not started_anim:
-                        raw_frames = load_animation_frames(new_path, 720, 500, max_frames=90)
-                        if len(raw_frames) > 1:
-                            self._main_anim_frames = [
-                                (resize_image(fpix), fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
-                            ]
-                            if len(self._main_anim_frames) > 1:
-                                self._main_anim_index = 0
-                                self.image_label.setPixmap(self._main_anim_frames[0][0])
-                                self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
-                                started_anim = True
+                        if is_video and not self.pixmap_cache.has_animation_frames(new_path, 720, 500, max_frames=60):
+                            # Tampilkan keyframe pertama secara instan (0 ms) dan jadwalkan decode multi-frame 75 ms kemudian
+                            self._video_decode_path = new_path
+                            self._video_decode_timer.start()
+                        else:
+                            raw_frames = self.pixmap_cache.get_animation_frames(new_path, 720, 500, max_frames=60)
+                            if len(raw_frames) > 1:
+                                self._main_anim_frames = [
+                                    (resize_image(fpix), fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
+                                ]
+                                if len(self._main_anim_frames) > 1:
+                                    self._main_anim_index = 0
+                                    self.image_label.setPixmap(self._main_anim_frames[0][0])
+                                    self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
+                                    started_anim = True
                 if not started_anim:
                     self.image_label.setPixmap(resized_pixmap)
                 if is_video:
@@ -3824,7 +3856,7 @@ class ImageSorterApp(QMainWindow):
             self._prefetch_timer.start()
 
     def _prefetch_neighbor_images(self):
-        """Pre-decode gambar tetangga ke dalam LRU cache saat idle agar navigasi <- / -> & Rapid Move 0 ms."""
+        """Pre-decode gambar & video tetangga ke dalam LRU cache saat idle agar navigasi <- / -> & Rapid Move 0 ms."""
         files = self.filtered_files
         if not files or self.defer_ui_updates:
             return
@@ -3837,7 +3869,10 @@ class ImageSorterApp(QMainWindow):
                 p = files[idx]
                 actual = self.get_new_path_from_history(p) or p
                 if os.path.exists(actual):
-                    self.pixmap_cache.get_metadata(actual)
+                    if is_video_file(actual):
+                        self.pixmap_cache.get_video_metadata(actual)
+                    else:
+                        self.pixmap_cache.get_metadata(actual)
                     self.pixmap_cache.get_pixmap(actual, 720, 500)
                     if offset in (1, 2):
                         self.pixmap_cache.get_pixmap(actual, 200, 260)
@@ -4355,12 +4390,14 @@ class ImageSorterApp(QMainWindow):
             self.stop_rapid_move(silent=True)
 
     def stop_rapid_move(self, silent=False):
-        """Hentikan mode pindah cepat."""
+        """Hentikan mode pindah cepat dan lanjutkan pemutaran animasi/video pada file saat ini."""
         self.rapid_timer.stop()
         if self.is_rapid_moving:
             self.is_rapid_moving = False
             self.rapid_folder_index = None
             self.rapid_source = None
+            if not self.defer_ui_updates and self.filtered_files:
+                self.show_current_image(self.filtered_files)
             if not silent:
                 self.show_notification("Rapid move stopped")
 

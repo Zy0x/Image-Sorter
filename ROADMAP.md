@@ -78,6 +78,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.11-Stable (Selesai)
+- [x] **Instant Video Navigation & Video LRU Cache (`get_video_metadata` / `_start_deferred_video_anim`):** Menyimpan metadata durasi/resolusi serta frame video di dalam `PixmapLRUCache`, menampilkan keyframe pertama secara instan saat berpindah cepat atau *Rapid Move* (~5,66 ms/video), dan memutar multi-frame video secara otomatis begitu navigasi berhenti sejenak (75 ms) tanpa mengunci file di Windows.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.

@@ -433,14 +433,16 @@ def resize_next_preview(pixmap: QPixmap, max_width: int = 200, max_height: int =
 
 class PixmapLRUCache:
     """
-    Cache LRU ultra-cepat untuk menyimpan hasil decode QPixmap + metadata
-    berdasarkan (normalized_path, mtime_ns, size, max_w, max_h).
-    Membuat navigasi <- / -> dan Rapid Move menjadi 0 ms (instan).
+    Cache LRU ultra-cepat untuk menyimpan hasil decode QPixmap, metadata gambar/video,
+    dan frame animasi/video berdasarkan (normalized_path, mtime_ns, size, max_w, max_h).
+    Membuat navigasi <- / -> dan Rapid Move pada gambar maupun video menjadi 0 ms (instan).
     """
     def __init__(self, max_entries: int = 36):
         self.max_entries = max(8, int(max_entries))
         self._pix_cache = OrderedDict()
         self._meta_cache = OrderedDict()
+        self._video_meta_cache = OrderedDict()
+        self._anim_cache = OrderedDict()
         self.hits = 0
         self.misses = 0
 
@@ -465,6 +467,42 @@ class PixmapLRUCache:
         if len(self._meta_cache) > self.max_entries * 4:
             self._meta_cache.popitem(last=False)
         return meta
+
+    def get_video_metadata(self, path: str):
+        tok = self._file_token(path)
+        if tok is None:
+            return 0, 0, 0, 0.0, 0, 0.0
+        if tok in self._video_meta_cache:
+            self._video_meta_cache.move_to_end(tok)
+            return self._video_meta_cache[tok]
+        vmeta = read_video_metadata(path)
+        self._video_meta_cache[tok] = vmeta
+        if len(self._video_meta_cache) > self.max_entries * 4:
+            self._video_meta_cache.popitem(last=False)
+        return vmeta
+
+    def get_animation_frames(self, path: str, max_width: int = 0, max_height: int = 0, max_frames: int = 60):
+        tok = self._file_token(path)
+        if tok is None:
+            return []
+        key = (tok, int(max_width), int(max_height), int(max_frames))
+        if key in self._anim_cache:
+            self.hits += 1
+            self._anim_cache.move_to_end(key)
+            return self._anim_cache[key]
+        self.misses += 1
+        frames = load_animation_frames(path, max_width, max_height, max_frames=max_frames)
+        if frames:
+            self._anim_cache[key] = frames
+            if len(self._anim_cache) > max(6, self.max_entries // 3):
+                self._anim_cache.popitem(last=False)
+        return frames
+
+    def has_animation_frames(self, path: str, max_width: int = 0, max_height: int = 0, max_frames: int = 60) -> bool:
+        tok = self._file_token(path)
+        if tok is None:
+            return False
+        return (tok, int(max_width), int(max_height), int(max_frames)) in self._anim_cache
 
     def get_pixmap(self, path: str, max_width: int = 0, max_height: int = 0) -> QPixmap:
         tok = self._file_token(path)
@@ -492,6 +530,8 @@ class PixmapLRUCache:
     def clear(self):
         self._pix_cache.clear()
         self._meta_cache.clear()
+        self._video_meta_cache.clear()
+        self._anim_cache.clear()
 
 
 def compute_dhash(path: str, hash_size: int = 8):

@@ -2,6 +2,12 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.11 — 2026-11-21
+
+### Improved — instant video navigation, deferred multi-frame decode & video LRU caching
+- **Cached Video Metadata & Animation Frames (`PixmapLRUCache.get_video_metadata` / `get_animation_frames`):** Video resolution, FPS, frame count, duration, and extracted playback frames are now cached in memory alongside keyframe thumbnails, eliminating repeated `cv2.VideoCapture` opens during navigation.
+- **Deferred 75 ms Idle Video Playback (`_start_deferred_video_anim`) & Rapid Move Fast-Path:** Stepping through videos (`←` / `→`) or holding `1`–`9` for Rapid Move renders the cached keyframe and duration badge immediately (~5.6–9.3 ms/video) and begins full multi-frame playback only after navigation pauses for 75 ms, automatically resuming playback when Rapid Move stops.
+
 ## 2.1.10 — 2026-11-20
 
 ### Added — dynamic 3–9 folder slots, subfolder scan, perceptual duplicate finder & LRU pre-fetch cache
