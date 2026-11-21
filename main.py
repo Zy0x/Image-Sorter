@@ -195,6 +195,45 @@ class _ClickSeekSlider(QSlider):
         super().mousePressEvent(event)
 
 
+class _StageViewport(QWidget):
+    """Kontainer viewport pratinjau responsif: bebas dari minimumSizeHint kaku dan memusatkan pratinjau."""
+    resized = Signal()
+
+    def __init__(self, child_widget: QWidget, min_w: int = 240, min_h: int = 180, parent=None):
+        super().__init__(parent)
+        self._min_sz = QSize(min_w, min_h)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.child_widget = child_widget
+        child_widget.setParent(self)
+
+    def minimumSizeHint(self):
+        return self._min_sz
+
+    def sizeHint(self):
+        return QSize(max(self._min_sz.width(), 320), max(self._min_sz.height(), 260))
+
+    def center_child(self):
+        if self.child_widget is None:
+            return
+        vw, vh = self.width(), self.height()
+        cw, ch = self.child_widget.width(), self.child_widget.height()
+        self.child_widget.move(max(0, (vw - cw) // 2), max(0, (vh - ch) // 2))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resized.emit()
+        self.center_child()
+
+
+def _fit_pixmap_box(pixmap: QPixmap, max_w: int, max_h: int) -> QPixmap:
+    """Skalakan pixmap agar selalu pas di dalam batas (max_w x max_h) tanpa merusak aspek rasio."""
+    if pixmap.isNull():
+        return pixmap
+    mw = max(48, int(max_w))
+    mh = max(48, int(max_h))
+    return pixmap.scaled(mw, mh, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+
 def get_config_path():
     """Kembalikan path settings.json.
     Gunakan folder 'config/' lokal jika bisa ditulis (atau mode --portable),
@@ -687,7 +726,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.14-Stable"
+    VERSION = "2.1.15-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -1199,8 +1238,12 @@ class ImagePreviewDialog(QDialog):
                 self._video_duration_ms = int(round(_vdur * 1000))
         self._orig_w, self._orig_h = w, h
         self.setWindowTitle(f"Preview — {filename} ({w}×{h})")
-        self.resize(1040, 760)
-        self.setMinimumSize(580, 420)
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else QRectF(0, 0, 1280, 720).toRect()
+        dlg_w = min(980, max(540, int(avail.width() * 0.84)))
+        dlg_h = min(720, max(420, int(avail.height() * 0.84)))
+        self.resize(dlg_w, dlg_h)
+        self.setMinimumSize(500, 360)
 
         is_dark = True
         if self.parent and hasattr(self.parent, "theme_mode"):
@@ -1400,7 +1443,7 @@ class ImagePreviewDialog(QDialog):
                 footer_lay.addWidget(self.seek_slider, stretch=1)
                 footer_lay.addWidget(self.tot_time_lbl)
 
-                mute_txt = "Muted (M)" if self._audio_muted else "Sound On (M)"
+                mute_txt = "Muted" if self._audio_muted else "Sound"
                 mute_icon = "sound_off" if self._audio_muted else "sound_on"
                 self.mute_btn = QPushButton(mute_txt)
                 self.mute_btn.setIcon(make_vector_icon(mute_icon, self._icon_ink, 14))
@@ -1414,9 +1457,10 @@ class ImagePreviewDialog(QDialog):
         if self.seek_slider is None:
             footer_lay.addStretch(1)
 
-        hint_label = QLabel("Double-Click: Zoom · Drag: Pan · Wheel: Zoom")
-        hint_label.setStyleSheet(f"font-size: 11px; color: {muted};")
-        footer_lay.addWidget(hint_label)
+        self.hint_label = QLabel("Double-Click: Zoom · Drag: Pan · Wheel: Zoom")
+        self.hint_label.setStyleSheet(f"font-size: 11px; color: {muted};")
+        self.hint_label.setVisible(self.width() >= 780)
+        footer_lay.addWidget(self.hint_label)
         layout.addWidget(footer_frame)
 
         # Pasang eventFilter pada viewport dan label untuk Drag-to-Pan & Smart Double-Click Zoom
@@ -1554,7 +1598,7 @@ class ImagePreviewDialog(QDialog):
         if self._audio_output is not None:
             self._audio_output.setMuted(self._audio_muted)
         if self.mute_btn is not None:
-            self.mute_btn.setText("Muted (M)" if self._audio_muted else "Sound On (M)")
+            self.mute_btn.setText("Muted" if self._audio_muted else "Sound")
             self.mute_btn.setIcon(make_vector_icon("sound_off" if self._audio_muted else "sound_on", self._icon_ink, 14))
         if self.parent and hasattr(self.parent, "set_video_muted"):
             self.parent.set_video_muted(self._audio_muted, notify=False)
@@ -1729,12 +1773,15 @@ class ImagePreviewDialog(QDialog):
         elif len(self.anim_frames) > 1:
             state_tag = "" if self._anim_playing else " · Paused"
             frame_tag = f" · Frame {self._anim_index + 1}/{len(self.anim_frames)}{state_tag}"
-        elided_name = QFontMetrics(self.info_label.font()).elidedText(
-            os.path.basename(self.image_path), Qt.ElideMiddle, 360
-        )
-        self.info_label.setText(
-            f"{elided_name}   ({self.base_pixmap.width()}×{self.base_pixmap.height()} · {mode_tag}{frame_tag})"
-        )
+        suffix_info = f" ({self.base_pixmap.width()}×{self.base_pixmap.height()} · {mode_tag}{frame_tag})"
+        f_calc = self.info_label.font()
+        f_calc.setPixelSize(13)
+        f_calc.setBold(True)
+        fm = QFontMetrics(f_calc)
+        avail_w = self.info_label.width() if self.info_label.width() > 80 else max(140, self.width() - 360)
+        max_name_w = max(56, avail_w - fm.horizontalAdvance(suffix_info) - 18)
+        elided_name = fm.elidedText(os.path.basename(self.image_path), Qt.ElideMiddle, max_name_w)
+        self.info_label.setText(f"{elided_name}{suffix_info}")
 
     def _get_scaled_frame(self, frame_idx: int, tw: int, th: int) -> QPixmap:
         if (tw, th) != self._scaled_cache_size:
@@ -1883,8 +1930,12 @@ class ImagePreviewDialog(QDialog):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if hasattr(self, "hint_label"):
+            self.hint_label.setVisible(self.width() >= 780)
         if self._fit_mode:
             self.update_preview()
+        else:
+            self._update_info_label()
 
 
 class FolderScanThread(QThread):
@@ -2616,7 +2667,12 @@ class ImageSorterApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ImageSorter")
-        self.resize(1020, 760)
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else QRectF(0, 0, 1280, 720).toRect()
+        init_w = min(960, max(660, int(avail.width() * 0.72)))
+        init_h = min(680, max(520, int(avail.height() * 0.84)))
+        self.setMinimumSize(640, 500)
+        self.resize(init_w, init_h)
         self.setAcceptDrops(True)
         self.image_files = []
         self.current_folder_path = ""
@@ -2688,6 +2744,12 @@ class ImageSorterApp(QMainWindow):
         self._video_seek_slider = None
         self._hud_cur_time = None
         self._hud_tot_time = None
+        self._current_main_pixmap = None
+        self._current_main_is_video = False
+        self._current_next_pixmap = None
+        self._current_file_meta = None
+        self._last_folder_wrap_cols = None
+        self._hud_is_video = False
         self.folder_slot_count = clamp_folder_slots(settings.get("folder_slot_count", DEFAULT_FOLDER_SLOTS))
         self.pixmap_cache = PixmapLRUCache(max_entries=36)
         self._prefetch_timer = QTimer(self)
@@ -2825,6 +2887,9 @@ class ImageSorterApp(QMainWindow):
             return
         self._main_anim_index = (self._main_anim_index + 1) % len(self._main_anim_frames)
         pix, delay = self._main_anim_frames[self._main_anim_index]
+        tsize = getattr(self, "_main_video_target_size", None)
+        if tsize is not None and not tsize.isEmpty() and pix.size() != tsize:
+            pix = pix.scaled(tsize, Qt.KeepAspectRatio, Qt.FastTransformation)
         self.image_label.setPixmap(pix)
         self._main_anim_timer.start(max(20, int(delay)))
 
@@ -2983,6 +3048,7 @@ class ImageSorterApp(QMainWindow):
         self._video_seek_slider = None
         self._hud_cur_time = None
         self._hud_tot_time = None
+        self._hud_is_video = False
         self._seeking_main_video = False
 
     def _build_video_controls(self, target_size, is_video: bool, duration_s: float = 0.0):
@@ -3046,24 +3112,25 @@ class ImageSorterApp(QMainWindow):
         self._play_pause_btn.clicked.connect(self.toggle_main_playback)
 
         if is_video:
-            hud_w = min(360, max(150, w_lbl - 16))
-            use_two_rows = hud_w >= 210 and h_lbl >= 120
-            hud_h = 56 if use_two_rows else 34
-            x = max(6, (w_lbl - hud_w) // 2)
-            y = max(6, h_lbl - hud_h - 10)
+            hud_w = min(360, max(84, w_lbl - 12))
+            self._hud_compact_labels = hud_w < 190
+            use_two_rows = hud_w >= 176 and h_lbl >= 120
+            hud_h = 54 if use_two_rows else 32
+            x = max(4, (w_lbl - hud_w) // 2)
+            y = max(4, h_lbl - hud_h - 8)
             hud.setGeometry(x, y, hud_w, hud_h)
 
             outer = QVBoxLayout(hud)
-            outer.setContentsMargins(10, 5 if use_two_rows else 4, 10, 5 if use_two_rows else 4)
-            outer.setSpacing(4)
+            outer.setContentsMargins(8, 4 if use_two_rows else 3, 8, 4 if use_two_rows else 3)
+            outer.setSpacing(3)
 
             dur_ms = int(round(duration_s * 1000)) if duration_s > 0 else self._video_duration_ms
             if use_two_rows:
                 seek_row = QHBoxLayout()
                 seek_row.setContentsMargins(0, 0, 0, 0)
-                seek_row.setSpacing(6)
+                seek_row.setSpacing(5)
                 self._hud_cur_time = QLabel("0:00")
-                self._hud_cur_time.setFixedWidth(30)
+                self._hud_cur_time.setFixedWidth(28)
                 self._video_seek_slider = _ClickSeekSlider(Qt.Horizontal)
                 self._video_seek_slider.setRange(0, max(100, dur_ms))
                 self._video_seek_slider.setFocusPolicy(Qt.NoFocus)
@@ -3074,7 +3141,7 @@ class ImageSorterApp(QMainWindow):
                 self._video_seek_slider.sliderReleased.connect(self._on_main_seek_released)
                 self._video_seek_slider.seek_clicked.connect(self._on_main_seek_clicked)
                 self._hud_tot_time = QLabel(format_duration(dur_ms / 1000.0) if dur_ms > 0 else "0:00")
-                self._hud_tot_time.setFixedWidth(30)
+                self._hud_tot_time.setFixedWidth(28)
                 self._hud_tot_time.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 seek_row.addWidget(self._hud_cur_time)
                 seek_row.addWidget(self._video_seek_slider, stretch=1)
@@ -3083,9 +3150,9 @@ class ImageSorterApp(QMainWindow):
 
             btn_row = QHBoxLayout()
             btn_row.setContentsMargins(0, 0, 0, 0)
-            btn_row.setSpacing(8)
+            btn_row.setSpacing(6)
             btn_row.addStretch()
-            self._play_pause_btn.setFixedHeight(24)
+            self._play_pause_btn.setFixedHeight(22)
             btn_row.addWidget(self._play_pause_btn)
 
             self._mute_btn = QPushButton("Sound")
@@ -3093,33 +3160,66 @@ class ImageSorterApp(QMainWindow):
             self._mute_btn.setFocusPolicy(Qt.NoFocus)
             self._mute_btn.setToolTip("Mute / Unmute (M)")
             self._mute_btn.clicked.connect(self.toggle_main_mute)
-            self._mute_btn.setFixedHeight(24)
+            self._mute_btn.setFixedHeight(22)
             btn_row.addWidget(self._mute_btn)
             btn_row.addStretch()
             outer.addLayout(btn_row)
         else:
-            hud_w = min(116, max(84, w_lbl - 16))
-            hud_h = 34
-            x = max(6, (w_lbl - hud_w) // 2)
-            y = max(6, h_lbl - hud_h - 10)
+            self._hud_compact_labels = w_lbl < 140
+            hud_w = min(112, max(60, w_lbl - 12))
+            hud_h = 32
+            x = max(4, (w_lbl - hud_w) // 2)
+            y = max(4, h_lbl - hud_h - 8)
             hud.setGeometry(x, y, hud_w, hud_h)
             lay = QHBoxLayout(hud)
-            lay.setContentsMargins(8, 4, 8, 4)
-            self._play_pause_btn.setFixedHeight(24)
+            lay.setContentsMargins(6, 4, 6, 4)
+            self._play_pause_btn.setFixedHeight(22)
             lay.addWidget(self._play_pause_btn)
 
         hud.show()
         hud.raise_()
+        self._hud_is_video = bool(is_video)
         self._video_controls.append(hud)
         self._refresh_video_controls()
 
+    def _reposition_video_hud(self, target_size):
+        """Sesuaikan posisi & lebar kapsul kontrol video/GIF secara real-time saat ukuran jendela berubah."""
+        if not getattr(self, "_video_controls", None):
+            return
+        w_lbl = max(90, int(target_size.width()))
+        h_lbl = max(60, int(target_size.height()))
+        hud = self._video_controls[0]
+        if self._hud_is_video:
+            hud_w = min(360, max(84, w_lbl - 12))
+            self._hud_compact_labels = hud_w < 190
+            if self._video_seek_slider is not None:
+                show_seek = hud_w >= 176
+                self._video_seek_slider.setVisible(show_seek)
+                if self._hud_cur_time is not None:
+                    self._hud_cur_time.setVisible(show_seek)
+                if self._hud_tot_time is not None:
+                    self._hud_tot_time.setVisible(show_seek)
+                hud_h = 54 if show_seek else 32
+            else:
+                hud_h = hud.height() or 32
+        else:
+            self._hud_compact_labels = w_lbl < 140
+            hud_w = min(112, max(60, w_lbl - 12))
+            hud_h = 32
+        x = max(4, (w_lbl - hud_w) // 2)
+        y = max(4, h_lbl - hud_h - 8)
+        hud.setGeometry(x, y, hud_w, hud_h)
+        self._refresh_video_controls()
+        hud.raise_()
+
     def _refresh_video_controls(self):
+        compact = getattr(self, "_hud_compact_labels", False)
         if self._play_pause_btn is not None:
-            self._play_pause_btn.setText("Play" if self._main_paused else "Pause")
+            self._play_pause_btn.setText("" if compact else ("Play" if self._main_paused else "Pause"))
             self._play_pause_btn.setIcon(make_vector_icon("play" if self._main_paused else "pause", "#f0f2f5", 12))
             self._play_pause_btn.setIconSize(QSize(12, 12))
         if self._mute_btn is not None:
-            self._mute_btn.setText("Muted" if self.video_muted else "Sound")
+            self._mute_btn.setText("" if compact else ("Muted" if self.video_muted else "Sound"))
             self._mute_btn.setIcon(make_vector_icon("sound_off" if self.video_muted else "sound_on", "#f0f2f5", 12))
             self._mute_btn.setIconSize(QSize(12, 12))
 
@@ -3949,24 +4049,22 @@ class ImageSorterApp(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(16, 10, 16, 14)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(14, 8, 14, 10)
+        main_layout.setSpacing(8)
 
         self.image_label = QLabel("Current Image")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setFixedSize(450, 500)
         self._main_shadow_effect = QGraphicsDropShadowEffect(self)
-        self._main_shadow_effect.setBlurRadius(28)
+        self._main_shadow_effect.setBlurRadius(24)
         self._main_shadow_effect.setColor(QColor(0, 0, 0, 115))
-        self._main_shadow_effect.setOffset(0, 8)
+        self._main_shadow_effect.setOffset(0, 6)
         self.image_label.setGraphicsEffect(self._main_shadow_effect)
 
-        self.next_image_label = QLabel("Next\nImage")
+        self.next_image_label = QLabel("No upcoming\nmedia")
         self.next_image_label.setAlignment(Qt.AlignCenter)
-        self.next_image_label.setMinimumSize(220, 280)
         self.next_image_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self._next_shadow_effect = QGraphicsDropShadowEffect(self)
-        self._next_shadow_effect.setBlurRadius(16)
+        self._next_shadow_effect.setBlurRadius(14)
         self._next_shadow_effect.setColor(QColor(0, 0, 0, 70))
         self._next_shadow_effect.setOffset(0, 4)
         self.next_image_label.setGraphicsEffect(self._next_shadow_effect)
@@ -3974,31 +4072,27 @@ class ImageSorterApp(QMainWindow):
 
         self.stage_frame = QFrame()
         self.stage_frame.setObjectName("studioStage")
+        self.stage_frame.setMinimumHeight(200)
         preview_layout = QHBoxLayout(self.stage_frame)
-        preview_layout.setContentsMargins(20, 16, 20, 16)
-        preview_layout.setSpacing(24)
+        preview_layout.setContentsMargins(12, 10, 12, 10)
+        preview_layout.setSpacing(16)
 
-        main_stage_box = QWidget()
-        main_stage_lay = QVBoxLayout(main_stage_box)
-        main_stage_lay.setContentsMargins(0, 0, 0, 0)
-        main_stage_lay.addStretch()
-        main_stage_lay.addWidget(self.image_label, 0, Qt.AlignCenter)
-        main_stage_lay.addStretch()
+        self.main_viewport = _StageViewport(self.image_label, min_w=260, min_h=180)
+        self.main_viewport.resized.connect(self._on_stage_viewport_resized)
 
-        next_stage_box = QWidget()
-        next_stage_lay = QVBoxLayout(next_stage_box)
+        self.next_stage_box = QWidget()
+        next_stage_lay = QVBoxLayout(self.next_stage_box)
         next_stage_lay.setContentsMargins(0, 0, 0, 0)
-        next_stage_lay.setSpacing(8)
-        next_stage_lay.addStretch()
+        next_stage_lay.setSpacing(6)
         self.next_eyebrow = QLabel("UP NEXT")
         self.next_eyebrow.setObjectName("nextEyebrowLabel")
         self.next_eyebrow.setAlignment(Qt.AlignCenter)
+        self.next_viewport = _StageViewport(self.next_image_label, min_w=130, min_h=140)
         next_stage_lay.addWidget(self.next_eyebrow, 0, Qt.AlignCenter)
-        next_stage_lay.addWidget(self.next_image_label, 0, Qt.AlignCenter)
-        next_stage_lay.addStretch()
+        next_stage_lay.addWidget(self.next_viewport, stretch=1)
 
-        preview_layout.addWidget(main_stage_box, stretch=3)
-        preview_layout.addWidget(next_stage_box, stretch=1)
+        preview_layout.addWidget(self.main_viewport, stretch=3)
+        preview_layout.addWidget(self.next_stage_box, stretch=1)
 
         info_layout = QHBoxLayout()
         info_layout.setSpacing(8)
@@ -4060,8 +4154,9 @@ class ImageSorterApp(QMainWindow):
         nav_layout.setStretch(0, 1)
         nav_layout.setStretch(1, 1)
 
-        self.folder_layout = QHBoxLayout()
-        self.folder_layout.setSpacing(10)
+        self.folder_layout = QGridLayout()
+        self.folder_layout.setContentsMargins(0, 0, 0, 0)
+        self.folder_layout.setSpacing(8)
         self.update_folder_buttons()
 
         action_layout = QHBoxLayout()
@@ -4430,6 +4525,7 @@ class ImageSorterApp(QMainWindow):
                 w_btn.deleteLater()
 
         self.folder_buttons = []
+        self._last_folder_wrap_cols = None
         t = self._get_ui_tokens()
 
         slot_accents = [
@@ -4438,9 +4534,11 @@ class ImageSorterApp(QMainWindow):
         ]
 
         slot_count = len(self.folder_names)
-        pad_h = 8 if slot_count >= 7 else 14
+        compact_h = self.height() < 620
+        pad_h = 6 if slot_count >= 7 else 12
         font_sz = "11px" if slot_count >= 8 else "12px"
-        icon_sz = 14 if slot_count >= 7 else 16
+        icon_sz = 14 if slot_count >= 7 else 15
+        min_btn_h = 34 if compact_h else 42
 
         for i, (label, path) in enumerate(zip(self.folder_names, self.folder_paths)):
             key_num = i + 1
@@ -4451,6 +4549,8 @@ class ImageSorterApp(QMainWindow):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setIcon(make_vector_icon("folder", icon_col, icon_sz))
             btn.setIconSize(QSize(icon_sz, icon_sz))
+            btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            btn.setMinimumWidth(52)
             btn.setToolTip(
                 f"Move to {label} ({path})\n"
                 f"Shortcut: Press {key_num} • Hold click or key {key_num} for Rapid Move"
@@ -4474,11 +4574,11 @@ class ImageSorterApp(QMainWindow):
                     background-color: {bg_rgba};
                     color: {t["text"]};
                     border: 1px solid {border_rgba};
-                    padding: 8px {pad_h}px;
+                    padding: 6px {pad_h}px;
                     font-size: {font_sz};
                     font-weight: 600;
                     border-radius: 10px;
-                    min-height: 44px;
+                    min-height: {min_btn_h}px;
                 }}
                 QPushButton:hover {{
                     background-color: {hover_rgba};
@@ -4489,13 +4589,38 @@ class ImageSorterApp(QMainWindow):
                 }}
             """)
             btn.clicked.connect(lambda _, p=path: self.move_to_custom_folder(p))
-            self.folder_layout.addWidget(btn)
             self.folder_buttons.append(btn)
 
+        self._relayout_folder_grid(force=True)
         for btn in self.folder_buttons:
             btn.installEventFilter(self)
         if hasattr(self, "image_label"):
             self.image_label.installEventFilter(self)
+
+    def _target_folder_columns(self, count: int) -> int:
+        if count <= 0:
+            return 1
+        w = max(480, self.width())
+        if (count >= 8 and w < 980) or (count >= 6 and w < 860) or (count >= 4 and w < 690):
+            return (count + 1) // 2
+        return count
+
+    def _relayout_folder_grid(self, force: bool = False):
+        btns = getattr(self, "folder_buttons", None)
+        if not btns:
+            return
+        cols = self._target_folder_columns(len(btns))
+        if not force and cols == getattr(self, "_last_folder_wrap_cols", None):
+            return
+        self._last_folder_wrap_cols = cols
+        while self.folder_layout.count():
+            self.folder_layout.takeAt(0)
+        for idx, btn in enumerate(btns):
+            row = idx // cols
+            col = idx % cols
+            self.folder_layout.addWidget(btn, row, col)
+        for c in range(10):
+            self.folder_layout.setColumnStretch(c, 1 if c < cols else 0)
 
     def darken_color(self, hex_color, factor=0.8):
         hex_color = hex_color.lstrip('#')
@@ -4507,20 +4632,112 @@ class ImageSorterApp(QMainWindow):
         b = int(b * factor)
         return f"#{r:02x}{g:02x}{b:02x}"
 
+    def _stage_budgets(self):
+        """Hitung ruang maks (w, h) viewport utama & preview berikutnya agar presisi di ukuran layar apa pun."""
+        next_visible = self.width() >= 680
+        if hasattr(self, "main_viewport") and self.main_viewport.width() > 60 and self.main_viewport.height() > 60:
+            vp_w = max(180, self.main_viewport.width() - 16)
+            vp_h = max(150, self.main_viewport.height() - 18)
+        else:
+            vp_w = max(240, int((self.width() - 60) * (0.68 if next_visible else 0.92)))
+            vp_h = max(180, self.height() - 245)
+
+        if hasattr(self, "next_viewport") and self.next_viewport.width() > 40 and self.next_viewport.height() > 40:
+            nvp_w = max(110, self.next_viewport.width() - 12)
+            nvp_h = max(110, self.next_viewport.height() - 14)
+        else:
+            nvp_w = max(120, min(200, int((self.width() - 60) * 0.24)))
+            nvp_h = max(120, min(260, int((self.height() - 245) * 0.65)))
+        return vp_w, vp_h, nvp_w, nvp_h, next_visible
+
+    def _update_file_info_bar(self):
+        meta = getattr(self, "_current_file_meta", None)
+        if not meta:
+            return
+        filename, meta_plain, moved_folder, new_path = meta
+        t = self._get_ui_tokens()
+        f_calc = self.file_info_label.font()
+        f_calc.setPixelSize(12)
+        f_calc.setBold(True)
+        fm = QFontMetrics(f_calc)
+        bar_w = self.file_info_label.width() if self.file_info_label.width() > 140 else max(300, self.width() - 150)
+        suffix_plain = f" ({meta_plain})" if meta_plain else ""
+        moved_plain = f" · moved to {moved_folder}" if moved_folder is not None else ""
+        reserved_w = fm.horizontalAdvance(suffix_plain + moved_plain) + 46
+        max_name_w = max(64, bar_w - reserved_w)
+        display_name = fm.elidedText(filename, Qt.ElideMiddle, max_name_w)
+        meta_html = (
+            f" <span style='color: {t['text_muted']};'>({meta_plain})</span>"
+            if meta_plain else ""
+        )
+        moved_html = (
+            f" <span style='color: #10b981; font-weight: 600;'>· moved to {moved_folder}</span>"
+            if moved_folder is not None else ""
+        )
+        self.file_info_label.setText(f"<b>{display_name}</b>{meta_html}{moved_html}")
+        self.file_info_label.setToolTip(f"{filename}\n{new_path}")
+
+    def _relayout_stage_previews(self):
+        """Sesuaikan ukuran kartu preview utama, UP NEXT, & kapsul media saat jendela diubah ukurannya."""
+        if not hasattr(self, "main_viewport"):
+            return
+        vp_w, vp_h, nvp_w, nvp_h, next_visible = self._stage_budgets()
+        if hasattr(self, "next_stage_box"):
+            self.next_stage_box.setVisible(next_visible)
+
+        main_pix = getattr(self, "_current_main_pixmap", None)
+        if main_pix is not None and not main_pix.isNull():
+            fitted = _fit_pixmap_box(main_pix, min(720, vp_w), min(560, vp_h))
+            target_size = fitted.size()
+            self._main_video_target_size = target_size
+            self.image_label.setFixedSize(target_size)
+            if self.current_movie is not None:
+                self.current_movie.setScaledSize(target_size)
+            elif len(self._main_anim_frames) > 1 and not self._main_video_using_qtmm:
+                cur_pix = self._main_anim_frames[self._main_anim_index][0]
+                if not cur_pix.isNull():
+                    self.image_label.setPixmap(cur_pix.scaled(target_size, Qt.KeepAspectRatio, Qt.FastTransformation))
+            elif not self._main_video_using_qtmm:
+                self.image_label.setPixmap(fitted)
+            self._reposition_video_hud(target_size)
+        else:
+            empty_w = max(240, min(460, vp_w))
+            empty_h = max(175, min(460, vp_h))
+            self.image_label.setFixedSize(empty_w, empty_h)
+            if not self.image_files and not self.filtered_files:
+                self.image_label.setText(self.get_empty_state_text(compact=(empty_h < 350 or empty_w < 340)))
+        self.main_viewport.center_child()
+
+        if next_visible:
+            next_pix = getattr(self, "_current_next_pixmap", None)
+            if next_pix is not None and not next_pix.isNull():
+                resized_next = resize_next_preview(next_pix, max_width=min(200, nvp_w), max_height=min(260, nvp_h))
+                self.next_image_label.setPixmap(resized_next)
+                self.next_image_label.setFixedSize(resized_next.size())
+            else:
+                self.next_image_label.setFixedSize(min(210, nvp_w), min(260, nvp_h))
+            self.next_viewport.center_child()
+
+    def _on_stage_viewport_resized(self):
+        self._relayout_stage_previews()
+
     def update_button_widths(self):
         """Pertahankan proporsi minimum Filter/Undo/Skip agar sejajar sempurna di setiap resolusi."""
-        window_width = max(640, self.width())
-        filter_min = max(120, min(220, int(window_width * 0.16)))
+        window_width = max(560, self.width())
+        filter_min = max(100, min(200, int(window_width * 0.16)))
         self.filter_combo.setMinimumWidth(filter_min)
         self.filter_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for btn in [self.undo_btn, self.skip_btn]:
-            btn.setMinimumWidth(110)
+            btn.setMinimumWidth(90)
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def resizeEvent(self, event):
         """Handle window resize events."""
         super().resizeEvent(event)
         self.update_button_widths()
+        self._relayout_folder_grid()
+        self._update_file_info_bar()
+        self._relayout_stage_previews()
         if hasattr(self, 'notification_label') and self.notification_label.isVisible():
             self.position_notification()
 
@@ -4636,18 +4853,30 @@ class ImageSorterApp(QMainWindow):
         if files is None:
             files = self.filtered_files
         self.stop_current_movie()
+        vp_w, vp_h, nvp_w, nvp_h, next_visible = self._stage_budgets()
+        if hasattr(self, "next_stage_box"):
+            self.next_stage_box.setVisible(next_visible)
+
         if not files:
             for child in self.image_label.findChildren(QLabel):
                 child.deleteLater()
+            self._current_main_pixmap = None
+            self._current_next_pixmap = None
+            self._current_file_meta = None
+            empty_w = max(240, min(460, vp_w))
+            empty_h = max(175, min(460, vp_h))
             if self.image_files:
                 self.image_label.setText("No images match the filter.")
             else:
-                self.image_label.setText(self.get_empty_state_text())
+                self.image_label.setText(self.get_empty_state_text(compact=(empty_h < 350 or empty_w < 340)))
             self.next_image_label.setText("No upcoming\nmedia")
             self.file_info_label.setText("No image loaded.")
             self.position_info_label.setText("0 / 0")
-            self.image_label.setFixedSize(460, 500)
-            self.next_image_label.setFixedSize(220, 280)
+            self.image_label.setFixedSize(empty_w, empty_h)
+            self.next_image_label.setFixedSize(min(210, nvp_w), min(260, nvp_h))
+            self.main_viewport.center_child()
+            if next_visible:
+                self.next_viewport.center_child()
             return
 
         if self.current_index >= len(files):
@@ -4661,7 +4890,7 @@ class ImageSorterApp(QMainWindow):
         new_path = self.get_new_path_from_history(path) or path
         is_moved = folder_name is not None
 
-        meta_text = ""
+        parts = []
         orig_w, orig_h, file_size, fmt_bytes, frame_count = 0, 0, 0, b"", 1
         video_duration = 0.0
         is_video = is_video_file(new_path)
@@ -4672,7 +4901,6 @@ class ImageSorterApp(QMainWindow):
                 fmt_bytes = os.path.splitext(new_path)[1].lstrip(".").lower().encode("ascii", "ignore")
             else:
                 orig_w, orig_h, file_size, fmt_bytes, frame_count = self.pixmap_cache.get_metadata(new_path)
-            parts = []
             if orig_w > 0 and orig_h > 0:
                 parts.append(f"{orig_w}×{orig_h}")
             if is_video and video_duration > 0:
@@ -4685,20 +4913,10 @@ class ImageSorterApp(QMainWindow):
             if norm_src_cur in self.duplicate_group_lookup:
                 g_idx, g_size = self.duplicate_group_lookup[norm_src_cur]
                 parts.append(f"DUP #{g_idx} ({g_size} similar)")
-            if parts:
-                meta_text = f" <span style='color: #888888;'>({' • '.join(parts)})</span>"
 
-        t = self._get_ui_tokens()
-        max_name_w = max(200, (self.file_info_label.width() or 540) - 270)
-        display_name = QFontMetrics(self.file_info_label.font()).elidedText(filename, Qt.ElideMiddle, max_name_w)
-        if meta_text:
-            meta_text = meta_text.replace("#888888", t["text_muted"])
-        moved_status = (
-            f" <span style='color: #10b981; font-weight: 600;'>· moved to {folder_name}</span>"
-            if is_moved else ""
-        )
-        self.file_info_label.setText(f"<b>{display_name}</b>{meta_text}{moved_status}")
-        self.file_info_label.setToolTip(f"{filename}\n{new_path}")
+        meta_plain = " • ".join(parts) if parts else ""
+        self._current_file_meta = (filename, meta_plain, folder_name, new_path)
+        self._update_file_info_bar()
 
         current_pos = self.current_index + 1
         total_files = len(files)
@@ -4707,10 +4925,12 @@ class ImageSorterApp(QMainWindow):
         for child in self.image_label.findChildren(QLabel):
             child.deleteLater()
 
+        self._current_main_pixmap = None
         if file_exists:
             pixmap = self.pixmap_cache.get_pixmap(new_path, 720, 500)
             if not pixmap.isNull():
-                resized_pixmap = resize_image(pixmap)
+                self._current_main_pixmap = pixmap
+                resized_pixmap = _fit_pixmap_box(pixmap, min(720, vp_w), min(560, vp_h))
                 target_size = resized_pixmap.size()
                 self._main_video_target_size = target_size
                 self.image_label.setFixedSize(target_size)
@@ -4746,11 +4966,11 @@ class ImageSorterApp(QMainWindow):
                             raw_frames = self.pixmap_cache.get_animation_frames(new_path, 720, 500, max_frames=60)
                             if len(raw_frames) > 1:
                                 self._main_anim_frames = [
-                                    (resize_image(fpix), fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
+                                    (fpix, fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
                                 ]
                                 if len(self._main_anim_frames) > 1:
                                     self._main_anim_index = 0
-                                    self.image_label.setPixmap(self._main_anim_frames[0][0])
+                                    self.image_label.setPixmap(_fit_pixmap_box(self._main_anim_frames[0][0], target_size.width(), target_size.height()))
                                     self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
                                     started_anim = True
                 if not started_anim:
@@ -4799,7 +5019,7 @@ class ImageSorterApp(QMainWindow):
                     "<div style='padding:16px; color:#f59e0b; font-weight:600;'>Failed to load media.</div>"
                 )
                 self.image_label.setAlignment(Qt.AlignCenter)
-                self.image_label.setFixedSize(460, 500)
+                self.image_label.setFixedSize(max(240, min(460, vp_w)), max(175, min(460, vp_h)))
         else:
             msg = (
                 f"<div style='padding:16px;'>File moved to:<br>"
@@ -4808,8 +5028,10 @@ class ImageSorterApp(QMainWindow):
             )
             self.image_label.setText(msg)
             self.image_label.setAlignment(Qt.AlignCenter)
-            self.image_label.setFixedSize(460, 500)
+            self.image_label.setFixedSize(max(240, min(460, vp_w)), max(175, min(460, vp_h)))
+        self.main_viewport.center_child()
 
+        self._current_next_pixmap = None
         next_index = self.find_valid_next_index(self.current_index, files)
         if next_index is not None:
             next_path = files[next_index]
@@ -4817,18 +5039,21 @@ class ImageSorterApp(QMainWindow):
             if os.path.exists(new_next_path):
                 next_pixmap = self.pixmap_cache.get_pixmap(new_next_path, 200, 260)
                 if not next_pixmap.isNull():
-                    resized_next = resize_next_preview(next_pixmap)
+                    self._current_next_pixmap = next_pixmap
+                    resized_next = resize_next_preview(next_pixmap, max_width=min(200, nvp_w), max_height=min(260, nvp_h))
                     self.next_image_label.setPixmap(resized_next)
                     self.next_image_label.setFixedSize(resized_next.size())
                 else:
                     self.next_image_label.setText("No upcoming\nmedia")
-                    self.next_image_label.setFixedSize(220, 280)
+                    self.next_image_label.setFixedSize(min(210, nvp_w), min(260, nvp_h))
             else:
                 self.next_image_label.setText("No upcoming\nmedia")
-                self.next_image_label.setFixedSize(220, 280)
+                self.next_image_label.setFixedSize(min(210, nvp_w), min(260, nvp_h))
         else:
             self.next_image_label.setText("No upcoming\nmedia")
-            self.next_image_label.setFixedSize(220, 280)
+            self.next_image_label.setFixedSize(min(210, nvp_w), min(260, nvp_h))
+        if next_visible:
+            self.next_viewport.center_child()
 
         # Jadwalkan pre-fetch cerdas di waktu idle (12ms) untuk gambar sekitar (prev, next, next+1)
         if hasattr(self, "_prefetch_timer"):
@@ -5575,7 +5800,7 @@ class ImageSorterApp(QMainWindow):
             self.apply_message_box_style(msg)
             msg.exec()
 
-    def get_empty_state_text(self):
+    def get_empty_state_text(self, compact: bool = False):
         """Teks panduan singkat bergaya monokrom bersih saat belum ada gambar yang dimuat."""
         is_dark = (
             self.theme_mode in ("dark", "custom")
@@ -5589,35 +5814,35 @@ class ImageSorterApp(QMainWindow):
 
         max_key = max(3, len(self.folder_names)) if getattr(self, "folder_names", None) else 5
         max_let = ALL_SLOT_LETTERS[min(max_key - 1, len(ALL_SLOT_LETTERS) - 1)]
+        tbl_w = 240 if compact else 310
+        cell_pad = 3 if compact else 6
+        font_sz = 11 if compact else 12
+        title_sz = 15 if compact else 17
         return (
             f"<div align='center'>"
-            f"<p style='font-size:17px; font-weight:600; color:{title_col}; margin-bottom:4px;'>No Image Loaded</p>"
-            f"<p style='font-size:12px; color:{sub_col}; margin-top:0px; margin-bottom:16px;'>"
-            f"Drop a folder or image here, or press <font face='Consolas' color='{key_col}'><b>Ctrl+O</b></font>"
+            f"<p style='font-size:{title_sz}px; font-weight:600; color:{title_col}; margin-bottom:3px;'>No Image Loaded</p>"
+            f"<p style='font-size:{font_sz}px; color:{sub_col}; margin-top:0px; margin-bottom:{8 if compact else 14}px;'>"
+            f"Drop a folder or press <font face='Consolas' color='{key_col}'><b>Ctrl+O</b></font>"
             f"</p>"
-            f"<table align='center' width='310' cellspacing='3' cellpadding='6' style='font-size:12px;'>"
+            f"<table align='center' width='{tbl_w}' cellspacing='2' cellpadding='{cell_pad}' style='font-size:{font_sz}px;'>"
             f"<tr bgcolor='{row_bg}'>"
             f"<td align='left' width='42%'><font face='Consolas' color='{key_col}'><b>[1] – [{max_key}]</b></font></td>"
             f"<td align='left'><font color='{desc_col}'>Move to Folder A–{max_let}</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Hold [1] – [{max_key}]</b></font></td>"
+            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Hold [1]–[{max_key}]</b></font></td>"
             f"<td align='left'><font color='{desc_col}'>Rapid Move</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
             f"<td align='left'><font face='Consolas' color='{key_col}'><b>←  /  →</b></font></td>"
-            f"<td align='left'><font color='{desc_col}'>Previous / Next image</font></td>"
+            f"<td align='left'><font color='{desc_col}'>Previous / Next</font></td>"
             f"</tr>"
             f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Space</b></font></td>"
-            f"<td align='left'><font color='{desc_col}'>Skip to next unmoved</font></td>"
-            f"</tr>"
-            f"<tr bgcolor='{row_bg}'>"
-            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Ctrl+Z  /  F</b></font></td>"
-            f"<td align='left'><font color='{desc_col}'>Undo / Zoom preview</font></td>"
+            f"<td align='left'><font face='Consolas' color='{key_col}'><b>Space / F</b></font></td>"
+            f"<td align='left'><font color='{desc_col}'>Skip / Zoom preview</font></td>"
             f"</tr>"
             f"</table>"
-            f"<p style='font-size:11px; color:{sub_col}; margin-top:14px;'>"
+            f"<p style='font-size:11px; color:{sub_col}; margin-top:{8 if compact else 12}px;'>"
             f"Press <font face='Consolas' color='{key_col}'><b>F1</b></font> for all shortcuts"
             f"</p>"
             f"</div>"

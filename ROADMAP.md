@@ -98,6 +98,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.15-Stable (Selesai)
+- [x] **Responsive Viewport & Auto-Adaptive Scaling (`640×500` – `4K`):** Ukuran awal jendela utama & *Full-Size Preview* menyesuaikan area aman layar (`availableGeometry`), didukung `_StageViewport` agar preview, *empty state*, dan kapsul *seekbar* diskalakan presisi secara *real-time*, *grid* folder `[1]`–`[9]` terlipat otomatis ke 2 baris di layar sempit, serta panel `UP NEXT` bersembunyi cerdas di lebar `<680px`.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.

@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.15 — 2026-11-22
+
+### Improved — viewport-aware compact sizing & responsive layout engine
+- **Screen-Adaptive Default Window Size & Fluid Resizing (`640×500` to `4K`):** Initial window and `ImagePreviewDialog` dimensions now adapt automatically to `screen.availableGeometry()` (`min(960, 72%) × min(680, 84%)`), so laptops and small displays (`1280×720` / `1366×768`) are never covered or overflown beyond the taskbar.
+- **Responsive Stage Viewports (`_StageViewport` & `_fit_pixmap_box`):** Replaced rigid fixed-size canvas locks with custom viewport wrappers that fluidly rescale images, animated frames, `UP NEXT` previews, empty-state guides, and the floating video seekbar HUD in real time without layout collapse.
+- **Auto-Wrapping Folder Grid (`QGridLayout` via `_relayout_folder_grid`):** Destination slots (`3`–`9`) remain single-row on wide monitors and cleanly wrap into two balanced rows on narrow windows (while hiding the `UP NEXT` rail automatically below `680px` width to prioritize the active preview).
+
 ## 2.1.14 — 2026-11-22
 
 ### Improved — Studio Slate UI redesign, vector icons & interactive video seekbar
