@@ -103,6 +103,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.16-Stable (Selesai)
+- [x] **Batas Minimum Ergonomis Tanpa Komponen Hilang/Tumpang Tindih (`_sync_minimum_window_size`):** Menetapkan batas minimum presisi (**`780×580`** untuk 3–5 slot / **`800×620`** untuk 6–9 slot 2 baris & **`680×460`** untuk *Full-Size Preview*) yang menjaga seluruh panel (`UP NEXT`, kapsul kontrol, metadata header, dan seluruh kartu folder) selalu tampil penuh, sejajar, dan nyaman di setiap ukuran jendela.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.

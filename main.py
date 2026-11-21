@@ -726,7 +726,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.15-Stable"
+    VERSION = "2.1.16-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -1240,10 +1240,12 @@ class ImagePreviewDialog(QDialog):
         self.setWindowTitle(f"Preview — {filename} ({w}×{h})")
         screen = QApplication.primaryScreen()
         avail = screen.availableGeometry() if screen is not None else QRectF(0, 0, 1280, 720).toRect()
-        dlg_w = min(980, max(540, int(avail.width() * 0.84)))
-        dlg_h = min(720, max(420, int(avail.height() * 0.84)))
+        min_dlg_w = min(680, max(540, avail.width() - 32))
+        min_dlg_h = min(460, max(380, avail.height() - 48))
+        dlg_w = min(980, max(min_dlg_w, int(avail.width() * 0.84)))
+        dlg_h = min(720, max(min_dlg_h, int(avail.height() * 0.84)))
+        self.setMinimumSize(min_dlg_w, min_dlg_h)
         self.resize(dlg_w, dlg_h)
-        self.setMinimumSize(500, 360)
 
         is_dark = True
         if self.parent and hasattr(self.parent, "theme_mode"):
@@ -1778,8 +1780,9 @@ class ImagePreviewDialog(QDialog):
         f_calc.setPixelSize(13)
         f_calc.setBold(True)
         fm = QFontMetrics(f_calc)
-        avail_w = self.info_label.width() if self.info_label.width() > 80 else max(140, self.width() - 360)
-        max_name_w = max(56, avail_w - fm.horizontalAdvance(suffix_info) - 18)
+        # Hitung ruang tersisa langsung dari lebar dialog agar tidak tertinggal 1 frame saat resizeEvent
+        avail_w = max(140, self.width() - 365)
+        max_name_w = max(48, avail_w - fm.horizontalAdvance(suffix_info) - 16)
         elided_name = fm.elidedText(os.path.basename(self.image_path), Qt.ElideMiddle, max_name_w)
         self.info_label.setText(f"{elided_name}{suffix_info}")
 
@@ -2669,9 +2672,9 @@ class ImageSorterApp(QMainWindow):
         self.setWindowTitle("ImageSorter")
         screen = QApplication.primaryScreen()
         avail = screen.availableGeometry() if screen is not None else QRectF(0, 0, 1280, 720).toRect()
-        init_w = min(960, max(660, int(avail.width() * 0.72)))
-        init_h = min(680, max(520, int(avail.height() * 0.84)))
-        self.setMinimumSize(640, 500)
+        init_w = min(960, max(780, int(avail.width() * 0.72)))
+        init_h = min(680, max(580, int(avail.height() * 0.84)))
+        self.setMinimumSize(min(780, max(680, avail.width() - 32)), min(580, max(500, avail.height() - 48)))
         self.resize(init_w, init_h)
         self.setAcceptDrops(True)
         self.image_files = []
@@ -4592,16 +4595,32 @@ class ImageSorterApp(QMainWindow):
             self.folder_buttons.append(btn)
 
         self._relayout_folder_grid(force=True)
+        self._sync_minimum_window_size()
         for btn in self.folder_buttons:
             btn.installEventFilter(self)
         if hasattr(self, "image_label"):
             self.image_label.installEventFilter(self)
 
+    def _sync_minimum_window_size(self):
+        """Jaga batas minimum jendela agar seluruh komponen selalu utuh, terbaca, dan tidak tumpang tindih."""
+        if not hasattr(self, "folder_buttons"):
+            return
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else QRectF(0, 0, 1280, 720).toRect()
+        slot_count = len(self.folder_buttons) or 5
+        rows = 2 if slot_count >= 6 and self.width() < 980 else 1
+        req_min_w = 780 if slot_count <= 5 else 800
+        req_min_h = 580 if rows == 1 else 620
+        min_w = min(req_min_w, max(680, avail.width() - 32))
+        min_h = min(req_min_h, max(500, avail.height() - 48))
+        if self.minimumWidth() != min_w or self.minimumHeight() != min_h:
+            self.setMinimumSize(min_w, min_h)
+
     def _target_folder_columns(self, count: int) -> int:
         if count <= 0:
             return 1
-        w = max(480, self.width())
-        if (count >= 8 and w < 980) or (count >= 6 and w < 860) or (count >= 4 and w < 690):
+        w = max(680, self.width())
+        if (count >= 8 and w < 980) or (count >= 6 and w < 860):
             return (count + 1) // 2
         return count
 
@@ -4634,20 +4653,20 @@ class ImageSorterApp(QMainWindow):
 
     def _stage_budgets(self):
         """Hitung ruang maks (w, h) viewport utama & preview berikutnya agar presisi di ukuran layar apa pun."""
-        next_visible = self.width() >= 680
+        next_visible = True
         if hasattr(self, "main_viewport") and self.main_viewport.width() > 60 and self.main_viewport.height() > 60:
-            vp_w = max(180, self.main_viewport.width() - 16)
-            vp_h = max(150, self.main_viewport.height() - 18)
+            vp_w = max(240, self.main_viewport.width() - 16)
+            vp_h = max(200, self.main_viewport.height() - 18)
         else:
-            vp_w = max(240, int((self.width() - 60) * (0.68 if next_visible else 0.92)))
-            vp_h = max(180, self.height() - 245)
+            vp_w = max(260, int((self.width() - 60) * 0.68))
+            vp_h = max(220, self.height() - 250)
 
         if hasattr(self, "next_viewport") and self.next_viewport.width() > 40 and self.next_viewport.height() > 40:
-            nvp_w = max(110, self.next_viewport.width() - 12)
-            nvp_h = max(110, self.next_viewport.height() - 14)
+            nvp_w = max(120, self.next_viewport.width() - 12)
+            nvp_h = max(130, self.next_viewport.height() - 14)
         else:
-            nvp_w = max(120, min(200, int((self.width() - 60) * 0.24)))
-            nvp_h = max(120, min(260, int((self.height() - 245) * 0.65)))
+            nvp_w = max(130, min(200, int((self.width() - 60) * 0.24)))
+            nvp_h = max(140, min(260, int((self.height() - 250) * 0.65)))
         return vp_w, vp_h, nvp_w, nvp_h, next_visible
 
     def _update_file_info_bar(self):
@@ -4660,11 +4679,12 @@ class ImageSorterApp(QMainWindow):
         f_calc.setPixelSize(12)
         f_calc.setBold(True)
         fm = QFontMetrics(f_calc)
-        bar_w = self.file_info_label.width() if self.file_info_label.width() > 140 else max(300, self.width() - 150)
+        # Hitung lebar bar info langsung dari lebar jendela agar selalu presisi saat resize live
+        bar_w = max(280, self.width() - 28 - 8 - 88 - 6)
         suffix_plain = f" ({meta_plain})" if meta_plain else ""
         moved_plain = f" · moved to {moved_folder}" if moved_folder is not None else ""
         reserved_w = fm.horizontalAdvance(suffix_plain + moved_plain) + 46
-        max_name_w = max(64, bar_w - reserved_w)
+        max_name_w = max(80, bar_w - reserved_w)
         display_name = fm.elidedText(filename, Qt.ElideMiddle, max_name_w)
         meta_html = (
             f" <span style='color: {t['text_muted']};'>({meta_plain})</span>"
@@ -4736,6 +4756,7 @@ class ImageSorterApp(QMainWindow):
         super().resizeEvent(event)
         self.update_button_widths()
         self._relayout_folder_grid()
+        self._sync_minimum_window_size()
         self._update_file_info_bar()
         self._relayout_stage_previews()
         if hasattr(self, 'notification_label') and self.notification_label.isVisible():

@@ -2,6 +2,12 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.16 — 2026-11-22
+
+### Improved — enforced ergonomic minimum window & preview bounds
+- **Zero-Loss Ergonomic Minimum Floor (`_sync_minimum_window_size`):** Enforced adaptive minimum bounds (**`780×580`** for 3–5 slots, **`800×620`** when 6–9 slots wrap into 2 rows, safely clamped to physical screen work areas on smaller monitors) so **every UI panel**—including `UP NEXT`, header metadata, active media preview, HUD controls, and all folder cards—stays 100% visible, aligned, and unclipped with zero hidden features or overlaps.
+- **Instant Header Elision & Preview Dialog Floor (`680×460`):** Upgraded `ImagePreviewDialog` minimum bounds (`680×460`, screen-safe) and direct window-width metric calculation in `_update_file_info_bar()` / `_update_info_label()` so filenames and resolution/playback tags never clip during live drag resizing.
+
 ## 2.1.15 — 2026-11-22
 
 ### Improved — viewport-aware compact sizing & responsive layout engine
