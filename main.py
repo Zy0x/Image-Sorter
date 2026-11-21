@@ -38,6 +38,14 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction, QImageReader, QIcon, QShortcut, QKeySequence, QDesktopServices, QMovie, QPixmap
 from PySide6.QtCore import Qt, QPropertyAnimation, QTimer, QThread, QSize, Signal, QUrl, QEvent, QByteArray, QBuffer, QIODevice
+try:
+    from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
+    _HAS_QTMULTIMEDIA = True
+except ImportError:
+    QMediaPlayer = None
+    QAudioOutput = None
+    QVideoSink = None
+    _HAS_QTMULTIMEDIA = False
 
 from utils.image_utils import (
     PIL_FALLBACK_EXTENSIONS,
@@ -321,6 +329,8 @@ def load_settings():
         "recent_folders": [],
         "theme_mode": "system",
         "rapid_move_interval": 200,
+        "video_muted": False,
+        "video_volume": 0.8,
         "custom_theme": {
             "bg_color": "#121212",
             "text_color": "#FFFFFF",
@@ -546,7 +556,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.12-Stable"
+    VERSION = "2.1.13-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -863,6 +873,8 @@ class ShortcutsGuideDialog(QDialog):
         right_sections = [
             ("VIEW & INSPECT", [
                 ("Full-size zoom preview", [("key", "F")]),
+                ("Play / Pause video or GIF", [("key", "P")]),
+                ("Mute / Unmute video sound", [("key", "M")]),
                 ("Find duplicate / similar", [("key", "Ctrl"), ("key", "D")]),
                 ("Include subfolders", [("key", "Ctrl"), ("key", "Shift"), ("key", "S")]),
                 ("Hide moved images", [("key", "Ctrl"), ("key", "H")]),
@@ -941,6 +953,62 @@ class ShortcutsGuideDialog(QDialog):
         return col
 
 
+def _dispose_qtmm_video_session(player, output, sink, buf):
+    """Hentikan dan lepaskan resource QMediaPlayer/QAudioOutput/QVideoSink/QBuffer tanpa mengunci file disk."""
+    if sink is not None:
+        try:
+            sink.videoFrameChanged.disconnect()
+        except Exception:
+            pass
+        sink.deleteLater()
+    if player is not None:
+        try:
+            player.stop()
+            player.setVideoSink(None)
+            player.setAudioOutput(None)
+            player.setSource(QUrl())
+        except Exception:
+            pass
+        player.deleteLater()
+    if output is not None:
+        output.deleteLater()
+    if buf is not None:
+        try:
+            buf.close()
+        except Exception:
+            pass
+        buf.deleteLater()
+
+
+def _create_qtmm_video_session(owner, video_path: str, muted: bool, volume: float, on_frame, on_error=None):
+    """Bangun QMediaPlayer + QAudioOutput + QVideoSink dari buffer memori (<=120 MB) untuk playback video+suara sinkron."""
+    if not _HAS_QTMULTIMEDIA or not video_path or not os.path.exists(video_path):
+        return None
+    fsize = os.path.getsize(video_path)
+    if fsize <= 0 or fsize > 120 * 1024 * 1024:
+        return None
+    with open(video_path, "rb") as f:
+        raw = f.read()
+    qbytes = QByteArray(raw)
+    qbuf = QBuffer(owner)
+    qbuf.setData(qbytes)
+    qbuf.open(QIODevice.ReadOnly)
+    output = QAudioOutput(owner)
+    output.setVolume(max(0.0, min(1.0, float(volume))))
+    output.setMuted(bool(muted))
+    sink = QVideoSink(owner)
+    if on_frame is not None:
+        sink.videoFrameChanged.connect(on_frame)
+    player = QMediaPlayer(owner)
+    player.setAudioOutput(output)
+    player.setVideoSink(sink)
+    player.setLoops(QMediaPlayer.Infinite)
+    if on_error is not None:
+        player.errorOccurred.connect(on_error)
+    player.setSourceDevice(qbuf, QUrl.fromLocalFile(video_path))
+    return player, output, sink, qbuf, qbytes
+
+
 class ImagePreviewDialog(QDialog):
     """Dialog pratinjau ukuran penuh dengan Smart Double-Click Zoom, Cursor-Anchored Wheel Zoom,
     Drag-to-Pan, serta Live Playback & Frame Stepping untuk GIF, Animated WebP/APNG/AVIF, dan Video."""
@@ -959,8 +1027,17 @@ class ImagePreviewDialog(QDialog):
         self._scaled_frame_cache = {}
         self._scaled_cache_size = (0, 0)
         self._video_thread = None
+        self._audio_player = None
+        self._audio_output = None
+        self._video_sink = None
+        self._audio_buffer = None
+        self._audio_bytes = None
+        self._using_qtmm_video = False
+        self._frame_step_mode = False
+        self._audio_muted = bool(getattr(parent, "video_muted", False)) if parent else False
 
         is_vid = is_video_file(image_path)
+        self._is_video = is_vid
         if is_vid:
             first_pix = load_pixmap(image_path, 1280, 960)
             self.anim_frames = [(first_pix, 40)] if not first_pix.isNull() else []
@@ -1066,12 +1143,13 @@ class ImagePreviewDialog(QDialog):
         self.prev_frame_btn = None
         self.play_pause_btn = None
         self.next_frame_btn = None
+        self.mute_btn = None
         if len(self.anim_frames) > 1 or is_vid:
             self.prev_frame_btn = QPushButton("⟨")
             self.prev_frame_btn.setToolTip("Previous Frame ([)")
             self.prev_frame_btn.clicked.connect(lambda: self.step_frame(-1))
             self.play_pause_btn = QPushButton("Pause")
-            self.play_pause_btn.setToolTip("Play / Pause Animation (Space)")
+            self.play_pause_btn.setToolTip("Play / Pause Animation (Space / P)")
             self.play_pause_btn.clicked.connect(self.toggle_animation)
             self.next_frame_btn = QPushButton("⟩")
             self.next_frame_btn.setToolTip("Next Frame (])")
@@ -1079,6 +1157,13 @@ class ImagePreviewDialog(QDialog):
             for ab in (self.prev_frame_btn, self.play_pause_btn, self.next_frame_btn):
                 ab.setCursor(Qt.PointingHandCursor)
                 toolbar.addWidget(ab)
+            if is_vid:
+                mute_txt = "Muted (M)" if self._audio_muted else "Sound On (M)"
+                self.mute_btn = QPushButton(mute_txt)
+                self.mute_btn.setToolTip("Toggle Video Sound Mute / Unmute (M)")
+                self.mute_btn.setCursor(Qt.PointingHandCursor)
+                self.mute_btn.clicked.connect(self.toggle_audio_mute)
+                toolbar.addWidget(self.mute_btn)
 
         zoom_out_btn = QPushButton("−")
         zoom_out_btn.setToolTip("Zoom Out (−)")
@@ -1113,9 +1198,10 @@ class ImagePreviewDialog(QDialog):
 
         self.update_preview()
         if is_vid:
+            self._start_preview_audio(image_path)
             self._received_video_chunks = False
             if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
-                raw_qimgs = decode_video_qimages(image_path, 1280, 960, max_frames=120)
+                raw_qimgs = decode_video_qimages(image_path, 1280, 960, max_frames=30)
                 if raw_qimgs:
                     self._on_preview_video_chunk(image_path, raw_qimgs)
             else:
@@ -1125,6 +1211,96 @@ class ImagePreviewDialog(QDialog):
                 vt.start()
         elif self._anim_playing:
             self._schedule_next_anim_frame()
+
+    def _start_preview_audio(self, video_path: str):
+        self._stop_preview_audio()
+        try:
+            vol = float(getattr(self.parent, "video_volume", 0.8)) if self.parent else 0.8
+            session = _create_qtmm_video_session(
+                self,
+                video_path,
+                muted=self._audio_muted,
+                volume=vol,
+                on_frame=self._on_preview_video_frame,
+                on_error=self._on_preview_media_error,
+            )
+            if session is None:
+                self._using_qtmm_video = False
+                return
+            (
+                self._audio_player,
+                self._audio_output,
+                self._video_sink,
+                self._audio_buffer,
+                self._audio_bytes,
+            ) = session
+            self._using_qtmm_video = True
+            self._frame_step_mode = False
+            if self._anim_playing:
+                self._audio_player.play()
+        except Exception as e:
+            print(f"[DEBUG] Preview media init warning: {e}")
+            self._using_qtmm_video = False
+
+    def _on_preview_media_error(self, error, error_string=""):
+        print(f"[DEBUG] Preview QtMultimedia error ({error}): {error_string}")
+        self._using_qtmm_video = False
+        self._stop_preview_audio()
+        if self._anim_playing and not self._anim_timer.isActive() and len(self.anim_frames) > 1:
+            self._schedule_next_anim_frame()
+
+    def _on_preview_video_frame(self, frame):
+        if not self._using_qtmm_video or not self._anim_playing or self._frame_step_mode:
+            return
+        if not frame.isValid():
+            return
+        qimg = frame.toImage()
+        if qimg.isNull():
+            return
+        pix = QPixmap.fromImage(qimg)
+        self.base_pixmap = pix
+        hbar = self.scroll_area.horizontalScrollBar()
+        vbar = self.scroll_area.verticalScrollBar()
+        old_h = hbar.value()
+        old_v = vbar.value()
+        if self._fit_mode:
+            self._fit_zoom = self._compute_fit_zoom()
+            self.zoom_factor = self._fit_zoom
+        tw = max(16, int(round(pix.width() * self.zoom_factor)))
+        th = max(16, int(round(pix.height() * self.zoom_factor)))
+        mode = Qt.SmoothTransformation if pix.width() * pix.height() <= 1920 * 1080 else Qt.FastTransformation
+        scaled = pix.scaled(tw, th, Qt.KeepAspectRatio, mode)
+        if self._fit_mode:
+            self.preview_label.setMinimumSize(1, 1)
+        else:
+            self.preview_label.setMinimumSize(scaled.size())
+        self.preview_label.setPixmap(scaled)
+        if not self._fit_mode:
+            hbar.setValue(old_h)
+            vbar.setValue(old_v)
+
+    def _stop_preview_audio(self):
+        self._using_qtmm_video = False
+        _dispose_qtmm_video_session(
+            self._audio_player,
+            self._audio_output,
+            self._video_sink,
+            self._audio_buffer,
+        )
+        self._audio_player = None
+        self._audio_output = None
+        self._video_sink = None
+        self._audio_buffer = None
+        self._audio_bytes = None
+
+    def toggle_audio_mute(self):
+        self._audio_muted = not self._audio_muted
+        if self._audio_output is not None:
+            self._audio_output.setMuted(self._audio_muted)
+        if self.mute_btn is not None:
+            self.mute_btn.setText("Muted (M)" if self._audio_muted else "Sound On (M)")
+        if self.parent and hasattr(self.parent, "set_video_muted"):
+            self.parent.set_video_muted(self._audio_muted, notify=False)
 
     def _on_preview_video_chunk(self, video_path: str, chunk: list):
         if not chunk:
@@ -1136,22 +1312,28 @@ class ImagePreviewDialog(QDialog):
             self._received_video_chunks = True
             self.anim_frames = new_pix_frames
             self._anim_index = 0
-            self.base_pixmap = self.anim_frames[0][0]
-            self._scaled_frame_cache.clear()
-            self._render_current_frame_preserve_scroll()
+            if not self._using_qtmm_video:
+                self.base_pixmap = self.anim_frames[0][0]
+                self._scaled_frame_cache.clear()
+                self._render_current_frame_preserve_scroll()
         else:
             self.anim_frames.extend(new_pix_frames)
-            self._update_info_label()
-        if self._anim_playing and not self._anim_timer.isActive() and len(self.anim_frames) > 1:
+            if not self._using_qtmm_video or self._frame_step_mode:
+                self._update_info_label()
+        if not self._using_qtmm_video and self._anim_playing and not self._anim_timer.isActive() and len(self.anim_frames) > 1:
             self._schedule_next_anim_frame()
 
     def _schedule_next_anim_frame(self):
+        if self._using_qtmm_video and not self._frame_step_mode:
+            return
         if not self._anim_playing or len(self.anim_frames) <= 1:
             return
         delay = self.anim_frames[self._anim_index][1]
         self._anim_timer.start(max(20, int(delay)))
 
     def _advance_anim_frame(self):
+        if self._using_qtmm_video and not self._frame_step_mode:
+            return
         if len(self.anim_frames) <= 1:
             return
         self._anim_index = (self._anim_index + 1) % len(self.anim_frames)
@@ -1161,14 +1343,21 @@ class ImagePreviewDialog(QDialog):
             self._schedule_next_anim_frame()
 
     def toggle_animation(self):
-        if len(self.anim_frames) <= 1:
+        if len(self.anim_frames) <= 1 and not self._is_video:
             return
         self._anim_playing = not self._anim_playing
         if self.play_pause_btn is not None:
             self.play_pause_btn.setText("Pause" if self._anim_playing else "Play")
         if self._anim_playing:
-            self._schedule_next_anim_frame()
+            self._frame_step_mode = False
+            if self._using_qtmm_video and self._audio_player is not None:
+                self._anim_timer.stop()
+                self._audio_player.play()
+            else:
+                self._schedule_next_anim_frame()
         else:
+            if self._audio_player is not None:
+                self._audio_player.pause()
             self._anim_timer.stop()
         self._update_info_label()
 
@@ -1176,7 +1365,10 @@ class ImagePreviewDialog(QDialog):
         if len(self.anim_frames) <= 1:
             return
         self._anim_playing = False
+        self._frame_step_mode = True
         self._anim_timer.stop()
+        if self._audio_player is not None:
+            self._audio_player.pause()
         if self.play_pause_btn is not None:
             self.play_pause_btn.setText("Play")
         self._anim_index = (self._anim_index + delta) % len(self.anim_frames)
@@ -1273,7 +1465,9 @@ class ImagePreviewDialog(QDialog):
         pct = int(round(self.zoom_factor * 100))
         mode_tag = "Fit" if self._fit_mode else f"{pct}%"
         frame_tag = ""
-        if len(self.anim_frames) > 1:
+        if self._using_qtmm_video and not self._frame_step_mode:
+            frame_tag = " • Video" if self._anim_playing else " • Video · Paused"
+        elif len(self.anim_frames) > 1:
             state_tag = "" if self._anim_playing else " · Paused"
             frame_tag = f" • Frame {self._anim_index + 1}/{len(self.anim_frames)}{state_tag}"
         self.info_label.setText(
@@ -1398,8 +1592,11 @@ class ImagePreviewDialog(QDialog):
         if key == Qt.Key_1:
             self.reset_actual_size()
             return
-        if key == Qt.Key_Space and len(self.anim_frames) > 1:
+        if key in (Qt.Key_Space, Qt.Key_P) and (len(self.anim_frames) > 1 or self._is_video):
             self.toggle_animation()
+            return
+        if key == Qt.Key_M and self._is_video:
+            self.toggle_audio_mute()
             return
         if key == Qt.Key_BracketLeft and len(self.anim_frames) > 1:
             self.step_frame(-1)
@@ -1411,6 +1608,7 @@ class ImagePreviewDialog(QDialog):
 
     def closeEvent(self, event):
         self._anim_timer.stop()
+        self._stop_preview_audio()
         if self._video_thread is not None and self._video_thread.isRunning():
             self._video_thread.cancel()
             self._video_thread.wait(1500)
@@ -2206,6 +2404,23 @@ class ImageSorterApp(QMainWindow):
         settings = load_settings()
         self.rapid_move_interval = clamp_rapid_interval(settings.get("rapid_move_interval", RAPID_MOVE_DEFAULT_MS))
         self.include_subfolders = bool(settings.get("include_subfolders", False))
+        self.video_muted = bool(settings.get("video_muted", False))
+        try:
+            self.video_volume = max(0.0, min(1.0, float(settings.get("video_volume", 0.8))))
+        except (TypeError, ValueError):
+            self.video_volume = 0.8
+        self._main_audio_player = None
+        self._main_audio_output = None
+        self._main_video_sink = None
+        self._main_audio_buffer = None
+        self._main_audio_bytes = None
+        self._main_video_target_size = QSize(720, 500)
+        self._main_video_using_qtmm = False
+        self._qtmm_first_frame_shown = False
+        self._main_paused = False
+        self._video_controls = []
+        self._play_pause_btn = None
+        self._mute_btn = None
         self.folder_slot_count = clamp_folder_slots(settings.get("folder_slot_count", DEFAULT_FOLDER_SLOTS))
         self.pixmap_cache = PixmapLRUCache(max_entries=36)
         self._prefetch_timer = QTimer(self)
@@ -2303,7 +2518,7 @@ class ImageSorterApp(QMainWindow):
             self._history_dirty = False
 
     def stop_current_movie(self):
-        """Hentikan animasi QMovie / timer frame aktif dan batalkan thread video aktif."""
+        """Hentikan animasi QMovie / QtMultimedia / timer frame aktif dan batalkan thread video aktif."""
         if getattr(self, "_video_decode_timer", None) is not None:
             self._video_decode_timer.stop()
         self._video_decode_path = None
@@ -2311,12 +2526,17 @@ class ImageSorterApp(QMainWindow):
         if vthread is not None:
             vthread.cancel()
             self._video_thread = None
-            for vt in list(getattr(self, "_video_threads", ())):
-                vt.cancel()
-            for vt in list(getattr(self, "_video_threads", ())):
-                if vt.isRunning():
-                    vt.wait(250)
+        for vt in list(getattr(self, "_video_threads", ())):
+            vt.cancel()
+        for vt in list(getattr(self, "_video_threads", ())):
+            if vt.isRunning():
+                vt.wait(250)
         self._raw_video_cache_frames = []
+        self._main_paused = False
+        self._main_video_using_qtmm = False
+        self._qtmm_first_frame_shown = False
+        self._stop_main_audio()
+        self._clear_video_controls()
         if getattr(self, "_main_anim_timer", None) is not None:
             self._main_anim_timer.stop()
         self._main_anim_frames = []
@@ -2333,41 +2553,97 @@ class ImageSorterApp(QMainWindow):
         self._movie_bytes = None
 
     def _advance_main_anim_frame(self):
-        """Putar frame berikutnya untuk APNG/AVIF/Video di preview utama (zero file lock)."""
-        if not self._main_anim_frames or not hasattr(self, "image_label"):
+        """Putar frame berikutnya untuk APNG/AVIF atau fallback video (zero file lock)."""
+        if not self._main_anim_frames or not hasattr(self, "image_label") or self._main_paused or self._main_video_using_qtmm:
             return
         self._main_anim_index = (self._main_anim_index + 1) % len(self._main_anim_frames)
         pix, delay = self._main_anim_frames[self._main_anim_index]
         self.image_label.setPixmap(pix)
         self._main_anim_timer.start(max(20, int(delay)))
 
-    def _start_deferred_video_anim(self):
-        """Mulai ekstraksi & pemutaran frame video di background thread setelah idle 75ms (0 ms UI lag)."""
+    def _begin_main_anim(self):
+        """Tampilkan frame pertama lalu mulai putar (atau tetap diam jika sedang di-pause)."""
+        if len(self._main_anim_frames) <= 1 or self._main_video_using_qtmm:
+            return
+        self._main_anim_index = 0
+        self.image_label.setPixmap(self._main_anim_frames[0][0])
+        if self._main_paused:
+            return
+        self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
+
+    # ---------------- Pemutar Video + Suara Utama (QMediaPlayer + QVideoSink dari memori, tanpa kunci file) ----------------
+    def _start_main_video_player(self, video_path: str):
+        self._stop_main_audio()
+        try:
+            session = _create_qtmm_video_session(
+                self,
+                video_path,
+                muted=self.video_muted,
+                volume=self.video_volume,
+                on_frame=self._on_main_video_frame,
+                on_error=self._on_main_video_error,
+            )
+            if session is None:
+                self._start_main_video_fallback(video_path)
+                return
+            (
+                self._main_audio_player,
+                self._main_audio_output,
+                self._main_video_sink,
+                self._main_audio_buffer,
+                self._main_audio_bytes,
+            ) = session
+            self._main_video_using_qtmm = True
+            self._qtmm_first_frame_shown = False
+            if self._main_paused:
+                self._main_audio_player.pause()
+            else:
+                self._main_audio_player.play()
+        except Exception as e:
+            print(f"[DEBUG] Main QtMultimedia init warning: {e}")
+            self._stop_main_audio()
+            self._start_main_video_fallback(video_path)
+
+    def _on_main_video_error(self, error, error_string=""):
         vpath = getattr(self, "_video_decode_path", None)
-        if not vpath or self.is_rapid_moving or self.defer_ui_updates or not os.path.exists(vpath):
+        print(f"[DEBUG] Main QtMultimedia error ({error}): {error_string}")
+        self._stop_main_audio()
+        if vpath and not self.is_rapid_moving and not self.defer_ui_updates and os.path.exists(vpath):
+            self._start_main_video_fallback(vpath)
+
+    def _on_main_video_frame(self, frame):
+        if not getattr(self, "_main_video_using_qtmm", False) or self.is_rapid_moving or self.defer_ui_updates:
             return
-        _, cur_actual = self.get_current_actual_path()
-        if not cur_actual or os.path.normcase(os.path.normpath(cur_actual)) != os.path.normcase(os.path.normpath(vpath)):
+        if self._main_paused and self._qtmm_first_frame_shown:
             return
+        if not frame.isValid() or not hasattr(self, "image_label"):
+            return
+        qimg = frame.toImage()
+        if qimg.isNull():
+            return
+        tsize = getattr(self, "_main_video_target_size", None)
+        if tsize is not None and not tsize.isEmpty():
+            mode = Qt.SmoothTransformation if qimg.width() * qimg.height() <= 1920 * 1080 else Qt.FastTransformation
+            qimg = qimg.scaled(tsize, Qt.KeepAspectRatio, mode)
+        self.image_label.setPixmap(QPixmap.fromImage(qimg))
+        self._qtmm_first_frame_shown = True
+
+    def _start_main_video_fallback(self, vpath: str):
+        """Fallback OpenCV thread apabila QtMultimedia tidak tersedia / format >120 MB."""
         if self.pixmap_cache.has_animation_frames(vpath, 720, 500, max_frames=60):
             raw_frames = self.pixmap_cache.get_animation_frames(vpath, 720, 500, max_frames=60)
             if len(raw_frames) > 1:
                 self._main_anim_frames = [
                     (resize_image(fpix), fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
                 ]
-                if len(self._main_anim_frames) > 1:
-                    self._main_anim_index = 0
-                    self.image_label.setPixmap(self._main_anim_frames[0][0])
-                    self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
+                self._begin_main_anim()
             return
-
         if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
             qimgs = decode_video_qimages(vpath, 720, 500, max_frames=60)
             self._raw_video_cache_frames = []
             self._on_main_video_chunk(vpath, qimgs)
             self._on_main_video_decode_finished(vpath)
             return
-
         vt = VideoDecodeThread(vpath, max_width=720, max_height=500, max_frames=60, chunk_size=8, parent=self)
         self._raw_video_cache_frames = []
         self._video_threads.add(vt)
@@ -2376,8 +2652,143 @@ class ImageSorterApp(QMainWindow):
         vt.finished.connect(lambda t=vt: self._cleanup_video_thread(t))
         vt.start()
 
+    def _stop_main_audio(self):
+        self._main_video_using_qtmm = False
+        self._qtmm_first_frame_shown = False
+        _dispose_qtmm_video_session(
+            getattr(self, "_main_audio_player", None),
+            getattr(self, "_main_audio_output", None),
+            getattr(self, "_main_video_sink", None),
+            getattr(self, "_main_audio_buffer", None),
+        )
+        self._main_audio_player = None
+        self._main_audio_output = None
+        self._main_video_sink = None
+        self._main_audio_buffer = None
+        self._main_audio_bytes = None
+
+    # ---------------- Tombol Play/Pause & Mute di atas pratinjau ----------------
+    def _clear_video_controls(self):
+        for w in getattr(self, "_video_controls", []):
+            try:
+                w.hide()
+                w.deleteLater()
+            except RuntimeError:
+                pass
+        self._video_controls = []
+        self._play_pause_btn = None
+        self._mute_btn = None
+
+    def _build_video_controls(self, target_size, is_video: bool):
+        """Kontrol kecil semi-transparan di pojok kiri bawah pratinjau (Play/Pause + Mute)."""
+        self._clear_video_controls()
+        btn_style = """
+            QPushButton {
+                background-color: rgba(18, 18, 22, 200);
+                color: #ededef;
+                border: 1px solid rgba(255, 255, 255, 45);
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 0px 6px;
+            }
+            QPushButton:hover { background-color: rgba(40, 40, 48, 230); }
+        """
+        w_lbl = max(120, int(target_size.width()))
+        h_lbl = max(60, int(target_size.height()))
+        avail_w = (w_lbl - 96) if is_video else (w_lbl - 20)
+        if is_video:
+            btn_w = 74 if w_lbl >= 245 else max(48, (avail_w - 6) // 2)
+            gap = 6
+        else:
+            btn_w = max(64, min(78, avail_w))
+            gap = 0
+        x = 10
+        y = h_lbl - 38
+        self._play_pause_btn = QPushButton(self.image_label)
+        self._play_pause_btn.setStyleSheet(btn_style)
+        self._play_pause_btn.setCursor(Qt.PointingHandCursor)
+        self._play_pause_btn.setFocusPolicy(Qt.NoFocus)
+        self._play_pause_btn.setToolTip("Play / Pause (P)")
+        self._play_pause_btn.clicked.connect(self.toggle_main_playback)
+        self._play_pause_btn.setGeometry(x, y, btn_w, 28)
+        self._play_pause_btn.show()
+        self._play_pause_btn.raise_()
+        self._video_controls.append(self._play_pause_btn)
+        if is_video:
+            self._mute_btn = QPushButton(self.image_label)
+            self._mute_btn.setStyleSheet(btn_style)
+            self._mute_btn.setCursor(Qt.PointingHandCursor)
+            self._mute_btn.setFocusPolicy(Qt.NoFocus)
+            self._mute_btn.setToolTip("Mute / Unmute (M)")
+            self._mute_btn.clicked.connect(self.toggle_main_mute)
+            self._mute_btn.setGeometry(x + btn_w + gap, y, btn_w, 28)
+            self._mute_btn.show()
+            self._mute_btn.raise_()
+            self._video_controls.append(self._mute_btn)
+        self._refresh_video_controls()
+
+    def _refresh_video_controls(self):
+        if self._play_pause_btn is not None:
+            self._play_pause_btn.setText("▶ Play" if self._main_paused else "❚❚ Pause")
+        if self._mute_btn is not None:
+            self._mute_btn.setText("Muted" if self.video_muted else "Sound")
+
+    def toggle_main_playback(self):
+        """Play/Pause video atau animasi yang sedang tampil di layar utama (tombol P)."""
+        has_anim = len(self._main_anim_frames) > 1 or self.current_movie is not None
+        has_video = self._main_audio_player is not None or bool(self._video_decode_path) or self._video_thread is not None
+        if not has_anim and not has_video:
+            return
+        self._main_paused = not self._main_paused
+        if self._main_paused:
+            self._main_anim_timer.stop()
+            if self.current_movie is not None:
+                self.current_movie.setPaused(True)
+            if self._main_audio_player is not None:
+                self._main_audio_player.pause()
+        else:
+            if self.current_movie is not None:
+                self.current_movie.setPaused(False)
+            if self._main_audio_player is not None:
+                self._main_audio_player.play()
+            elif self._video_decode_path:
+                if getattr(self, "_video_decode_timer", None) is not None:
+                    self._video_decode_timer.stop()
+                self._start_deferred_video_anim()
+            elif len(self._main_anim_frames) > 1 and not self._main_video_using_qtmm:
+                delay = self._main_anim_frames[self._main_anim_index][1]
+                self._main_anim_timer.start(max(20, int(delay)))
+        self._refresh_video_controls()
+
+    def set_video_muted(self, muted: bool, notify: bool = True):
+        self.video_muted = bool(muted)
+        if self._main_audio_output is not None:
+            self._main_audio_output.setMuted(self.video_muted)
+        settings = load_settings()
+        settings["video_muted"] = self.video_muted
+        save_settings(settings)
+        self._refresh_video_controls()
+        if notify:
+            self.show_notification("Video sound muted" if self.video_muted else "Video sound on")
+
+    def toggle_main_mute(self):
+        self.set_video_muted(not self.video_muted)
+
+    def _start_deferred_video_anim(self):
+        """Mulai pemutaran video+suara sinkron via QtMultimedia setelah idle 75ms (0 ms UI lag navigasi)."""
+        if getattr(self, "_video_decode_timer", None) is not None:
+            self._video_decode_timer.stop()
+        vpath = getattr(self, "_video_decode_path", None)
+        if not vpath or self.is_rapid_moving or self.defer_ui_updates or not os.path.exists(vpath):
+            return
+        _, cur_actual = self.get_current_actual_path()
+        if not cur_actual or os.path.normcase(os.path.normpath(cur_actual)) != os.path.normcase(os.path.normpath(vpath)):
+            return
+        self._start_main_video_player(vpath)
+
     def _on_main_video_chunk(self, video_path: str, chunk: list):
-        if self.is_rapid_moving or self.defer_ui_updates or not chunk:
+        if self.is_rapid_moving or self.defer_ui_updates or not chunk or self._main_video_using_qtmm:
             return
         _, cur_actual = self.get_current_actual_path()
         if not cur_actual or os.path.normcase(os.path.normpath(cur_actual)) != os.path.normcase(os.path.normpath(video_path)):
@@ -2387,7 +2798,7 @@ class ImageSorterApp(QMainWindow):
                 pix = QPixmap.fromImage(qimg)
                 self._raw_video_cache_frames.append((pix, delay))
                 self._main_anim_frames.append((resize_image(pix), delay))
-        if len(self._main_anim_frames) > 1 and not self._main_anim_timer.isActive():
+        if len(self._main_anim_frames) > 1 and not self._main_anim_timer.isActive() and not self._main_paused:
             self._main_anim_index = 0
             self.image_label.setPixmap(self._main_anim_frames[0][0])
             self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
@@ -2469,6 +2880,15 @@ class ImageSorterApp(QMainWindow):
         self.rapid_move_interval = clamp_rapid_interval(
             settings.get("rapid_move_interval", RAPID_MOVE_DEFAULT_MS)
         )
+        self.video_muted = bool(settings.get("video_muted", False))
+        try:
+            self.video_volume = max(0.0, min(1.0, float(settings.get("video_volume", 0.8))))
+        except (TypeError, ValueError):
+            self.video_volume = 0.8
+        if self._main_audio_output is not None:
+            self._main_audio_output.setMuted(self.video_muted)
+            self._main_audio_output.setVolume(self.video_volume)
+        self._refresh_video_controls()
         self.sync_menu_theme_checkboxes()
         self.apply_theme()
         self.update_folder_buttons()
@@ -2650,6 +3070,8 @@ class ImageSorterApp(QMainWindow):
             "recent_folders": [],
             "theme_mode": "system",
             "rapid_move_interval": RAPID_MOVE_DEFAULT_MS,
+            "video_muted": False,
+            "video_volume": 0.8,
             "custom_theme": {
                 "bg_color": "#121212",
                 "text_color": "#FFFFFF",
@@ -2666,6 +3088,12 @@ class ImageSorterApp(QMainWindow):
         }
         save_settings(settings)
         self.include_subfolders = False
+        self.video_muted = False
+        self.video_volume = 0.8
+        if self._main_audio_output is not None:
+            self._main_audio_output.setMuted(False)
+            self._main_audio_output.setVolume(0.8)
+        self._refresh_video_controls()
         if hasattr(self, "include_subfolders_action"):
             self.include_subfolders_action.setChecked(False)
         self.load_custom_folders()
@@ -3478,6 +3906,10 @@ class ImageSorterApp(QMainWindow):
         undo_shortcut.activated.connect(self.undo_action)
         skip_shortcut = QShortcut(QKeySequence("Space"), self)
         skip_shortcut.activated.connect(self.skip_image)
+        play_pause_shortcut = QShortcut(QKeySequence("P"), self)
+        play_pause_shortcut.activated.connect(self.toggle_main_playback)
+        mute_shortcut = QShortcut(QKeySequence("M"), self)
+        mute_shortcut.activated.connect(self.toggle_main_mute)
 
     def check_for_updates(self):
         """Cek update manual dari menu, tanpa membekukan UI."""
@@ -3904,36 +4336,37 @@ class ImageSorterApp(QMainWindow):
             if not pixmap.isNull():
                 resized_pixmap = resize_image(pixmap)
                 target_size = resized_pixmap.size()
+                self._main_video_target_size = target_size
                 self.image_label.setFixedSize(target_size)
                 # Putar animasi GIF/WebP/APNG/AVIF atau Video dari buffer/frame memori agar tidak mengunci file di Windows.
-                # Saat Rapid Move berlangsung, lewati ekstraksi multi-frame penuh agar kecepatan pemindahan maksimal.
+                # Saat Rapid Move berlangsung, lewati ekstraksi multi-frame & audio agar kecepatan pemindahan maksimal.
                 started_anim = False
-                if not self.is_rapid_moving and frame_count and frame_count > 1 and file_size <= 50 * 1024 * 1024:
-                    if not is_video and fmt_bytes in (b"gif", b"webp"):
-                        try:
-                            with open(new_path, "rb") as f:
-                                raw_bytes = f.read()
-                            self._movie_bytes = QByteArray(raw_bytes)
-                            self._movie_buffer = QBuffer()
-                            self._movie_buffer.setData(self._movie_bytes)
-                            self._movie_buffer.open(QIODevice.ReadOnly)
-                            movie = QMovie(self._movie_buffer, QByteArray(fmt_bytes), self)
-                            movie.setScaledSize(target_size)
-                            if movie.isValid():
-                                self.current_movie = movie
-                                self.image_label.setMovie(movie)
-                                movie.start()
-                                started_anim = True
-                            else:
+                if not self.is_rapid_moving:
+                    if is_video:
+                        # Keyframe pertama sudah siap; tunda start QMediaPlayer+QAudioOutput+QVideoSink 75ms
+                        self._video_decode_path = new_path
+                        self._video_decode_timer.start()
+                    elif frame_count and frame_count > 1 and file_size <= 50 * 1024 * 1024:
+                        if fmt_bytes in (b"gif", b"webp"):
+                            try:
+                                with open(new_path, "rb") as f:
+                                    raw_bytes = f.read()
+                                self._movie_bytes = QByteArray(raw_bytes)
+                                self._movie_buffer = QBuffer()
+                                self._movie_buffer.setData(self._movie_bytes)
+                                self._movie_buffer.open(QIODevice.ReadOnly)
+                                movie = QMovie(self._movie_buffer, QByteArray(fmt_bytes), self)
+                                movie.setScaledSize(target_size)
+                                if movie.isValid():
+                                    self.current_movie = movie
+                                    self.image_label.setMovie(movie)
+                                    movie.start()
+                                    started_anim = True
+                                else:
+                                    self.stop_current_movie()
+                            except OSError:
                                 self.stop_current_movie()
-                        except OSError:
-                            self.stop_current_movie()
-                    if not started_anim:
-                        if is_video and not self.pixmap_cache.has_animation_frames(new_path, 720, 500, max_frames=60):
-                            # Tampilkan keyframe pertama secara instan (0 ms) dan jadwalkan decode multi-frame 75 ms kemudian
-                            self._video_decode_path = new_path
-                            self._video_decode_timer.start()
-                        else:
+                        if not started_anim:
                             raw_frames = self.pixmap_cache.get_animation_frames(new_path, 720, 500, max_frames=60)
                             if len(raw_frames) > 1:
                                 self._main_anim_frames = [
@@ -3965,6 +4398,9 @@ class ImageSorterApp(QMainWindow):
                     bh = 26
                     vbadge.setGeometry(target_size.width() - bw - 10, target_size.height() - bh - 10, bw, bh)
                     vbadge.show()
+                    vbadge.raise_()
+                if not self.is_rapid_moving and (is_video or started_anim):
+                    self._build_video_controls(target_size, is_video=is_video)
                 if is_moved:
                     watermark = QLabel(self.image_label)
                     watermark.setText("MOVED")
@@ -3979,6 +4415,7 @@ class ImageSorterApp(QMainWindow):
                     watermark.setAlignment(Qt.AlignCenter)
                     watermark.setGeometry(10, 10, 120, 40)
                     watermark.show()
+                    watermark.raise_()
             else:
                 self.image_label.setText("Failed to load image.")
                 self.apply_info_style(self.image_label)
@@ -4342,8 +4779,24 @@ class ImageSorterApp(QMainWindow):
         if not actual_path or not os.path.exists(actual_path):
             self.show_notification("No image to preview.")
             return
+        was_playing = not self._main_paused
+        if self._main_audio_player is not None:
+            self._main_audio_player.pause()
+        if self.current_movie is not None:
+            self.current_movie.setPaused(True)
+        if self._main_anim_timer.isActive():
+            self._main_anim_timer.stop()
         dlg = ImagePreviewDialog(actual_path, self)
         dlg.exec()
+        self._refresh_video_controls()
+        if was_playing and not self._main_paused:
+            if self._main_audio_player is not None:
+                self._main_audio_player.play()
+            if self.current_movie is not None:
+                self.current_movie.setPaused(False)
+            if len(self._main_anim_frames) > 1 and not self._main_video_using_qtmm:
+                delay = self._main_anim_frames[self._main_anim_index][1]
+                self._main_anim_timer.start(max(20, int(delay)))
 
     def validate_history(self):
         valid_history = []

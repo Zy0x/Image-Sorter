@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.13 — 2026-11-22
+
+### Added & Improved — hardware-synced video + audio playback, Play/Pause & Mute controls
+- **Synced Native-FPS Video & Sound Engine (`QMediaPlayer` + `QAudioOutput` + `QVideoSink` via In-Memory `QBuffer`):** Upgraded main window and Full-Size Preview playback from sampled slideshow frames to real-time, A/V-synced native-FPS decoding backed by FFmpeg in memory (up to 120 MB, with automatic `VideoDecodeThread` fallback for larger files), keeping video and audio perfectly in sync with **zero Windows disk locks** so files can be moved or deleted even mid-playback.
+- **On-Canvas Play / Pause (`P`) & Mute / Unmute (`M`) Controls (`_build_video_controls`):** Added translucent overlay **`❚❚ Pause` / `▶ Play`** buttons for both videos and animated images (GIF/WebP/APNG/AVIF), plus **`Sound` / `Muted`** controls on videos in both the main viewer (`P` / `M`) and `ImagePreviewDialog` (`Space` / `P` / `M`), alongside double-click Full Preview safety pause to prevent overlapping audio tracks.
+- **Persistent Sound Preference:** Added `video_muted` and `video_volume` settings so your mute state stays remembered across videos and restarts.
+
 ## 2.1.12 — 2026-11-21
 
 ### Fixed & Optimized — background streaming video decoder & zero-lag video playback

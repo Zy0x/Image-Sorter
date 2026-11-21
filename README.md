@@ -16,7 +16,7 @@
   <a href="https://github.com/Zy0x/Image-Sorter/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/releases/latest"><img src="https://img.shields.io/github/v/release/Zy0x/Image-Sorter?sort=semver&color=orange" alt="Latest Release"></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python Version"></a>
-  <a href="#"><img src="https://img.shields.io/badge/version-2.1.12--Stable-brightgreen.svg" alt="Version"></a>
+  <a href="#"><img src="https://img.shields.io/badge/version-2.1.13--Stable-brightgreen.svg" alt="Version"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/stargazers"><img src="https://img.shields.io/github/stars/Zy0x/Image-Sorter?style=social" alt="Stars"></a>
 </div>
 
@@ -41,8 +41,8 @@
 > * **Instant LRU Pixmap Pre-Fetch Cache** – Pre-decodes neighboring media (`+1`, `+2`, `-1`, `+3`) in an in-memory LRU cache (`PixmapLRUCache`) for near-zero (~2.5 ms/step) navigation and Rapid Move latency.
 > * **Perceptual Duplicate & Similar Image Finder (`Ctrl+D`)** – 64-bit Difference Perceptual Hash (`dHash`) detects exact and near-duplicate images across different formats, resolutions, and compression levels, with a dedicated `Duplicates Only` filter and `DUP #` group badges.
 > * **Zero-Overwrite File Safety** – Automatically renames duplicate filenames (`photo (1).jpg`, `photo (2).jpg`) and protects original paths during Undo (`Ctrl+Z`).
-> * **Full-Size & Zoom Preview (`F`)** – Double-click the main image or press `F` to inspect details with **Smart Double-Click Zoom** (cursor-anchored toggle between Fit and 2.25×/100%), **Drag-to-Pan (`Drag Move`)**, cursor-anchored mouse-wheel zoom, and **Live Animated GIF/WebP/APNG/Video Playback with Frame-by-Frame Stepping (`[`, `]`, `Space`)**.
-> * **Complete Modern Media & Video Support** – Native support for **Videos** (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`, `.wmv`), **Animated formats** (`.gif`, `.webp`, `.apng`, `.avif`), **Apple & Design formats** (`.heic`, `.heif`, `.avif`, `.psd`, `.svg`, `.svgz`, `.tga`, `.icns`, `.cur`, `.tif`, `.bmp`, `.png`, `.jpg`, `.jfif`) with zero file locking on Windows and smart category filters (`All Images`, `All Videos`, `Animated / GIF`).
+> * **Full-Size & Zoom Preview (`F`)** – Double-click the main image or press `F` to inspect details with **Smart Double-Click Zoom** (cursor-anchored toggle between Fit and 2.25×/100%), **Drag-to-Pan (`Drag Move`)**, cursor-anchored mouse-wheel zoom, and **Synced Video + Audio & Animated GIF/WebP/APNG Playback (`P` / `M` / `Space`, `[`, `]`)**.
+> * **Complete Modern Media & Video Support** – Native support for **Videos** (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`, `.wmv`) with synced sound (`M` to mute/unmute), Play/Pause (`P` or overlay buttons), **Animated formats** (`.gif`, `.webp`, `.apng`, `.avif`), **Apple & Design formats** (`.heic`, `.heif`, `.avif`, `.psd`, `.svg`, `.svgz`, `.tga`, `.icns`, `.cur`, `.tif`, `.bmp`, `.png`, `.jpg`, `.jfif`) with zero file locking on Windows and smart category filters (`All Images`, `All Videos`, `Animated / GIF`).
 > * **Fast Navigation & Filtering** – Filter by extension, toggle **Hide Moved Images (`Ctrl+H`)**, jump to any image number (`Ctrl+G`), or jump to start/end (`Home` / `End`).
 > * **Recycle Bin & Explorer Integration** – Move unwanted images to the Windows Recycle Bin (`Delete`) or reveal the current file in Explorer (`Ctrl+E`).
 > * **Built-In Shortcuts Guide (`F1`)** – On-button shortcut badges (`[1]`–`[5]`), empty-state quick-start guide, and a complete `Help → Keyboard Shortcuts & Guide` dialog.
@@ -62,6 +62,8 @@
 | `Ctrl+G` | Jump to specific image number |
 | `Ctrl+H` | Toggle **Hide Moved Images** |
 | `F` or Double-Click | Open Full-Size / Zoom Preview |
+| `P` | Play / Pause active Video or Animation |
+| `M` | Mute / Unmute video sound (saved automatically) |
 | `Ctrl+Z` | Undo last move |
 | `Ctrl+E` | Show current image in File Explorer |
 | `Delete` | Move current image to Windows Recycle Bin |

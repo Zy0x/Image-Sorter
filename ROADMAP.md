@@ -88,6 +88,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.13-Stable (Selesai)
+- [x] **Synced Video + Sound Playback, Play/Pause (`P`) & Mute (`M`):** Pemutaran video *native-FPS* dengan suara tersinkronisasi (`QMediaPlayer` + `QAudioOutput` + `QVideoSink`) berbasis *in-memory `QBuffer`* (bebas *file lock* Windows saat *Move* / *Delete* / *Undo*), lengkap dengan kontrol tombol *overlay* **`❚❚ Pause` / `▶ Play`** (`P`) untuk video & animasi serta **`Sound` / `Muted`** (`M`) dengan penyimpanan preferensi otomatis di layar utama maupun *Full-Size Preview*.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.
