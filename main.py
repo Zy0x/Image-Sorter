@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QStackedLayout, QScrollArea, QTextEdit,
     QSpinBox, QSlider, QGridLayout
 )
-from PySide6.QtGui import QAction, QImageReader, QIcon, QShortcut, QKeySequence, QDesktopServices, QMovie
+from PySide6.QtGui import QAction, QImageReader, QIcon, QShortcut, QKeySequence, QDesktopServices, QMovie, QPixmap
 from PySide6.QtCore import Qt, QPropertyAnimation, QTimer, QThread, QSize, Signal, QUrl, QEvent, QByteArray, QBuffer, QIODevice
 
 from utils.image_utils import (
@@ -47,6 +47,7 @@ from utils.image_utils import (
     _HAS_PIL,
     PixmapLRUCache,
     compute_dhash,
+    decode_video_qimages,
     find_duplicate_groups,
     format_duration,
     format_file_size,
@@ -545,7 +546,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.11-Stable"
+    VERSION = "2.1.12-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -955,10 +956,19 @@ class ImagePreviewDialog(QDialog):
         self._pan_start_pos = None
         self._pan_start_h = 0
         self._pan_start_v = 0
+        self._scaled_frame_cache = {}
+        self._scaled_cache_size = (0, 0)
+        self._video_thread = None
 
-        self.anim_frames = load_animation_frames(image_path, 1600, 1200, max_frames=240)
+        is_vid = is_video_file(image_path)
+        if is_vid:
+            first_pix = load_pixmap(image_path, 1280, 960)
+            self.anim_frames = [(first_pix, 40)] if not first_pix.isNull() else []
+        else:
+            self.anim_frames = load_animation_frames(image_path, 1600, 1200, max_frames=240)
+
         self._anim_index = 0
-        self._anim_playing = len(self.anim_frames) > 1
+        self._anim_playing = len(self.anim_frames) > 1 or is_vid
         self._anim_timer = QTimer(self)
         self._anim_timer.setSingleShot(True)
         self._anim_timer.timeout.connect(self._advance_anim_frame)
@@ -971,6 +981,11 @@ class ImagePreviewDialog(QDialog):
         filename = os.path.basename(image_path)
         w = self.base_pixmap.width()
         h = self.base_pixmap.height()
+        if is_vid:
+            vw, vh, _vsz, _vfps, _vcnt, _vdur = read_video_metadata(image_path)
+            if vw > 0 and vh > 0:
+                w, h = vw, vh
+        self._orig_w, self._orig_h = w, h
         self.setWindowTitle(f"Preview — {filename} ({w}×{h})")
         self.resize(1000, 740)
         self.setMinimumSize(520, 380)
@@ -1051,7 +1066,7 @@ class ImagePreviewDialog(QDialog):
         self.prev_frame_btn = None
         self.play_pause_btn = None
         self.next_frame_btn = None
-        if len(self.anim_frames) > 1:
+        if len(self.anim_frames) > 1 or is_vid:
             self.prev_frame_btn = QPushButton("⟨")
             self.prev_frame_btn.setToolTip("Previous Frame ([)")
             self.prev_frame_btn.clicked.connect(lambda: self.step_frame(-1))
@@ -1097,7 +1112,37 @@ class ImagePreviewDialog(QDialog):
         self.preview_label.installEventFilter(self)
 
         self.update_preview()
-        if self._anim_playing:
+        if is_vid:
+            self._received_video_chunks = False
+            if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+                raw_qimgs = decode_video_qimages(image_path, 1280, 960, max_frames=120)
+                if raw_qimgs:
+                    self._on_preview_video_chunk(image_path, raw_qimgs)
+            else:
+                vt = VideoDecodeThread(image_path, max_width=1280, max_height=960, max_frames=120, chunk_size=10, parent=self)
+                vt.chunk_ready.connect(self._on_preview_video_chunk)
+                self._video_thread = vt
+                vt.start()
+        elif self._anim_playing:
+            self._schedule_next_anim_frame()
+
+    def _on_preview_video_chunk(self, video_path: str, chunk: list):
+        if not chunk:
+            return
+        new_pix_frames = [(QPixmap.fromImage(qimg), delay) for qimg, delay in chunk if not qimg.isNull()]
+        if not new_pix_frames:
+            return
+        if not getattr(self, "_received_video_chunks", False):
+            self._received_video_chunks = True
+            self.anim_frames = new_pix_frames
+            self._anim_index = 0
+            self.base_pixmap = self.anim_frames[0][0]
+            self._scaled_frame_cache.clear()
+            self._render_current_frame_preserve_scroll()
+        else:
+            self.anim_frames.extend(new_pix_frames)
+            self._update_info_label()
+        if self._anim_playing and not self._anim_timer.isActive() and len(self.anim_frames) > 1:
             self._schedule_next_anim_frame()
 
     def _schedule_next_anim_frame(self):
@@ -1235,8 +1280,20 @@ class ImagePreviewDialog(QDialog):
             f"{os.path.basename(self.image_path)}  ({self.base_pixmap.width()}×{self.base_pixmap.height()} • {mode_tag}{frame_tag})"
         )
 
+    def _get_scaled_frame(self, frame_idx: int, tw: int, th: int) -> QPixmap:
+        if (tw, th) != self._scaled_cache_size:
+            self._scaled_frame_cache.clear()
+            self._scaled_cache_size = (tw, th)
+        if frame_idx in self._scaled_frame_cache:
+            return self._scaled_frame_cache[frame_idx]
+        transform_mode = Qt.FastTransformation if len(self.anim_frames) > 1 else Qt.SmoothTransformation
+        scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, transform_mode)
+        if len(self.anim_frames) <= 180:
+            self._scaled_frame_cache[frame_idx] = scaled
+        return scaled
+
     def _render_current_frame_preserve_scroll(self):
-        """Render frame animasi saat ini tanpa mereset posisi scroll/pan."""
+        """Render frame animasi saat ini tanpa mereset posisi scroll/pan (dengan cache frame ter-scale)."""
         if self.base_pixmap.isNull():
             return
         hbar = self.scroll_area.horizontalScrollBar()
@@ -1248,7 +1305,7 @@ class ImagePreviewDialog(QDialog):
             self.zoom_factor = self._fit_zoom
         tw = max(16, int(round(self.base_pixmap.width() * self.zoom_factor)))
         th = max(16, int(round(self.base_pixmap.height() * self.zoom_factor)))
-        scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled = self._get_scaled_frame(self._anim_index, tw, th)
         if self._fit_mode:
             self.preview_label.setMinimumSize(1, 1)
         else:
@@ -1268,14 +1325,16 @@ class ImagePreviewDialog(QDialog):
             self.zoom_factor = self._fit_zoom
         tw = max(16, int(round(self.base_pixmap.width() * self.zoom_factor)))
         th = max(16, int(round(self.base_pixmap.height() * self.zoom_factor)))
+        self._scaled_frame_cache.clear()
+        self._scaled_cache_size = (tw, th)
         scaled = self.base_pixmap.scaled(tw, th, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self._scaled_frame_cache[self._anim_index] = scaled
         if self._fit_mode:
             self.preview_label.setMinimumSize(1, 1)
         else:
             self.preview_label.setMinimumSize(scaled.size())
         self.preview_label.setPixmap(scaled)
         self.preview_label.resize(scaled.size())
-        QApplication.processEvents()
         self._update_info_label()
         self._update_cursor()
 
@@ -1352,6 +1411,9 @@ class ImagePreviewDialog(QDialog):
 
     def closeEvent(self, event):
         self._anim_timer.stop()
+        if self._video_thread is not None and self._video_thread.isRunning():
+            self._video_thread.cancel()
+            self._video_thread.wait(1500)
         super().closeEvent(event)
 
     def showEvent(self, event):
@@ -1397,6 +1459,42 @@ class FolderScanThread(QThread):
         except OSError as e:
             self.error = str(e)
             self.files = []
+
+
+class VideoDecodeThread(QThread):
+    """Men-decode frame video di background thread (menggunakan QImage + cap.grab)
+    dan mengirimkan batch frame secara streaming agar UI 0 ms lag."""
+    chunk_ready = Signal(str, list)  # (video_path, [(QImage, delay_ms), ...])
+
+    def __init__(self, video_path: str, max_width: int = 720, max_height: int = 500, max_frames: int = 60, chunk_size: int = 8, parent=None):
+        super().__init__(parent)
+        self.video_path = video_path
+        self.max_width = int(max_width)
+        self.max_height = int(max_height)
+        self.max_frames = int(max_frames)
+        self.chunk_size = int(chunk_size)
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def is_cancelled(self):
+        return self._cancelled
+
+    def _emit_chunk(self, chunk):
+        if not self._cancelled and chunk:
+            self.chunk_ready.emit(self.video_path, chunk)
+
+    def run(self):
+        decode_video_qimages(
+            self.video_path,
+            max_width=self.max_width,
+            max_height=self.max_height,
+            max_frames=self.max_frames,
+            should_cancel=self.is_cancelled,
+            on_chunk=self._emit_chunk,
+            chunk_size=self.chunk_size,
+        )
 
 
 class DuplicateScanThread(QThread):
@@ -2095,6 +2193,9 @@ class ImageSorterApp(QMainWindow):
         self._video_decode_timer.setSingleShot(True)
         self._video_decode_timer.setInterval(75)
         self._video_decode_timer.timeout.connect(self._start_deferred_video_anim)
+        self._video_thread = None
+        self._video_threads = set()
+        self._raw_video_cache_frames = []
         # Rapid move variables
         self.is_rapid_moving = False
         self.rapid_folder_index = None
@@ -2202,10 +2303,20 @@ class ImageSorterApp(QMainWindow):
             self._history_dirty = False
 
     def stop_current_movie(self):
-        """Hentikan animasi QMovie / timer frame aktif dan lepaskan buffer memori."""
+        """Hentikan animasi QMovie / timer frame aktif dan batalkan thread video aktif."""
         if getattr(self, "_video_decode_timer", None) is not None:
             self._video_decode_timer.stop()
         self._video_decode_path = None
+        vthread = getattr(self, "_video_thread", None)
+        if vthread is not None:
+            vthread.cancel()
+            self._video_thread = None
+            for vt in list(getattr(self, "_video_threads", ())):
+                vt.cancel()
+            for vt in list(getattr(self, "_video_threads", ())):
+                if vt.isRunning():
+                    vt.wait(250)
+        self._raw_video_cache_frames = []
         if getattr(self, "_main_anim_timer", None) is not None:
             self._main_anim_timer.stop()
         self._main_anim_frames = []
@@ -2231,22 +2342,67 @@ class ImageSorterApp(QMainWindow):
         self._main_anim_timer.start(max(20, int(delay)))
 
     def _start_deferred_video_anim(self):
-        """Mulai ekstraksi & pemutaran frame video setelah pengguna berhenti menekan navigasi selama 75ms."""
+        """Mulai ekstraksi & pemutaran frame video di background thread setelah idle 75ms (0 ms UI lag)."""
         vpath = getattr(self, "_video_decode_path", None)
         if not vpath or self.is_rapid_moving or self.defer_ui_updates or not os.path.exists(vpath):
             return
         _, cur_actual = self.get_current_actual_path()
         if not cur_actual or os.path.normcase(os.path.normpath(cur_actual)) != os.path.normcase(os.path.normpath(vpath)):
             return
-        raw_frames = self.pixmap_cache.get_animation_frames(vpath, 720, 500, max_frames=60)
-        if len(raw_frames) > 1:
-            self._main_anim_frames = [
-                (resize_image(fpix), fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
-            ]
-            if len(self._main_anim_frames) > 1:
-                self._main_anim_index = 0
-                self.image_label.setPixmap(self._main_anim_frames[0][0])
-                self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
+        if self.pixmap_cache.has_animation_frames(vpath, 720, 500, max_frames=60):
+            raw_frames = self.pixmap_cache.get_animation_frames(vpath, 720, 500, max_frames=60)
+            if len(raw_frames) > 1:
+                self._main_anim_frames = [
+                    (resize_image(fpix), fdelay) for fpix, fdelay in raw_frames if not fpix.isNull()
+                ]
+                if len(self._main_anim_frames) > 1:
+                    self._main_anim_index = 0
+                    self.image_label.setPixmap(self._main_anim_frames[0][0])
+                    self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
+            return
+
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            qimgs = decode_video_qimages(vpath, 720, 500, max_frames=60)
+            self._raw_video_cache_frames = []
+            self._on_main_video_chunk(vpath, qimgs)
+            self._on_main_video_decode_finished(vpath)
+            return
+
+        vt = VideoDecodeThread(vpath, max_width=720, max_height=500, max_frames=60, chunk_size=8, parent=self)
+        self._raw_video_cache_frames = []
+        self._video_threads.add(vt)
+        self._video_thread = vt
+        vt.chunk_ready.connect(self._on_main_video_chunk)
+        vt.finished.connect(lambda t=vt: self._cleanup_video_thread(t))
+        vt.start()
+
+    def _on_main_video_chunk(self, video_path: str, chunk: list):
+        if self.is_rapid_moving or self.defer_ui_updates or not chunk:
+            return
+        _, cur_actual = self.get_current_actual_path()
+        if not cur_actual or os.path.normcase(os.path.normpath(cur_actual)) != os.path.normcase(os.path.normpath(video_path)):
+            return
+        for qimg, delay in chunk:
+            if not qimg.isNull():
+                pix = QPixmap.fromImage(qimg)
+                self._raw_video_cache_frames.append((pix, delay))
+                self._main_anim_frames.append((resize_image(pix), delay))
+        if len(self._main_anim_frames) > 1 and not self._main_anim_timer.isActive():
+            self._main_anim_index = 0
+            self.image_label.setPixmap(self._main_anim_frames[0][0])
+            self._main_anim_timer.start(max(20, int(self._main_anim_frames[0][1])))
+
+    def _on_main_video_decode_finished(self, video_path: str):
+        if len(self._raw_video_cache_frames) > 1:
+            self.pixmap_cache.set_animation_frames(video_path, 720, 500, 60, self._raw_video_cache_frames)
+
+    def _cleanup_video_thread(self, thread):
+        self._video_threads.discard(thread)
+        if not thread.is_cancelled():
+            self._on_main_video_decode_finished(thread.video_path)
+        if self._video_thread is thread:
+            self._video_thread = None
+        thread.deleteLater()
 
     def init_hot_reload(self):
         """Pantau perubahan pada main.py, utils/image_utils.py, dan config/settings.json.
@@ -2432,6 +2588,10 @@ class ImageSorterApp(QMainWindow):
         if getattr(self, "dup_thread", None) is not None and self.dup_thread.isRunning():
             self.dup_thread.cancel()
             self.dup_thread.wait(3000)
+        for vt in list(getattr(self, "_video_threads", ())):
+            vt.cancel()
+        for vt in list(getattr(self, "_video_threads", ())):
+            vt.wait(1500)
         for thread in list(self._scan_threads):
             thread.cancel()
         for thread in list(self._scan_threads):

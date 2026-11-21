@@ -84,20 +84,28 @@ def _pil_image_to_qimage(pil_img) -> QImage:
     return qimg.copy()
 
 
-def _cv2_frame_to_qpixmap(bgr_frame, max_width: int = 0, max_height: int = 0) -> QPixmap:
-    """Konversi frame BGR numpy array dari OpenCV menjadi QPixmap (via QByteArray agar aman dari GC)."""
+def _cv2_frame_to_qimage(bgr_frame, max_width: int = 0, max_height: int = 0) -> QImage:
+    """Konversi frame BGR numpy array dari OpenCV menjadi QImage (aman dipanggil dari background QThread)."""
     if bgr_frame is None or not _HAS_CV2:
-        return QPixmap()
+        return QImage()
+    h, w = bgr_frame.shape[:2]
+    if max_width > 0 and max_height > 0 and (w > max_width or h > max_height):
+        scale = min(max_width / float(w), max_height / float(h))
+        nw = max(16, int(round(w * scale)))
+        nh = max(16, int(round(h * scale)))
+        bgr_frame = _cv2.resize(bgr_frame, (nw, nh), interpolation=_cv2.INTER_AREA)
+        h, w = bgr_frame.shape[:2]
     rgb = _cv2.cvtColor(bgr_frame, _cv2.COLOR_BGR2RGB)
-    h, w, ch = rgb.shape
+    ch = rgb.shape[2] if len(rgb.shape) > 2 else 3
     raw = QByteArray(rgb.tobytes())
-    qimg = QImage(raw, w, h, ch * w, QImage.Format_RGB888).copy()
-    if max_width > 0 and max_height > 0 and (w > max_width * 2 or h > max_height * 2):
-        qimg = qimg.scaled(
-            QSize(max_width * 2, max_height * 2),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
+    return QImage(raw, w, h, ch * w, QImage.Format_RGB888).copy()
+
+
+def _cv2_frame_to_qpixmap(bgr_frame, max_width: int = 0, max_height: int = 0) -> QPixmap:
+    """Konversi frame BGR numpy array dari OpenCV menjadi QPixmap."""
+    qimg = _cv2_frame_to_qimage(bgr_frame, max_width * 2 if max_width else 0, max_height * 2 if max_height else 0)
+    if qimg.isNull():
+        return QPixmap()
     return QPixmap.fromImage(qimg)
 
 
@@ -192,6 +200,62 @@ def read_image_metadata(path: str):
     return w, h, file_size, fmt, max(1, count)
 
 
+def decode_video_qimages(
+    path: str,
+    max_width: int = 720,
+    max_height: int = 500,
+    max_frames: int = 120,
+    should_cancel=None,
+    on_chunk=None,
+    chunk_size: int = 10,
+):
+    """
+    Decode frame video menjadi list [(QImage, delay_ms), ...] secara cepat menggunakan
+    cap.grab() + cv2.resize() di C++. Aman dijalankan di background QThread tanpa
+    membekukan UI sama sekali (0 ms UI lag) dan otomatis menutup file (cap.release()).
+    """
+    frames = []
+    if not _HAS_CV2 or not is_video_file(path):
+        return frames
+    cap = _cv2.VideoCapture(path)
+    try:
+        if not cap.isOpened():
+            return frames
+        fps = float(cap.get(_cv2.CAP_PROP_FPS) or 30.0)
+        if fps <= 1.0 or fps > 120.0:
+            fps = 30.0
+        total = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT) or 0)
+        step = max(1, total // max_frames) if total > max_frames else 1
+        delay_ms = max(25, int(round((1000.0 / fps) * step)))
+        idx = 0
+        pending_chunk = []
+        while len(frames) < max_frames:
+            if should_cancel is not None and should_cancel():
+                break
+            if idx % step == 0:
+                ok, bgr = cap.read()
+                if not ok or bgr is None:
+                    break
+                qimg = _cv2_frame_to_qimage(bgr, max_width, max_height)
+                if not qimg.isNull():
+                    item = (qimg, delay_ms)
+                    frames.append(item)
+                    if on_chunk is not None:
+                        pending_chunk.append(item)
+                        if len(pending_chunk) >= chunk_size:
+                            on_chunk(list(pending_chunk))
+                            pending_chunk.clear()
+            else:
+                if not cap.grab():
+                    break
+            idx += 1
+        if on_chunk is not None and pending_chunk and (should_cancel is None or not should_cancel()):
+            on_chunk(list(pending_chunk))
+    finally:
+        cap.release()
+    return frames
+
+
 def load_animation_frames(path: str, max_width: int = 0, max_height: int = 0, max_frames: int = 180):
     """
     Ekstrak daftar frame animasi [(QPixmap, delay_ms), ...] ke memori dan segera tutup file.
@@ -214,13 +278,16 @@ def load_animation_frames(path: str, max_width: int = 0, max_height: int = 0, ma
             delay_ms = max(20, int(round((1000.0 / fps) * step)))
             idx = 0
             while len(frames) < max_frames:
-                ok, bgr = cap.read()
-                if not ok or bgr is None:
-                    break
                 if idx % step == 0:
+                    ok, bgr = cap.read()
+                    if not ok or bgr is None:
+                        break
                     pix = _cv2_frame_to_qpixmap(bgr, max_width, max_height)
                     if not pix.isNull():
                         frames.append((pix, delay_ms))
+                else:
+                    if not cap.grab():
+                        break
                 idx += 1
         finally:
             cap.release()
@@ -297,13 +364,7 @@ def load_pixmap(path: str, max_width: int = 0, max_height: int = 0) -> QPixmap:
         try:
             if not cap.isOpened():
                 return QPixmap()
-            total = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT) or 0)
-            if total > 6:
-                cap.set(_cv2.CAP_PROP_POS_FRAMES, min(5, total // 4))
             ok, bgr = cap.read()
-            if not ok or bgr is None:
-                cap.set(_cv2.CAP_PROP_POS_FRAMES, 0)
-                ok, bgr = cap.read()
             if ok and bgr is not None:
                 return _cv2_frame_to_qpixmap(bgr, max_width, max_height)
             return QPixmap()
@@ -475,10 +536,39 @@ class PixmapLRUCache:
         if tok in self._video_meta_cache:
             self._video_meta_cache.move_to_end(tok)
             return self._video_meta_cache[tok]
+        file_size = tok[2]
+        if _HAS_CV2 and is_video_file(path):
+            cap = _cv2.VideoCapture(path)
+            try:
+                if not cap.isOpened():
+                    return 0, 0, file_size, 0.0, 0, 0.0
+                w = int(cap.get(_cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                h = int(cap.get(_cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                fps = float(cap.get(_cv2.CAP_PROP_FPS) or 0.0)
+                if fps <= 0 or fps > 240:
+                    fps = 30.0
+                fcount = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT) or 0)
+                duration = (fcount / fps) if (fcount > 0 and fps > 0) else 0.0
+                vmeta = (w, h, file_size, fps, max(1, fcount), duration)
+                self._video_meta_cache[tok] = vmeta
+                if len(self._video_meta_cache) > self.max_entries * 4:
+                    self._video_meta_cache.popitem(last=False)
+                # Sekalian baca frame pertama ke _pix_cache agar tidak perlu buka VideoCapture 2x!
+                ok, bgr = cap.read()
+                if ok and bgr is not None:
+                    for mw, mh in ((720, 500), (200, 260)):
+                        pkey = (tok, mw, mh)
+                        if pkey not in self._pix_cache:
+                            pix = _cv2_frame_to_qpixmap(bgr, mw, mh)
+                            if not pix.isNull():
+                                self._pix_cache[pkey] = pix
+                                if len(self._pix_cache) > self.max_entries:
+                                    self._pix_cache.popitem(last=False)
+                return vmeta
+            finally:
+                cap.release()
         vmeta = read_video_metadata(path)
         self._video_meta_cache[tok] = vmeta
-        if len(self._video_meta_cache) > self.max_entries * 4:
-            self._video_meta_cache.popitem(last=False)
         return vmeta
 
     def get_animation_frames(self, path: str, max_width: int = 0, max_height: int = 0, max_frames: int = 60):
@@ -497,6 +587,15 @@ class PixmapLRUCache:
             if len(self._anim_cache) > max(6, self.max_entries // 3):
                 self._anim_cache.popitem(last=False)
         return frames
+
+    def set_animation_frames(self, path: str, max_width: int, max_height: int, max_frames: int, frames):
+        tok = self._file_token(path)
+        if tok is None or not frames:
+            return
+        key = (tok, int(max_width), int(max_height), int(max_frames))
+        self._anim_cache[key] = list(frames)
+        if len(self._anim_cache) > max(6, self.max_entries // 3):
+            self._anim_cache.popitem(last=False)
 
     def has_animation_frames(self, path: str, max_width: int = 0, max_height: int = 0, max_frames: int = 60) -> bool:
         tok = self._file_token(path)

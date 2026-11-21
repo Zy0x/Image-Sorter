@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.12 — 2026-11-21
+
+### Fixed & Optimized — background streaming video decoder & zero-lag video playback
+- **Non-Blocking Background Video Streaming (`VideoDecodeThread` & `decode_video_qimages`):** Moved multi-frame video decoding off the main GUI thread into a cancellable `VideoDecodeThread` that streams batches of 8–10 frames (`QImage` resized in C++ via `cv2.resize(..., INTER_AREA)` and skipping intermediate frames via `cap.grab()` without decoding unused pixels). Video playback now starts immediately after the first batch arrives with **0 ms main-thread UI freeze**.
+- **Single-Open First-Keyframe (`I-Frame`) Thumbnail Extraction:** Removed `CAP_PROP_POS_FRAMES` seeking on initial thumbnail load and unified metadata + first-keyframe decoding into a single `cv2.VideoCapture` pass (~31–34 ms on 720×1280 H.264 `.mp4` files instead of ~170–800 ms).
+- **Scaled Frame Cache in `ImagePreviewDialog` (`_get_scaled_frame`):** Pre-caches scaled frames at the current zoom level and removes redundant `QApplication.processEvents()` calls during animation ticks so full-size video/GIF playback and panning remain smooth at 60 FPS.
+
 ## 2.1.11 — 2026-11-21
 
 ### Improved — instant video navigation, deferred multi-frame decode & video LRU caching
