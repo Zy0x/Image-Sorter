@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import (
     QAction, QImageReader, QIcon, QShortcut, QKeySequence,
-    QDesktopServices, QMovie, QPixmap, QPainter, QPen, QColor,
+    QDesktopServices, QMovie, QPixmap, QPainter, QPainterPath, QPen, QColor,
     QPolygonF, QFontMetrics
 )
 from PySide6.QtCore import (
@@ -172,6 +172,156 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         p.setPen(Qt.NoPen)
         p.drawPolygon(QPolygonF([QPointF(s * 0.24, s * 0.24), QPointF(s * 0.62, mid), QPointF(s * 0.24, s * 0.76)]))
         p.drawRoundedRect(QRectF(s * 0.66, s * 0.24, s * 0.12, s * 0.52), 1.0, 1.0)
+    elif kind == "folder_plus":
+        path_pts = QPolygonF([
+            QPointF(s * 0.12, s * 0.26),
+            QPointF(s * 0.40, s * 0.26),
+            QPointF(s * 0.48, s * 0.36),
+            QPointF(s * 0.88, s * 0.36),
+            QPointF(s * 0.88, s * 0.78),
+            QPointF(s * 0.12, s * 0.78),
+        ])
+        p.setBrush(_hex_rgba(color, 28))
+        p.drawPolygon(path_pts)
+        p.setBrush(Qt.NoBrush)
+        p.drawLine(QPointF(mid, s * 0.46), QPointF(mid, s * 0.68))
+        p.drawLine(QPointF(s * 0.39, s * 0.57), QPointF(s * 0.61, s * 0.57))
+    elif kind == "folder_search":
+        path_pts = QPolygonF([
+            QPointF(s * 0.12, s * 0.26),
+            QPointF(s * 0.40, s * 0.26),
+            QPointF(s * 0.48, s * 0.36),
+            QPointF(s * 0.88, s * 0.36),
+            QPointF(s * 0.88, s * 0.78),
+            QPointF(s * 0.12, s * 0.78),
+        ])
+        p.setBrush(_hex_rgba(color, 28))
+        p.drawPolygon(path_pts)
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QPointF(s * 0.48, s * 0.55), s * 0.11, s * 0.11)
+        p.drawLine(QPointF(s * 0.56, s * 0.63), QPointF(s * 0.68, s * 0.73))
+    elif kind == "trash":
+        p.drawLine(QPointF(s * 0.20, s * 0.28), QPointF(s * 0.80, s * 0.28))
+        p.drawRoundedRect(QRectF(s * 0.38, s * 0.16, s * 0.24, s * 0.12), 1.5, 1.5)
+        p.drawRoundedRect(QRectF(s * 0.26, s * 0.28, s * 0.48, s * 0.56), 2.0, 2.0)
+        p.drawLine(QPointF(s * 0.42, s * 0.42), QPointF(s * 0.42, s * 0.70))
+        p.drawLine(QPointF(s * 0.58, s * 0.42), QPointF(s * 0.58, s * 0.70))
+    elif kind == "file_text":
+        p.drawRoundedRect(QRectF(s * 0.22, s * 0.14, s * 0.56, s * 0.72), 2.0, 2.0)
+        p.drawLine(QPointF(s * 0.34, s * 0.36), QPointF(s * 0.66, s * 0.36))
+        p.drawLine(QPointF(s * 0.34, s * 0.52), QPointF(s * 0.66, s * 0.52))
+        p.drawLine(QPointF(s * 0.34, s * 0.68), QPointF(s * 0.54, s * 0.68))
+    elif kind == "clock":
+        p.drawEllipse(QPointF(mid, mid), s * 0.36, s * 0.36)
+        p.drawLine(QPointF(mid, s * 0.30), QPointF(mid, mid))
+        p.drawLine(QPointF(mid, mid), QPointF(s * 0.66, s * 0.58))
+    elif kind == "palette":
+        p.drawEllipse(QPointF(mid, mid), s * 0.37, s * 0.34)
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        for cx, cy in ((0.36, 0.38), (0.52, 0.32), (0.64, 0.44), (0.40, 0.58)):
+            p.drawEllipse(QPointF(s * cx, s * cy), s * 0.06, s * 0.06)
+    elif kind == "sun":
+        p.drawEllipse(QPointF(mid, mid), s * 0.18, s * 0.18)
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0), (-0.7, -0.7), (0.7, -0.7), (-0.7, 0.7), (0.7, 0.7)):
+            p.drawLine(
+                QPointF(mid + dx * s * 0.27, mid + dy * s * 0.27),
+                QPointF(mid + dx * s * 0.38, mid + dy * s * 0.38),
+            )
+    elif kind == "moon":
+        path = QPainterPath()
+        path.addEllipse(QPointF(mid, mid), s * 0.33, s * 0.33)
+        cut = QPainterPath()
+        cut.addEllipse(QPointF(s * 0.63, s * 0.37), s * 0.27, s * 0.27)
+        cres = path.subtracted(cut)
+        p.setBrush(_hex_rgba(color, 42))
+        p.drawPath(cres)
+    elif kind == "monitor":
+        p.drawRoundedRect(QRectF(s * 0.16, s * 0.18, s * 0.68, s * 0.48), 2.0, 2.0)
+        p.drawLine(QPointF(mid, s * 0.66), QPointF(mid, s * 0.80))
+        p.drawLine(QPointF(s * 0.32, s * 0.80), QPointF(s * 0.68, s * 0.80))
+    elif kind == "eye_off":
+        path = QPainterPath()
+        path.moveTo(s * 0.14, mid)
+        path.quadTo(mid, s * 0.20, s * 0.86, mid)
+        path.quadTo(mid, s * 0.80, s * 0.14, mid)
+        p.drawPath(path)
+        p.drawEllipse(QPointF(mid, mid), s * 0.11, s * 0.11)
+        p.drawLine(QPointF(s * 0.20, s * 0.80), QPointF(s * 0.80, s * 0.20))
+    elif kind == "folder_tree":
+        p.drawRoundedRect(QRectF(s * 0.14, s * 0.16, s * 0.30, s * 0.22), 1.5, 1.5)
+        p.drawLine(QPointF(s * 0.26, s * 0.38), QPointF(s * 0.26, s * 0.74))
+        p.drawLine(QPointF(s * 0.26, s * 0.54), QPointF(s * 0.50, s * 0.54))
+        p.drawLine(QPointF(s * 0.26, s * 0.74), QPointF(s * 0.50, s * 0.74))
+        p.drawRoundedRect(QRectF(s * 0.50, s * 0.44, s * 0.34, s * 0.18), 1.5, 1.5)
+        p.drawRoundedRect(QRectF(s * 0.50, s * 0.66, s * 0.34, s * 0.18), 1.5, 1.5)
+    elif kind == "duplicates":
+        p.drawRoundedRect(QRectF(s * 0.16, s * 0.16, s * 0.46, s * 0.46), 2.0, 2.0)
+        p.setBrush(_hex_rgba(color, 34))
+        p.drawRoundedRect(QRectF(s * 0.38, s * 0.38, s * 0.46, s * 0.46), 2.0, 2.0)
+    elif kind == "jump":
+        p.drawLine(QPointF(s * 0.18, mid), QPointF(s * 0.68, mid))
+        p.drawPolyline(QPolygonF([QPointF(s * 0.50, s * 0.30), QPointF(s * 0.70, mid), QPointF(s * 0.50, s * 0.70)]))
+        p.drawLine(QPointF(s * 0.82, s * 0.26), QPointF(s * 0.82, s * 0.74))
+    elif kind == "expand":
+        p.drawPolyline(QPolygonF([QPointF(s * 0.18, s * 0.38), QPointF(s * 0.18, s * 0.18), QPointF(s * 0.38, s * 0.18)]))
+        p.drawPolyline(QPolygonF([QPointF(s * 0.62, s * 0.18), QPointF(s * 0.82, s * 0.18), QPointF(s * 0.82, s * 0.38)]))
+        p.drawPolyline(QPolygonF([QPointF(s * 0.82, s * 0.62), QPointF(s * 0.82, s * 0.82), QPointF(s * 0.62, s * 0.82)]))
+        p.drawPolyline(QPolygonF([QPointF(s * 0.38, s * 0.82), QPointF(s * 0.18, s * 0.82), QPointF(s * 0.18, s * 0.62)]))
+    elif kind == "sliders":
+        for y_frac, cx in ((0.26, 0.38), (0.50, 0.64), (0.74, 0.44)):
+            y = s * y_frac
+            p.drawLine(QPointF(s * 0.16, y), QPointF(s * 0.84, y))
+            p.setBrush(qcol)
+            p.drawEllipse(QPointF(s * cx, y), s * 0.08, s * 0.08)
+            p.setBrush(Qt.NoBrush)
+    elif kind == "upload":
+        p.drawLine(QPointF(mid, s * 0.64), QPointF(mid, s * 0.20))
+        p.drawPolyline(QPolygonF([QPointF(s * 0.32, s * 0.38), QPointF(mid, s * 0.20), QPointF(s * 0.68, s * 0.38)]))
+        p.drawPolyline(QPolygonF([
+            QPointF(s * 0.20, s * 0.62),
+            QPointF(s * 0.20, s * 0.80),
+            QPointF(s * 0.80, s * 0.80),
+            QPointF(s * 0.80, s * 0.62),
+        ]))
+    elif kind == "download":
+        p.drawLine(QPointF(mid, s * 0.18), QPointF(mid, s * 0.62))
+        p.drawPolyline(QPolygonF([QPointF(s * 0.32, s * 0.44), QPointF(mid, s * 0.62), QPointF(s * 0.68, s * 0.44)]))
+        p.drawPolyline(QPolygonF([
+            QPointF(s * 0.20, s * 0.62),
+            QPointF(s * 0.20, s * 0.80),
+            QPointF(s * 0.80, s * 0.80),
+            QPointF(s * 0.80, s * 0.62),
+        ]))
+    elif kind == "bolt":
+        bolt = QPolygonF([
+            QPointF(s * 0.56, s * 0.14),
+            QPointF(s * 0.26, s * 0.54),
+            QPointF(s * 0.48, s * 0.54),
+            QPointF(s * 0.42, s * 0.86),
+            QPointF(s * 0.74, s * 0.46),
+            QPointF(s * 0.52, s * 0.46),
+        ])
+        p.setBrush(_hex_rgba(color, 38))
+        p.drawPolygon(bolt)
+    elif kind in ("reset", "update"):
+        p.drawArc(QRectF(s * 0.20, s * 0.20, s * 0.60, s * 0.60), 35 * 16, 290 * 16)
+        p.drawPolyline(QPolygonF([QPointF(s * 0.60, s * 0.16), QPointF(s * 0.78, s * 0.28), QPointF(s * 0.60, s * 0.38)]))
+    elif kind == "keyboard":
+        p.drawRoundedRect(QRectF(s * 0.14, s * 0.26, s * 0.72, s * 0.48), 2.0, 2.0)
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        for rx in (0.26, 0.42, 0.58, 0.72):
+            p.drawRect(QRectF(s * rx - 1.2, s * 0.38, 2.4, 2.4))
+        p.drawRoundedRect(QRectF(s * 0.30, s * 0.58, s * 0.40, 2.2), 1.0, 1.0)
+    elif kind == "info":
+        p.drawEllipse(QPointF(mid, mid), s * 0.36, s * 0.36)
+        p.drawLine(QPointF(mid, s * 0.46), QPointF(mid, s * 0.68))
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(QPointF(mid, s * 0.32), 1.4, 1.4)
+    elif kind == "check":
+        p.drawPolyline(QPolygonF([QPointF(s * 0.22, s * 0.52), QPointF(s * 0.42, s * 0.72), QPointF(s * 0.78, s * 0.28)]))
 
     p.end()
     icon = QIcon(pix)
@@ -494,17 +644,17 @@ def load_settings():
         "video_muted": False,
         "video_volume": 0.8,
         "custom_theme": {
-            "bg_color": "#121212",
-            "text_color": "#FFFFFF",
-            "btn_bg": "#2e2e2e",
-            "btn_hover": "#444444",
-            "label_bg": "#1a1a1a",
-            "menu_bg": "#1a1a1a",
-            "menu_text": "#FFFFFF",
-            "main_border_color": "#00BFFF",
-            "next_border_color": "#32CD32",
-            "main_shadow": "0 0 10px rgba(0, 191, 255, 0.7)",
-            "next_shadow": "0 0 8px rgba(50, 205, 50, 0.5)"
+            "bg_color": "#0e1015",
+            "text_color": "#f0f2f5",
+            "btn_bg": "#181b23",
+            "btn_hover": "#212633",
+            "label_bg": "#13161d",
+            "menu_bg": "#12141b",
+            "menu_text": "#f0f2f5",
+            "main_border_color": "#3b82f6",
+            "next_border_color": "#10b981",
+            "main_shadow": "0 0 10px rgba(59, 130, 246, 0.55)",
+            "next_shadow": "0 0 8px rgba(16, 185, 129, 0.45)"
         }
     }
     try:
@@ -546,123 +696,336 @@ def save_settings(settings):
     except IOError as e:
         print(f"[DEBUG] Error saving settings: {e}")
 
+
+SLOT_ACCENTS = (
+    "#8b5cf6", "#10b981", "#f59e0b", "#38bdf8", "#f43f5e",
+    "#6366f1", "#14b8a6", "#fb7185", "#94a3b8",
+)
+
+
+def resolve_studio_tokens(owner=None):
+    """Kembalikan palet design-token Studio Slate terpadu untuk jendela utama, dialog, menu, dan overlay."""
+    if owner is not None and hasattr(owner, "_get_ui_tokens"):
+        return owner._get_ui_tokens()
+    theme_mode = getattr(owner, "theme_mode", None)
+    if not theme_mode:
+        theme_mode = load_settings().get("theme_mode", "system")
+    palette = QApplication.palette()
+    base_color = palette.window().color()
+    sys_dark = (base_color.red() * 0.299 + base_color.green() * 0.587 + base_color.blue() * 0.114) < 128
+    is_dark = theme_mode == "dark" or (theme_mode == "system" and sys_dark)
+    if theme_mode == "custom":
+        ct = load_settings().get("custom_theme", {})
+        bg = ct.get("bg_color", "#0e1015")
+        dark_custom = QColor(bg).lightness() < 128
+        return {
+            "is_dark": dark_custom,
+            "win_bg": bg,
+            "stage_bg": ct.get("label_bg", "#13161d"),
+            "surface": ct.get("btn_bg", "#181b23"),
+            "surface_hover": ct.get("btn_hover", "#212633"),
+            "surface_pressed": ct.get("btn_hover", "#2a3040"),
+            "border": "#262a36" if dark_custom else "#d6dae3",
+            "border_strong": ct.get("main_border_color", "#3b82f6"),
+            "next_border": ct.get("next_border_color", "#10b981"),
+            "text": ct.get("text_color", "#f0f2f5"),
+            "text_muted": "#8b91a1" if dark_custom else "#646b7a",
+            "card_bg": ct.get("label_bg", "#151820"),
+            "next_card_bg": ct.get("label_bg", "#151820"),
+            "menu_bg": ct.get("menu_bg", "#12141b"),
+            "menu_text": ct.get("menu_text", "#f0f2f5"),
+            "accent": ct.get("main_border_color", "#3b82f6"),
+        }
+    if is_dark:
+        return {
+            "is_dark": True,
+            "win_bg": "#0e1015",
+            "stage_bg": "#13161d",
+            "surface": "#181b23",
+            "surface_hover": "#212633",
+            "surface_pressed": "#2a3040",
+            "border": "#262a36",
+            "border_strong": "#363c4d",
+            "next_border": "#282c39",
+            "text": "#f0f2f5",
+            "text_muted": "#8b91a1",
+            "card_bg": "#151820",
+            "next_card_bg": "#151820",
+            "menu_bg": "#12141b",
+            "menu_text": "#f0f2f5",
+            "accent": "#3b82f6",
+        }
+    return {
+        "is_dark": False,
+        "win_bg": "#f3f4f7",
+        "stage_bg": "#e9ecf2",
+        "surface": "#ffffff",
+        "surface_hover": "#f0f2f6",
+        "surface_pressed": "#e4e7ee",
+        "border": "#d6dae3",
+        "border_strong": "#bfc6d4",
+        "next_border": "#d0d5e0",
+        "text": "#16181d",
+        "text_muted": "#646b7a",
+        "card_bg": "#ffffff",
+        "next_card_bg": "#f8f9fb",
+        "menu_bg": "#ffffff",
+        "menu_text": "#16181d",
+        "accent": "#2563eb",
+    }
+
+
+def build_studio_dialog_qss(t: dict) -> str:
+    """Bangun stylesheet terpadu untuk semua QDialog, QMessageBox, popup, input, slider, dan scrollbar."""
+    accent_hover = "#2563eb" if t["is_dark"] else "#1d4ed8"
+    accent_press = "#1d4ed8" if t["is_dark"] else "#1e40af"
+    danger_bg = _hex_rgba("#ef4444", 34 if t["is_dark"] else 22)
+    danger_border = _hex_rgba("#ef4444", 110 if t["is_dark"] else 95)
+    danger_hover = _hex_rgba("#ef4444", 64 if t["is_dark"] else 42)
+    danger_text = "#fca5a5" if t["is_dark"] else "#dc2626"
+    return f"""
+        QDialog, QMessageBox {{
+            background-color: {t["win_bg"]};
+            color: {t["text"]};
+        }}
+        QWidget {{
+            color: {t["text"]};
+        }}
+        QLabel {{
+            color: {t["text"]};
+            background-color: transparent;
+            border: none;
+        }}
+        QFrame#studioCard, QFrame#workflowBar {{
+            background-color: {t["stage_bg"]};
+            border: 1px solid {t["border"]};
+            border-radius: 10px;
+        }}
+        QFrame#hairline {{
+            background-color: {t["border"]};
+            max-height: 1px;
+            min-height: 1px;
+            border: none;
+        }}
+        QLineEdit, QSpinBox, QTextEdit {{
+            background-color: {t["surface"]};
+            color: {t["text"]};
+            border: 1px solid {t["border"]};
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            selection-background-color: {t["accent"]};
+            selection-color: #ffffff;
+        }}
+        QLineEdit:focus, QSpinBox:focus, QTextEdit:focus {{
+            border-color: {t["accent"]};
+        }}
+        QSpinBox::up-button, QSpinBox::down-button {{
+            width: 18px;
+            background: transparent;
+            border: none;
+        }}
+        QPushButton {{
+            background-color: {t["surface"]};
+            color: {t["text"]};
+            border: 1px solid {t["border"]};
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            min-height: 26px;
+        }}
+        QPushButton:hover {{
+            background-color: {t["surface_hover"]};
+            border-color: {t["border_strong"]};
+        }}
+        QPushButton:pressed {{
+            background-color: {t["surface_pressed"]};
+        }}
+        QPushButton:disabled {{
+            color: {t["text_muted"]};
+            background-color: {t["stage_bg"]};
+            border-color: {t["border"]};
+        }}
+        QPushButton#primaryBtn, QPushButton#save_btn {{
+            background-color: {t["accent"]};
+            color: #ffffff;
+            border: 1px solid {t["accent"]};
+        }}
+        QPushButton#primaryBtn:hover, QPushButton#save_btn:hover {{
+            background-color: {accent_hover};
+            border-color: {accent_hover};
+        }}
+        QPushButton#primaryBtn:pressed, QPushButton#save_btn:pressed {{
+            background-color: {accent_press};
+        }}
+        QPushButton#primaryBtn:disabled {{
+            background-color: {t["surface"]};
+            color: {t["text_muted"]};
+            border-color: {t["border"]};
+        }}
+        QPushButton#dangerBtn {{
+            background-color: {danger_bg};
+            color: {danger_text};
+            border: 1px solid {danger_border};
+        }}
+        QPushButton#dangerBtn:hover {{
+            background-color: {danger_hover};
+            border-color: #ef4444;
+        }}
+        QSlider::groove:horizontal {{
+            background: {t["border"]};
+            height: 6px;
+            border-radius: 3px;
+        }}
+        QSlider::sub-page:horizontal {{
+            background: {t["accent"]};
+            border-radius: 3px;
+        }}
+        QSlider::handle:horizontal {{
+            background: #ffffff;
+            border: 2px solid {t["accent"]};
+            width: 14px;
+            height: 14px;
+            margin: -5px 0;
+            border-radius: 8px;
+        }}
+        QSlider::handle:horizontal:hover {{
+            background: {t["accent"]};
+        }}
+        QScrollArea {{
+            background-color: transparent;
+            border: none;
+        }}
+        QScrollBar:vertical {{
+            background: transparent;
+            width: 8px;
+            margin: 2px 0;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {t["border_strong"]};
+            min-height: 24px;
+            border-radius: 4px;
+        }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+            height: 0px;
+        }}
+        QScrollBar:horizontal {{
+            background: transparent;
+            height: 8px;
+            margin: 0 2px;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: {t["border_strong"]};
+            min-width: 24px;
+            border-radius: 4px;
+        }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+            width: 0px;
+        }}
+        QToolTip {{
+            background-color: {t["menu_bg"]};
+            color: {t["text"]};
+            border: 1px solid {t["border_strong"]};
+            border-radius: 6px;
+            padding: 5px 8px;
+            font-size: 11px;
+        }}
+    """
+
 class UpdateDialog(QDialog):
     def __init__(self, parent=None, current_version="2.0", latest_version=None, release_notes="", download_url=None):
         super().__init__(parent)
         self.setWindowTitle("Check for Updates")
-        self.setMinimumWidth(400)
-        self.setMaximumHeight(500)
+        self.setMinimumSize(460, 360)
+        self.resize(480, 390)
         self.parent = parent
-
-        # Apply theme from parent
+        self._tokens = resolve_studio_tokens(parent)
         self.apply_theme()
 
+        t = self._tokens
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(12)
 
-        # Title
-        title_label = QLabel("Image Sorter Update")
-        title_label.setStyleSheet("font-size: 20px; font-weight: bold; background-color: transparent;")
-        layout.addWidget(title_label)
+        header_row = QHBoxLayout()
+        title_label = QLabel("Software Update")
+        title_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {t['text']};")
+        header_row.addWidget(title_label)
+        header_row.addStretch()
 
-        # Version Info
-        version_layout = QHBoxLayout()
-        current_label = QLabel(f"Current Version: {current_version}")
-        current_label.setStyleSheet("font-size: 14px; background-color: transparent;")
-        version_layout.addWidget(current_label)
-        
-        latest_label = QLabel(f"Latest Version: {latest_version if latest_version else 'Unknown'}")
-        latest_label.setStyleSheet("font-size: 14px; background-color: transparent;")
-        version_layout.addWidget(latest_label)
-        layout.addLayout(version_layout)
-
-        # Status
-        status_text = "You are up to date!" if not latest_version or not self.is_newer_version(current_version, latest_version) else "A new version is available!"
+        has_newer = bool(latest_version and self.is_newer_version(current_version, latest_version))
+        status_text = "Update Available" if has_newer else "Up to Date"
+        status_col = "#f59e0b" if has_newer else "#10b981"
+        status_bg = _hex_rgba(status_col, 32 if t["is_dark"] else 24)
+        status_border = _hex_rgba(status_col, 110 if t["is_dark"] else 90)
         status_label = QLabel(status_text)
-        status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #4CAF50;" if status_text == "You are up to date!" else "font-size: 14px; font-weight: bold; color: #F44336;")
-        layout.addWidget(status_label)
+        status_label.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {status_col}; "
+            f"background-color: {status_bg}; border: 1px solid {status_border}; "
+            f"border-radius: 6px; padding: 3px 10px;"
+        )
+        header_row.addWidget(status_label)
+        layout.addLayout(header_row)
 
-        # Release Notes
-        notes_label = QLabel("Release Notes:")
-        notes_label.setStyleSheet("font-size: 14px; font-weight: bold; background-color: transparent;")
+        ver_card = QFrame()
+        ver_card.setObjectName("studioCard")
+        version_layout = QHBoxLayout(ver_card)
+        version_layout.setContentsMargins(14, 10, 14, 10)
+        version_layout.setSpacing(16)
+
+        current_label = QLabel(
+            f"<span style='color:{t['text_muted']}; font-size:11px;'>INSTALLED</span><br>"
+            f"<b style='font-size:13px; color:{t['text']};'>{current_version}</b>"
+        )
+        version_layout.addWidget(current_label)
+        version_layout.addStretch()
+
+        latest_str = latest_version if latest_version else "Unknown"
+        latest_label = QLabel(
+            f"<span style='color:{t['text_muted']}; font-size:11px;'>LATEST RELEASE</span><br>"
+            f"<b style='font-size:13px; color:{t['accent']};'>{latest_str}</b>"
+        )
+        latest_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        version_layout.addWidget(latest_label)
+        layout.addWidget(ver_card)
+
+        notes_label = QLabel("RELEASE NOTES")
+        notes_label.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; letter-spacing: 0.8px; color: {t['text_muted']};"
+        )
         layout.addWidget(notes_label)
 
         self.notes_text = QTextEdit()
         self.notes_text.setReadOnly(True)
         self.notes_text.setText(release_notes if release_notes else "No release notes available.")
-        self.notes_text.setStyleSheet("font-size: 12px; background-color: #2e2e2e; color: white; border: 1px solid #444;" if self.parent.theme_mode == "dark" else "font-size: 12px; background-color: #f0f0f0; color: black; border: 1px solid #ccc;")
-        self.notes_text.setFixedHeight(150)
-        layout.addWidget(self.notes_text)
+        self.notes_text.setMinimumHeight(140)
+        layout.addWidget(self.notes_text, stretch=1)
 
-        # Buttons
         btn_layout = QHBoxLayout()
-        self.download_btn = QPushButton("Download Update")
-        self.download_btn.setEnabled(bool(download_url and self.is_newer_version(current_version, latest_version)))
-        self.download_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                font-weight: bold;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-            QPushButton:disabled {
-                background-color: #666;
-                color: #aaa;
-            }
-        """)
-        self.download_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(download_url)))
-        btn_layout.addWidget(self.download_btn)
+        btn_layout.setSpacing(10)
+        btn_layout.addStretch()
 
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                font-weight: bold;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: #d32f2f;
-            }
-        """)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setMinimumWidth(96)
         close_btn.clicked.connect(self.accept)
         btn_layout.addWidget(close_btn)
+
+        self.download_btn = QPushButton("Download Update")
+        self.download_btn.setObjectName("primaryBtn")
+        self.download_btn.setCursor(Qt.PointingHandCursor)
+        self.download_btn.setIcon(make_vector_icon("download", "#ffffff" if has_newer else t["text_muted"], 14))
+        self.download_btn.setIconSize(QSize(14, 14))
+        self.download_btn.setEnabled(bool(download_url and has_newer))
+        self.download_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(download_url)))
+        btn_layout.addWidget(self.download_btn)
 
         layout.addLayout(btn_layout)
 
     def apply_theme(self):
-        if self.parent and hasattr(self.parent, 'theme_mode'):
-            use_dark = self.parent.theme_mode == "dark" or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
-            if use_dark:
-                self.setStyleSheet("""
-                    QDialog { background-color: #111318; color: #f0f2f5; }
-                    QLabel { color: #f0f2f5; background-color: transparent; border: none; }
-                    QPushButton {
-                        background-color: #1c1f29; color: #f0f2f5;
-                        border: 1px solid #2b303f; border-radius: 7px;
-                        padding: 6px 14px; font-weight: 600; min-height: 28px;
-                    }
-                    QPushButton:hover { background-color: #252a37; border-color: #3a4154; }
-                """)
-            else:
-                self.setStyleSheet("""
-                    QDialog { background-color: #f6f7fa; color: #16181d; }
-                    QLabel { color: #16181d; background-color: transparent; border: none; }
-                    QPushButton {
-                        background-color: #ffffff; color: #16181d;
-                        border: 1px solid #d5d9e2; border-radius: 7px;
-                        padding: 6px 14px; font-weight: 600; min-height: 28px;
-                    }
-                    QPushButton:hover { background-color: #eceff5; border-color: #bcc2d0; }
-                """)
+        self._tokens = resolve_studio_tokens(self.parent)
+        self.setStyleSheet(build_studio_dialog_qss(self._tokens))
 
     def is_newer_version(self, current, latest):
         try:
@@ -726,32 +1089,35 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.16-Stable"
+    VERSION = "2.1.17-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
-        self.setMinimumWidth(500)
-        self.setMaximumHeight(600)
+        self.setMinimumSize(500, 420)
+        self.resize(520, 440)
         self.parent = parent
-
+        self._tokens = resolve_studio_tokens(parent)
         self.apply_theme()
 
+        t = self._tokens
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(14)
 
         title_layout = QHBoxLayout()
+        title_layout.setSpacing(14)
         self.logo_label = QLabel()
-        self.logo_label.setPixmap(QIcon(resource_path("assets/icons/app_icon.png")).pixmap(64, 64))
-        self.logo_label.setStyleSheet("background-color: transparent;")
+        self.logo_label.setPixmap(QIcon(resource_path("assets/icons/app_icon.png")).pixmap(52, 52))
         title_layout.addWidget(self.logo_label)
 
-        self.title_label = QLabel("Image Sorter")
-        self.title_label.setStyleSheet("font-size: 26px; font-weight: bold; margin-left: 10px; background-color: transparent;")
-        self.version_label = QLabel(f"Version {self.VERSION}")
-        self.version_label.setStyleSheet("font-size: 14px; margin-left: 10px; color: #aaa; background-color: transparent;")
-
         title_info = QVBoxLayout()
+        title_info.setSpacing(3)
+        self.title_label = QLabel("Image Sorter")
+        self.title_label.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {t['text']};")
+        self.version_label = QLabel(f"Version {self.VERSION}  ·  Studio Edition")
+        self.version_label.setStyleSheet(
+            f"font-size: 12px; font-weight: 600; color: {t['accent']};"
+        )
         title_info.addWidget(self.title_label)
         title_info.addWidget(self.version_label)
         title_layout.addLayout(title_info)
@@ -759,272 +1125,174 @@ class AboutDialog(QDialog):
         layout.addLayout(title_layout)
 
         desc_text = (
-            "Image Sorter is a sleek and intuitive application designed to help you organize your images effortlessly into custom folders with a modern interface."
+            "High-speed desktop media organization tool built for instant photo, GIF, and video "
+            "sorting with zero file-lock playback, perceptual duplicate detection, and customizable 3–9 slot workflows."
         )
         self.desc_label = QLabel(desc_text)
         self.desc_label.setWordWrap(True)
-        self.desc_label.setStyleSheet("""
-            font-size: 14px;
-            margin-top: 10px;
-            background-color: transparent;
-            border: none;
-            text-align: justify;
-        """)
+        self.desc_label.setStyleSheet(f"font-size: 13px; color: {t['text_muted']};")
         layout.addWidget(self.desc_label)
 
-        features_title = QLabel("Key Features:")
-        features_title.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 15px; background-color: transparent;")
-        layout.addWidget(features_title)
+        feat_card = QFrame()
+        feat_card.setObjectName("studioCard")
+        feat_lay = QVBoxLayout(feat_card)
+        feat_lay.setContentsMargins(16, 12, 16, 12)
+        feat_lay.setSpacing(7)
+
+        features_title = QLabel("CAPABILITIES")
+        features_title.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; letter-spacing: 1px; color: {t['text_muted']};"
+        )
+        feat_lay.addWidget(features_title)
 
         features_list = [
-            "Effortless image sorting into custom folders",
-            "Undo functionality for easy corrections",
-            "Responsive image previews with smooth transitions",
-            "Customizable themes for a personalized experience",
-            "Recent folders history for quick access"
+            "Instant 1–9 key & hold-to-Rapid-Move sorting across 3–9 custom folder slots",
+            "Synchronized native-FPS video & audio playback with interactive timeline scrubbing",
+            "Full-size inspection with cursor-anchored zoom, drag-to-pan, and frame stepping",
+            "64-bit Perceptual dHash duplicate & visually similar media scanner",
+            "Atomic Undo history & collision-safe auto-renaming (never overwrites files)",
         ]
 
         for feature in features_list:
-            item = QLabel(f"• {feature}")
-            item.setStyleSheet("""
-                font-size: 14px;
-                color: #aaa;
-                padding-left: 10px;
-                background-color: transparent;
-                border: none;
-            """)
-            layout.addWidget(item)
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            dot = QLabel("•")
+            dot.setStyleSheet(f"color: {t['accent']}; font-size: 14px; font-weight: 700;")
+            dot.setFixedWidth(10)
+            item = QLabel(feature)
+            item.setWordWrap(True)
+            item.setStyleSheet(f"font-size: 12px; color: {t['text']};")
+            row.addWidget(dot, 0, Qt.AlignTop)
+            row.addWidget(item, 1)
+            feat_lay.addLayout(row)
 
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        separator.setStyleSheet("background-color: #555; margin: 15px 0;")
-        layout.addWidget(separator)
+        layout.addWidget(feat_card)
+        layout.addStretch()
 
-        social_layout = QHBoxLayout()
-        social_layout.setSpacing(15)
-        social_layout.setAlignment(Qt.AlignCenter)
+        footer_layout = QHBoxLayout()
+        footer_layout.setSpacing(10)
 
-        telegram_btn = QPushButton()
+        telegram_btn = QPushButton("Telegram · Thea")
         telegram_btn.setIcon(QIcon(resource_path("assets/icons/telegram.png")))
-        telegram_btn.setIconSize(QSize(32, 32))
-        telegram_btn.setText("Thea")
-        telegram_btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #00BFFF;
-                font-size: 14px;
-                font-weight: bold;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 8px;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: rgba(0, 191, 255, 0.1);
-                color: #40C4FF;
-                transform: scale(1.05);
-            }
-        """)
-        telegram_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://t.me/ThuandMuda")))
+        telegram_btn.setIconSize(QSize(16, 16))
         telegram_btn.setCursor(Qt.PointingHandCursor)
-        social_layout.addWidget(telegram_btn)
+        telegram_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://t.me/ThuandMuda")))
+        footer_layout.addWidget(telegram_btn)
 
-        github_btn = QPushButton()
+        github_btn = QPushButton("GitHub · Zy0x")
         github_btn.setIcon(QIcon(resource_path("assets/icons/github.png")))
-        github_btn.setIconSize(QSize(32, 32))
-        github_btn.setText("Zy0x")
-        github_btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #32CD32;
-                font-size: 14px;
-                font-weight: bold;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 8px;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: rgba(50, 205, 50, 0.1);
-                color: #66FF66;
-                transform: scale(1.05);
-            }
-        """)
-        github_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/Zy0x")))
+        github_btn.setIconSize(QSize(16, 16))
         github_btn.setCursor(Qt.PointingHandCursor)
-        social_layout.addWidget(github_btn)
+        github_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/Zy0x")))
+        footer_layout.addWidget(github_btn)
 
-        social_layout.addStretch()
-        layout.addLayout(social_layout)
+        footer_layout.addStretch()
 
-        btn_layout = QHBoxLayout()
-        ok_button = QPushButton("OK")
-        ok_button.setFixedHeight(36)
-        ok_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                border: none;
-                padding: 8px 20px;
-                font-weight: bold;
-                border-radius: 8px;
-                min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-        """)
+        ok_button = QPushButton("Close")
+        ok_button.setObjectName("primaryBtn")
+        ok_button.setCursor(Qt.PointingHandCursor)
+        ok_button.setMinimumWidth(96)
         ok_button.clicked.connect(self.accept)
-        btn_layout.addStretch()
-        btn_layout.addWidget(ok_button)
-        layout.addLayout(btn_layout)
+        footer_layout.addWidget(ok_button)
+        layout.addLayout(footer_layout)
 
     def apply_theme(self):
-        if self.parent and hasattr(self.parent, 'theme_mode'):
-            use_dark = self.parent.theme_mode == "dark" or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
-            if use_dark:
-                self.setStyleSheet("""
-                    QDialog { background-color: #1e1e1e; color: white; }
-                    QLabel { color: white; background-color: transparent; border: none; }
-                    QPushButton { background-color: #2e2e2e; color: white; }
-                    QPushButton:hover { background-color: #444444; }
-                    QFrame { background-color: #555; }
-                """)
-            else:
-                self.setStyleSheet("""
-                    QDialog { background-color: #f9f9f9; color: black; }
-                    QLabel { color: black; background-color: transparent; border: none; }
-                    QPushButton { background-color: #e0e0e0; color: black; }
-                    QPushButton:hover { background-color: #d0d0d0; }
-                    QFrame { background-color: #ccc; }
-                """)
+        self._tokens = resolve_studio_tokens(self.parent)
+        self.setStyleSheet(build_studio_dialog_qss(self._tokens))
 
 
 class ShortcutsGuideDialog(QDialog):
-    """Referensi shortcut bergaya aplikasi desktop profesional (monokrom, keycap fisik, tanpa dekorasi berlebih)."""
+    """Referensi shortcut bergaya Studio Slate dengan QScrollArea adaptif dan baris anti-terpotong."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Keyboard Shortcuts & Quick Guide")
-        self.setMinimumSize(680, 470)
-        self.resize(700, 490)
         self.parent = parent
+        t = resolve_studio_tokens(parent)
 
-        is_dark = True
-        if self.parent and hasattr(self.parent, "theme_mode"):
-            is_dark = (
-                self.parent.theme_mode in ("dark", "custom")
-                or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
-            )
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else QRectF(0, 0, 1280, 720).toRect()
+        min_w = min(700, max(560, avail.width() - 40))
+        min_h = min(460, max(360, avail.height() - 60))
+        self.setMinimumSize(min_w, min_h)
+        self.resize(min(760, max(min_w, int(avail.width() * 0.65))), min(610, max(min_h, int(avail.height() * 0.82))))
 
-        bg = "#141416" if is_dark else "#ffffff"
-        panel_bg = "#1b1b1f" if is_dark else "#f6f7f9"
-        text = "#ededef" if is_dark else "#18181b"
-        label_col = "#c8c8d0" if is_dark else "#27272a"
-        muted = "#787882" if is_dark else "#71717a"
-        hairline = "#242429" if is_dark else "#e4e4e7"
-        key_bg = "#232328" if is_dark else "#f1f2f4"
-        key_border = "#36363e" if is_dark else "#d1d5db"
-        key_bottom = "#464650" if is_dark else "#b9bec7"
-        key_text = "#f4f4f6" if is_dark else "#18181b"
-        btn_bg = "#232328" if is_dark else "#f1f2f4"
-        btn_hover = "#2e2e35" if is_dark else "#e4e6ea"
+        key_bg = t["surface"]
+        key_border = t["border_strong"]
+        key_bottom = "#4b5369" if t["is_dark"] else "#adb5c7"
 
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg};
-                color: {text};
-            }}
-            QLabel {{
-                color: {text};
-                background: transparent;
-                border: none;
-            }}
-            QFrame#workflowBar {{
-                background-color: {panel_bg};
-                border: 1px solid {hairline};
-                border-radius: 6px;
-            }}
-            QFrame#hairline {{
-                background-color: {hairline};
-                max-height: 1px;
-                min-height: 1px;
-                border: none;
-            }}
+        base_qss = build_studio_dialog_qss(t)
+        self.setStyleSheet(base_qss + f"""
             QLabel#catHeader {{
-                color: {muted};
+                color: {t["accent"]};
                 font-size: 11px;
-                font-weight: bold;
-                letter-spacing: 0.8px;
+                font-weight: 700;
+                letter-spacing: 0.9px;
             }}
             QLabel#actionLabel {{
-                color: {label_col};
+                color: {t["text"]};
                 font-size: 12px;
             }}
             QLabel#keyCap {{
                 background-color: {key_bg};
-                color: {key_text};
+                color: {t["text"]};
                 border: 1px solid {key_border};
                 border-bottom: 2px solid {key_bottom};
-                border-radius: 4px;
-                padding: 1px 7px;
+                border-radius: 5px;
+                padding: 2px 8px;
                 font-family: "Segoe UI", "Inter", sans-serif;
                 font-size: 11px;
                 font-weight: 600;
             }}
             QLabel#keyJoin {{
-                color: {muted};
+                color: {t["text_muted"]};
                 font-size: 11px;
-                padding: 0 1px;
-            }}
-            QPushButton#closeBtn {{
-                background-color: {btn_bg};
-                color: {text};
-                border: 1px solid {key_border};
-                border-radius: 5px;
-                padding: 5px 16px;
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            QPushButton#closeBtn:hover {{
-                background-color: {btn_hover};
+                padding: 0 2px;
             }}
         """)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 18)
-        root.setSpacing(14)
+        root.setContentsMargins(22, 18, 22, 16)
+        root.setSpacing(12)
 
-        # Header row
         header_row = QHBoxLayout()
-        title_lbl = QLabel("Keyboard Shortcuts")
-        title_lbl.setStyleSheet(f"font-size: 16px; font-weight: 600; color: {text};")
+        title_lbl = QLabel("Keyboard Shortcuts & Quick Guide")
+        title_lbl.setStyleSheet(f"font-size: 17px; font-weight: 700; color: {t['text']};")
         header_row.addWidget(title_lbl)
         header_row.addStretch()
-        esc_lbl = QLabel("F1 / Esc")
-        esc_lbl.setStyleSheet(f"font-size: 11px; color: {muted};")
+        esc_lbl = QLabel("F1  ·  Esc to close")
+        esc_lbl.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: {t['text_muted']}; "
+            f"background-color: {t['stage_bg']}; border: 1px solid {t['border']}; "
+            f"border-radius: 6px; padding: 3px 9px;"
+        )
         header_row.addWidget(esc_lbl)
         root.addLayout(header_row)
 
-        # Subtle workflow strip (single compact bar, no emojis or giant circles)
         wf_bar = QFrame()
         wf_bar.setObjectName("workflowBar")
         wf_lay = QHBoxLayout(wf_bar)
-        wf_lay.setContentsMargins(12, 8, 12, 8)
+        wf_lay.setContentsMargins(14, 9, 14, 9)
         wf_lay.setSpacing(8)
         wf_text = QLabel(
-            f"<span style='color:{muted};'>Workflow:</span> &nbsp;"
-            f"<b>1.</b> Set folders &amp; slot count 3–9 (<i>Settings → Folder Settings</i>) &nbsp;·&nbsp; "
-            f"<b>2.</b> Import (<b>Ctrl+O</b> or drop) &nbsp;·&nbsp; "
+            f"<span style='color:{t['text_muted']}; font-weight:600;'>Quick Workflow:</span> &nbsp;"
+            f"<b>1.</b> Configure 3–9 folder slots (<i>Settings → Folder Settings</i>) &nbsp;·&nbsp; "
+            f"<b>2.</b> Import media (<b>Ctrl+O</b> or drag &amp; drop) &nbsp;·&nbsp; "
             f"<b>3.</b> Press or hold <b>1–9</b> to sort"
         )
+        wf_text.setWordWrap(True)
         wf_text.setStyleSheet("font-size: 12px;")
         wf_lay.addWidget(wf_text)
         root.addWidget(wf_bar)
 
-        # Two-column keymap table
-        cols = QHBoxLayout()
-        cols.setSpacing(32)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        cols = QHBoxLayout(scroll_content)
+        cols.setContentsMargins(2, 4, 10, 4)
+        cols.setSpacing(24)
 
         left_sections = [
             ("SORTING", [
@@ -1033,21 +1301,21 @@ class ShortcutsGuideDialog(QDialog):
                 ("Undo last move", [("key", "Ctrl"), ("key", "Z")]),
             ]),
             ("NAVIGATION", [
-                ("Previous / Next image", [("key", "←"), ("key", "→")]),
+                ("Previous / Next media", [("key", "←"), ("key", "→")]),
                 ("Skip to next unmoved", [("key", "Space")]),
-                ("First / Last image", [("key", "Home"), ("key", "End")]),
-                ("Jump to image number", [("key", "Ctrl"), ("key", "G")]),
+                ("First / Last media", [("key", "Home"), ("key", "End")]),
+                ("Jump to media number", [("key", "Ctrl"), ("key", "G")]),
             ]),
         ]
 
         right_sections = [
-            ("VIEW & INSPECT", [
+            ("VIEW & PLAYBACK", [
                 ("Full-size zoom preview", [("key", "F")]),
                 ("Play / Pause video or GIF", [("key", "P")]),
                 ("Mute / Unmute video sound", [("key", "M")]),
                 ("Find duplicate / similar", [("key", "Ctrl"), ("key", "D")]),
                 ("Include subfolders", [("key", "Ctrl"), ("key", "Shift"), ("key", "S")]),
-                ("Hide moved images", [("key", "Ctrl"), ("key", "H")]),
+                ("Hide moved media", [("key", "Ctrl"), ("key", "H")]),
                 ("Shortcuts reference", [("key", "F1")]),
             ]),
             ("FILE & MOUSE", [
@@ -1061,18 +1329,18 @@ class ShortcutsGuideDialog(QDialog):
 
         cols.addLayout(self._build_column(left_sections), 1)
         cols.addLayout(self._build_column(right_sections), 1)
-        root.addLayout(cols, 1)
+        scroll.setWidget(scroll_content)
+        root.addWidget(scroll, 1)
 
-        # Footer
         footer = QHBoxLayout()
         note = QLabel("Duplicate filenames in destination folders are auto-renamed — existing files are never overwritten.")
-        note.setStyleSheet(f"font-size: 11px; color: {muted};")
-        footer.addWidget(note)
-        footer.addStretch()
+        note.setWordWrap(True)
+        note.setStyleSheet(f"font-size: 11px; color: {t['text_muted']};")
+        footer.addWidget(note, 1)
 
         close_btn = QPushButton("Close")
-        close_btn.setObjectName("closeBtn")
-        close_btn.setFixedHeight(30)
+        close_btn.setObjectName("primaryBtn")
+        close_btn.setMinimumWidth(92)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.accept)
         footer.addWidget(close_btn)
@@ -1080,39 +1348,39 @@ class ShortcutsGuideDialog(QDialog):
 
     def _build_column(self, sections):
         col = QVBoxLayout()
-        col.setSpacing(4)
+        col.setSpacing(3)
         for s_idx, (sec_title, rows) in enumerate(sections):
             if s_idx > 0:
-                col.addSpacing(10)
+                col.addSpacing(12)
             hdr = QLabel(sec_title)
             hdr.setObjectName("catHeader")
             col.addWidget(hdr)
-            col.addSpacing(2)
+            col.addSpacing(3)
 
-            for r_idx, (label_text, tokens) in enumerate(rows):
+            for label_text, tokens in rows:
                 row_widget = QWidget()
-                row_widget.setFixedHeight(28)
+                row_widget.setMinimumHeight(34)
                 row_lay = QHBoxLayout(row_widget)
-                row_lay.setContentsMargins(0, 2, 0, 2)
-                row_lay.setSpacing(4)
+                row_lay.setContentsMargins(0, 4, 0, 4)
+                row_lay.setSpacing(5)
 
                 act_lbl = QLabel(label_text)
                 act_lbl.setObjectName("actionLabel")
-                row_lay.addWidget(act_lbl)
-                row_lay.addStretch()
+                act_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                row_lay.addWidget(act_lbl, 1)
 
                 for kind, val in tokens:
                     t_lbl = QLabel(val)
                     if kind == "key":
                         t_lbl.setObjectName("keyCap")
                         t_lbl.setAlignment(Qt.AlignCenter)
-                        t_lbl.setFixedHeight(22)
+                        t_lbl.setFixedHeight(24)
                         if len(val) == 1:
-                            t_lbl.setMinimumWidth(24)
+                            t_lbl.setMinimumWidth(26)
                     else:
                         t_lbl.setObjectName("keyJoin")
                         t_lbl.setAlignment(Qt.AlignCenter)
-                    row_lay.addWidget(t_lbl)
+                    row_lay.addWidget(t_lbl, 0, Qt.AlignVCenter)
 
                 col.addWidget(row_widget)
                 div = QFrame()
@@ -2045,37 +2313,58 @@ class DuplicateScanThread(QThread):
 class CustomThemeDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("🎨 Custom Theme Settings")
-        self.setMinimumWidth(300)
-        self.setMaximumHeight(300)
-        self.setFixedWidth(300)
+        self.parent = parent
+        self.setWindowTitle("Custom Theme Settings")
+        self.setMinimumSize(420, 440)
+        self.resize(450, 480)
+
+        t = resolve_studio_tokens(parent)
+        self._tokens = t
+        self.setStyleSheet(build_studio_dialog_qss(t))
 
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(8)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(20, 18, 20, 18)
+
+        hdr = QLabel("Custom Theme Palette")
+        hdr.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {t['text']};")
+        main_layout.addWidget(hdr)
+
+        sub = QLabel("Customize surface, text, menu, and preview frame accent colors.")
+        sub.setWordWrap(True)
+        sub.setStyleSheet(f"font-size: 12px; color: {t['text_muted']};")
+        main_layout.addWidget(sub)
+
+        card = QFrame()
+        card.setObjectName("studioCard")
+        card_lay = QVBoxLayout(card)
+        card_lay.setContentsMargins(8, 8, 8, 8)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
         scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
         scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setSpacing(6)
-        scroll_layout.setContentsMargins(5, 5, 5, 5)
+        scroll_layout.setSpacing(8)
+        scroll_layout.setContentsMargins(8, 6, 8, 6)
         scroll_area.setWidget(scroll_content)
-        main_layout.addWidget(scroll_area)
+        card_lay.addWidget(scroll_area)
+        main_layout.addWidget(card, stretch=1)
 
         settings = load_settings()
         self.default_colors = {
-            "bg_color": "#121212",
-            "text_color": "#FFFFFF",
-            "btn_bg": "#2e2e2e",
-            "btn_hover": "#444444",
-            "label_bg": "#1a1a1a",
-            "menu_bg": "#1a1a1a",
-            "menu_text": "#FFFFFF",
-            "main_border_color": "#00BFFF",
-            "next_border_color": "#32CD32",
-            "main_shadow": "0 0 10px rgba(0, 191, 255, 0.7)",
-            "next_shadow": "0 0 8px rgba(50, 205, 50, 0.5)"
+            "bg_color": "#0e1015",
+            "text_color": "#f0f2f5",
+            "btn_bg": "#181b23",
+            "btn_hover": "#212633",
+            "label_bg": "#13161d",
+            "menu_bg": "#12141b",
+            "menu_text": "#f0f2f5",
+            "main_border_color": "#3b82f6",
+            "next_border_color": "#10b981",
+            "main_shadow": "0 0 10px rgba(59, 130, 246, 0.55)",
+            "next_shadow": "0 0 8px rgba(16, 185, 129, 0.45)"
         }
         custom_theme = settings.get("custom_theme", self.default_colors)
 
@@ -2096,118 +2385,90 @@ class CustomThemeDialog(QDialog):
             ("Text Color", "text", self.text_color),
             ("Button Background", "btn_bg", self.btn_bg),
             ("Button Hover", "btn_hover", self.btn_hover),
-            ("Label Background", "label_bg", self.label_bg),
-            ("Menu Background", "menu_bg", self.menu_bg),
+            ("Stage / Card Surface", "label_bg", self.label_bg),
+            ("Menu Bar Surface", "menu_bg", self.menu_bg),
             ("Menu Text Color", "menu_text", self.menu_text),
-            ("Main Image Border", "main_border", self.main_border_color),
-            ("Next Preview Border", "next_border", self.next_border_color),
+            ("Primary Frame Accent", "main_border", self.main_border_color),
+            ("Up Next Frame Accent", "next_border", self.next_border_color),
         ]
 
         for label_text, target, current_color in color_fields:
             self.create_color_picker_button(scroll_layout, label_text, target, current_color)
+        scroll_layout.addStretch()
 
         btn_layout = QHBoxLayout()
-        self.reset_btn = QPushButton("🔄 Reset to Defaults")
-        self.save_btn = QPushButton("✅ Save")
-
-        self.reset_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 8px 12px;
-                font-weight: bold;
-                border-radius: 6px;
-                min-height: 30px;
-            }
-            QPushButton:hover {
-                background-color: #d32f2f;
-            }
-        """)
+        btn_layout.setSpacing(10)
+        self.reset_btn = QPushButton("Reset Defaults")
+        self.reset_btn.setObjectName("dangerBtn")
+        self.reset_btn.setCursor(Qt.PointingHandCursor)
+        self.reset_btn.setIcon(make_vector_icon("reset", "#fca5a5" if t["is_dark"] else "#dc2626", 14))
+        self.reset_btn.setIconSize(QSize(14, 14))
         self.reset_btn.clicked.connect(self.reset_to_defaults)
 
-        self.save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 8px 12px;
-                font-weight: bold;
-                border-radius: 6px;
-                min-height: 30px;
-            }
-            QPushButton:hover {
-                background-color: #388E3C;
-            }
-        """)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.clicked.connect(self.reject)
+
+        self.save_btn = QPushButton("Save Theme")
+        self.save_btn.setObjectName("primaryBtn")
+        self.save_btn.setCursor(Qt.PointingHandCursor)
+        self.save_btn.setIcon(make_vector_icon("check", "#ffffff", 14))
+        self.save_btn.setIconSize(QSize(14, 14))
+        self.save_btn.setDefault(True)
         self.save_btn.clicked.connect(self.save_and_close)
 
         btn_layout.addWidget(self.reset_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(self.save_btn)
         main_layout.addLayout(btn_layout)
 
-        if parent and hasattr(parent, 'theme_mode'):
-            use_dark = parent.theme_mode == "dark" or (parent.theme_mode == "system" and parent.is_system_dark())
-            if use_dark:
-                self.setStyleSheet("""
-                    QDialog { background-color: #1e1e1e; color: white; }
-                    QScrollArea { background-color: #1e1e1e; border: none; }
-                    QLabel { color: white; background-color: transparent; border: none; }
-                    QPushButton { background-color: #2e2e2e; color: white; }
-                    QPushButton:hover { background-color: #444444; }
-                """)
-            else:
-                self.setStyleSheet("""
-                    QDialog { background-color: #f9f9f9; color: black; }
-                    QScrollArea { background-color: #f9f9f9; border: none; }
-                    QLabel { color: black; background-color: transparent; border: none; }
-                    QPushButton { background-color: #e0e0e0; color: black; }
-                    QPushButton:hover { background-color: #d0d0d0; }
-                """)
+    def _style_swatch_button(self, btn: QPushButton, hex_color: str):
+        t = self._tokens
+        qcol = QColor(hex_color)
+        lum = qcol.red() * 0.299 + qcol.green() * 0.587 + qcol.blue() * 0.114
+        fg = "#111318" if lum > 150 else "#f8fafc"
+        btn.setText(hex_color.upper())
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {hex_color};
+                color: {fg};
+                border: 1px solid {t["border_strong"]};
+                border-radius: 7px;
+                font-family: Consolas, monospace;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 4px 10px;
+            }}
+            QPushButton:hover {{
+                border: 2px solid {t["accent"]};
+            }}
+        """)
 
     def create_color_picker_button(self, layout, label_text, target, current_color):
         container = QHBoxLayout()
-        container.setSpacing(6)
+        container.setSpacing(10)
 
         label = QLabel(label_text)
-        label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        label.setFixedWidth(150)
-        container.addWidget(label)
+        label.setStyleSheet("font-weight: 600; font-size: 12px;")
+        container.addWidget(label, 1)
 
-        btn = QPushButton("")
+        btn = QPushButton()
         btn.setObjectName(f"{target}_btn")
+        btn.setCursor(Qt.PointingHandCursor)
         setattr(self, f"{target}_btn", btn)
-        btn.setFixedSize(80, 30)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {current_color};
-                border: 2px solid #ccc;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                border-color: #888;
-            }}
-        """)
+        btn.setFixedSize(112, 30)
+        self._style_swatch_button(btn, current_color)
         btn.clicked.connect(lambda _, t=target: self.pick_color(t))
         container.addWidget(btn)
-        container.addStretch()
         layout.addLayout(container)
 
     def pick_color(self, target):
-        color = QColorDialog.getColor()
+        color = QColorDialog.getColor(parent=self)
         if color.isValid():
             hex_color = color.name()
             btn = getattr(self, f"{target}_btn")
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {hex_color};
-                    border: 2px solid #ccc;
-                    border-radius: 4px;
-                }}
-                QPushButton:hover {{
-                    border-color: #888;
-                }}
-            """)
+            self._style_swatch_button(btn, hex_color)
 
             if target == 'bg':
                 self.bg_color = hex_color
@@ -2258,16 +2519,7 @@ class CustomThemeDialog(QDialog):
         for target in target_to_key:
             btn = getattr(self, f"{target}_btn")
             color = self.default_colors[target_to_key[target]]
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {color};
-                    border: 2px solid #ccc;
-                    border-radius: 4px;
-                }}
-                QPushButton:hover {{
-                    border-color: #888;
-                }}
-            """)
+            self._style_swatch_button(btn, color)
 
     def save_and_close(self):
         settings = load_settings()
@@ -2294,39 +2546,16 @@ class FolderSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
-        self.setWindowTitle("Set Destination Folders")
-        self.setMinimumWidth(600)
+        self.setWindowTitle("Destination Folder Settings")
+        self.setMinimumWidth(640)
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(20, 18, 20, 18)
-        self.layout.setSpacing(10)
+        self.layout.setContentsMargins(22, 18, 22, 18)
+        self.layout.setSpacing(12)
         self.inputs = []
         self.row_widgets = []
 
-        is_dark = False
-        if self.parent and hasattr(self.parent, "theme_mode"):
-            is_dark = (
-                self.parent.theme_mode in ("dark", "custom")
-                or (self.parent.theme_mode == "system" and self.parent.is_system_dark())
-            )
-        bg = "#1e1e1e" if is_dark else "#ffffff"
-        surface = "#2b2b2b" if is_dark else "#f4f6f8"
-        text = "#ffffff" if is_dark else "#1f2328"
-        border = "#404040" if is_dark else "#d0d7de"
-
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {bg}; color: {text}; }}
-            QLabel {{ color: {text}; background: transparent; border: none; }}
-            QLineEdit, QSpinBox {{
-                background-color: {surface}; color: {text};
-                border: 1px solid {border}; border-radius: 6px; padding: 6px 8px;
-            }}
-            QPushButton {{
-                background-color: {surface}; color: {text};
-                border: 1px solid {border}; border-radius: 6px;
-                padding: 6px 14px; font-weight: bold; min-height: 28px;
-            }}
-            QPushButton:hover {{ border-color: #00BFFF; }}
-        """)
+        t = resolve_studio_tokens(parent)
+        self.setStyleSheet(build_studio_dialog_qss(t))
 
         settings = load_settings()
         saved_names = list(settings.get("folder_names", self.DEFAULT_NAMES[:DEFAULT_FOLDER_SLOTS]))
@@ -2335,28 +2564,38 @@ class FolderSettingsDialog(QDialog):
             settings.get("folder_slot_count", len(saved_names) or DEFAULT_FOLDER_SLOTS)
         )
 
-        slot_bar = QHBoxLayout()
+        top_card = QFrame()
+        top_card.setObjectName("studioCard")
+        slot_bar = QHBoxLayout(top_card)
+        slot_bar.setContentsMargins(14, 10, 14, 10)
+        slot_bar.setSpacing(12)
         slot_lbl = QLabel("Active Folder Slots (Keys 1–9):")
-        slot_lbl.setStyleSheet("font-weight: bold;")
+        slot_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
         self.slot_spin = QSpinBox()
         self.slot_spin.setRange(MIN_FOLDER_SLOTS, MAX_FOLDER_SLOTS)
         self.slot_spin.setValue(initial_count)
-        self.slot_spin.setFixedWidth(72)
+        self.slot_spin.setFixedWidth(76)
         self.slot_spin.valueChanged.connect(self._update_visible_rows)
+        slot_hint = QLabel("Configure 3 to 9 custom sorting destinations")
+        slot_hint.setStyleSheet(f"font-size: 12px; color: {t['text_muted']};")
         slot_bar.addWidget(slot_lbl)
         slot_bar.addWidget(self.slot_spin)
+        slot_bar.addSpacing(6)
+        slot_bar.addWidget(slot_hint)
         slot_bar.addStretch()
-        self.layout.addLayout(slot_bar)
+        self.layout.addWidget(top_card)
 
         header_layout = QHBoxLayout()
-        lbl_key = QLabel("Key")
-        lbl_key.setFixedWidth(36)
-        lbl_key.setStyleSheet("font-weight: bold;")
-        lbl_name = QLabel("Folder Name")
-        lbl_name.setFixedWidth(140)
-        lbl_name.setStyleSheet("font-weight: bold;")
-        lbl_path = QLabel("Destination Path")
-        lbl_path.setStyleSheet("font-weight: bold;")
+        header_layout.setContentsMargins(4, 0, 4, 0)
+        header_layout.setSpacing(10)
+        lbl_key = QLabel("KEY")
+        lbl_key.setFixedWidth(44)
+        lbl_key.setStyleSheet(f"font-size: 11px; font-weight: 700; letter-spacing: 0.8px; color: {t['text_muted']};")
+        lbl_name = QLabel("FOLDER LABEL")
+        lbl_name.setFixedWidth(150)
+        lbl_name.setStyleSheet(f"font-size: 11px; font-weight: 700; letter-spacing: 0.8px; color: {t['text_muted']};")
+        lbl_path = QLabel("DESTINATION PATH")
+        lbl_path.setStyleSheet(f"font-size: 11px; font-weight: 700; letter-spacing: 0.8px; color: {t['text_muted']};")
         header_layout.addWidget(lbl_key)
         header_layout.addWidget(lbl_name)
         header_layout.addWidget(lbl_path, stretch=1)
@@ -2365,17 +2604,30 @@ class FolderSettingsDialog(QDialog):
         for i in range(MAX_FOLDER_SLOTS):
             row_w = QWidget()
             h_layout = QHBoxLayout(row_w)
-            h_layout.setContentsMargins(0, 0, 0, 0)
-            h_layout.setSpacing(8)
+            h_layout.setContentsMargins(0, 1, 0, 1)
+            h_layout.setSpacing(10)
+
+            accent = SLOT_ACCENTS[i % len(SLOT_ACCENTS)]
+            badge_bg = _hex_rgba(accent, 38 if t["is_dark"] else 26)
+            badge_border = _hex_rgba(accent, 130 if t["is_dark"] else 110)
             key_badge = QLabel(f"[{i + 1}]")
-            key_badge.setFixedWidth(36)
-            key_badge.setStyleSheet("font-weight: bold;")
+            key_badge.setFixedSize(44, 30)
+            key_badge.setAlignment(Qt.AlignCenter)
+            key_badge.setStyleSheet(
+                f"font-family: Consolas, monospace; font-size: 12px; font-weight: 700; "
+                f"color: {t['text']}; background-color: {badge_bg}; "
+                f"border: 1px solid {badge_border}; border-radius: 7px;"
+            )
+
             name_val = saved_names[i] if i < len(saved_names) else self.DEFAULT_NAMES[i]
             path_val = saved_paths[i] if i < len(saved_paths) else self.DEFAULT_PATHS[i]
             name_input = QLineEdit(name_val)
-            name_input.setFixedWidth(140)
+            name_input.setFixedWidth(150)
             path_input = QLineEdit(path_val)
-            btn_browse = QPushButton("Browse...")
+            btn_browse = QPushButton("Browse")
+            btn_browse.setCursor(Qt.PointingHandCursor)
+            btn_browse.setIcon(make_vector_icon("folder", accent, 14))
+            btn_browse.setIconSize(QSize(14, 14))
             btn_browse.clicked.connect(lambda _, idx=i: self.select_folder(idx))
             h_layout.addWidget(key_badge)
             h_layout.addWidget(name_input)
@@ -2388,15 +2640,19 @@ class FolderSettingsDialog(QDialog):
         self._update_visible_rows(initial_count)
 
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
         btn_layout.addStretch()
         cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setMinimumWidth(96)
         cancel_btn.clicked.connect(self.reject)
-        save_btn = QPushButton("Save")
+        save_btn = QPushButton("Save Changes")
+        save_btn.setObjectName("primaryBtn")
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setIcon(make_vector_icon("check", "#ffffff", 14))
+        save_btn.setIconSize(QSize(14, 14))
+        save_btn.setMinimumWidth(124)
         save_btn.setDefault(True)
-        save_btn.setStyleSheet(
-            "QPushButton { background-color: #2196F3; color: white; border: none; padding: 6px 18px; border-radius: 6px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #1976D2; }"
-        )
         save_btn.clicked.connect(self.save_and_close)
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(save_btn)
@@ -2436,225 +2692,131 @@ class FolderSettingsDialog(QDialog):
 class RapidMoveSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("⚡ Rapid Move Speed")
+        self.setWindowTitle("Rapid Move Speed")
         self.parent = parent
-        self.setMinimumSize(420, 300)
+        self.setMinimumSize(440, 310)
+        self.resize(460, 325)
         self.setModal(True)
 
-        # Main layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(24)
+        self._tokens = resolve_studio_tokens(parent)
+        t = self._tokens
+        self.setStyleSheet(build_studio_dialog_qss(t))
 
-        # Title
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 18)
+        layout.setSpacing(14)
+
         title = QLabel("Rapid Move Interval")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 24px; font-weight: 600; margin-bottom: 8px; border: none; background-color: transparent;")
+        title.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {t['text']};")
         layout.addWidget(title)
 
-        # Description
-        desc = QLabel("Adjust how fast images are moved while holding Folder A–E\n(mouse button or keyboard key 1–5). Lower value = faster movement.")
-        desc.setAlignment(Qt.AlignCenter)
+        desc = QLabel(
+            "Adjust how fast media files are moved while holding Folder 1–9 "
+            "(mouse button or keyboard key 1–9). Lower interval = faster continuous sorting."
+        )
         desc.setWordWrap(True)
-        desc.setStyleSheet("font-size: 14px; line-height: 1.5;")
+        desc.setStyleSheet(f"font-size: 12px; color: {t['text_muted']};")
         layout.addWidget(desc)
 
-        layout.addSpacing(20)
+        status_card = QFrame()
+        status_card.setObjectName("studioCard")
+        card_lay = QVBoxLayout(status_card)
+        card_lay.setContentsMargins(16, 14, 16, 14)
+        card_lay.setSpacing(12)
 
-        # Current speed indicator
         self.current_label = QLabel()
         self.current_label.setAlignment(Qt.AlignCenter)
-        self.current_label.setStyleSheet("font-size: 18px; font-weight: 600; padding: 16px;")
-        self.current_label.setMinimumHeight(60)
-        layout.addWidget(self.current_label)
+        card_lay.addWidget(self.current_label)
 
-        # Slider + Value layout
         control_layout = QHBoxLayout()
-        control_layout.setSpacing(24)
+        control_layout.setSpacing(14)
 
-        # Slider
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(50, 1000)
         self.slider.setSingleStep(50)
         self.slider.setPageStep(100)
+        self.slider.setCursor(Qt.PointingHandCursor)
         control_layout.addWidget(self.slider, stretch=1)
 
-        # SpinBox
         self.spinbox = QSpinBox()
         self.spinbox.setRange(50, 1000)
         self.spinbox.setSingleStep(50)
         self.spinbox.setSuffix(" ms")
-        self.spinbox.setFixedWidth(130)
-        self.spinbox.setFixedHeight(44)
-        self.spinbox.setStyleSheet("font-size: 15px;")
+        self.spinbox.setFixedWidth(108)
+        self.spinbox.setFixedHeight(34)
         control_layout.addWidget(self.spinbox)
 
-        layout.addLayout(control_layout)
+        card_lay.addLayout(control_layout)
 
-        # Direction hint
-        hint = QLabel("Faster ← → Slower")
-        hint.setAlignment(Qt.AlignCenter)
-        hint.setStyleSheet("font-size: 13px; font-style: italic; margin-top: 8px;")
-        layout.addWidget(hint)
+        hint_row = QHBoxLayout()
+        lbl_fast = QLabel("50 ms (Fastest)")
+        lbl_fast.setStyleSheet(f"font-size: 11px; color: {t['text_muted']};")
+        lbl_slow = QLabel("1000 ms (Relaxed)")
+        lbl_slow.setStyleSheet(f"font-size: 11px; color: {t['text_muted']};")
+        hint_row.addWidget(lbl_fast)
+        hint_row.addStretch()
+        hint_row.addWidget(lbl_slow)
+        card_lay.addLayout(hint_row)
 
+        layout.addWidget(status_card)
         layout.addStretch()
 
-        # Buttons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
         btn_layout.addStretch()
 
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFixedHeight(44)
-        cancel_btn.setMinimumWidth(110)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setMinimumWidth(96)
         cancel_btn.clicked.connect(self.reject)
 
-        save_btn = QPushButton("Save")
-        save_btn.setFixedHeight(44)
-        save_btn.setMinimumWidth(110)
+        save_btn = QPushButton("Save Interval")
         save_btn.setObjectName("save_btn")
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setIcon(make_vector_icon("check", "#ffffff", 14))
+        save_btn.setIconSize(QSize(14, 14))
+        save_btn.setMinimumWidth(120)
         save_btn.setDefault(True)
         save_btn.clicked.connect(self.save_and_close)
 
         btn_layout.addWidget(cancel_btn)
-        btn_layout.addSpacing(16)
         btn_layout.addWidget(save_btn)
-
         layout.addLayout(btn_layout)
 
-        # Initial value
         initial_value = clamp_rapid_interval(parent.rapid_move_interval if parent else RAPID_MOVE_DEFAULT_MS)
         self.slider.setValue(initial_value)
         self.spinbox.setValue(initial_value)
         self.update_current_label(initial_value)
 
-        # Sync controls
         self.slider.valueChanged.connect(self.spinbox.setValue)
         self.spinbox.valueChanged.connect(self.slider.setValue)
         self.slider.valueChanged.connect(self.update_current_label)
         self.spinbox.valueChanged.connect(self.update_current_label)
 
-        # Apply modern theme
-        self.apply_modern_theme()
-
-    def apply_modern_theme(self):
-        if self.parent and hasattr(self.parent, 'theme_mode'):
-            is_dark = (
-                self.parent.theme_mode == "dark" or
-                (self.parent.theme_mode == "system" and self.parent.is_system_dark()) or
-                self.parent.theme_mode == "custom"
-            )
-        else:
-            is_dark = False
-
-        # Colors
-        bg_color = "#1e1e1e" if is_dark else "#ffffff"
-        surface_color = "#2d2d2d" if is_dark else "#f8f9fa"
-        text_color = "#ffffff" if is_dark else "#212529"
-        text_secondary = "#b0b0b0" if is_dark else "#6c757d"
-        accent_color = "#00BFFF"
-        border_color = "#404040" if is_dark else "#dee2e6"
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg_color};
-                border-radius: 20px;
-            }}
-            QLabel {{
-                color: {text_color};
-                background: transparent;
-            }}
-            QSlider::groove:horizontal {{
-                background: {border_color};
-                height: 8px;
-                border-radius: 4px;
-            }}
-            QSlider::sub-page:horizontal {{
-                background: {accent_color};
-                border-radius: 4px;
-            }}
-            QSlider::handle:horizontal {{
-                background: {accent_color};
-                width: 14px;
-                height: 14px;
-                margin: -4px 0;
-                border-radius: 5px;
-                border: 2px solid {bg_color};
-            }}
-            QSlider::handle:horizontal:hover {{
-                background: #00d4ff;
-            }}
-            QSpinBox {{
-                background-color: {surface_color};
-                border: 2px solid {border_color};
-                border-radius: 10px;
-                padding: 8px 12px;
-                color: {text_color};
-                font-size: 15px;
-            }}
-            QSpinBox:focus {{
-                border-color: {accent_color};
-            }}
-            QSpinBox::up-button, QSpinBox::down-button {{
-                width: 20px;
-                background: transparent;
-            }}
-            QPushButton {{
-                background-color: {surface_color};
-                color: {text_color};
-                border: 2px solid {border_color};
-                border-radius: 12px;
-                padding: 0 24px;
-                font-weight: 600;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{
-                background-color: {border_color};
-            }}
-            QPushButton:pressed {{
-                background-color: {accent_color}40;
-            }}
-            QPushButton#save_btn {{
-                background-color: {accent_color};
-                color: white;
-                border: none;
-            }}
-            QPushButton#save_btn:hover {{
-                background-color: #00a8e6;
-            }}
-            QPushButton#save_btn:pressed {{
-                background-color: #0098d4;
-            }}
-        """)
-
-        # Update secondary text colors
-        for widget in self.findChildren(QLabel):
-            if widget.text() in ["Faster ← → Slower", 
-                                "Adjust how fast images are moved while holding Folder A–E\n(mouse button or keyboard key 1–5). Lower value = faster movement."]:
-                widget.setStyleSheet(f"color: {text_secondary}; font-size: 14px; border: none; background: transparent;")
-
-        # Current label emphasis
-        self.current_label.setStyleSheet(f"""
-            background-color: {surface_color};
-            color: {text_color};
-            border-radius: 16px;
-            padding: 20px;
-            font-size: 18px;
-            font-weight: 600;
-        """)
-
     def update_current_label(self, value):
+        t = self._tokens
         if value <= 100:
-            speed = "Lightning Fast ⚡⚡⚡"
+            speed = "Ultra-Fast Burst"
+            badge_col = "#f43f5e"
         elif value <= 200:
-            speed = "Very Fast ⚡⚡"
+            speed = "High-Speed Studio (Recommended)"
+            badge_col = t["accent"]
         elif value <= 400:
-            speed = "Fast ⚡"
+            speed = "Balanced Pace"
+            badge_col = "#10b981"
         elif value <= 600:
-            speed = "Medium ⏱️"
+            speed = "Moderate Cadence"
+            badge_col = "#f59e0b"
         else:
-            speed = "Relaxed 🐌"
+            speed = "Relaxed Inspection"
+            badge_col = t["text_muted"]
 
-        self.current_label.setText(f"{value} ms\n{speed}")
+        fps_equiv = 1000.0 / max(50, int(value))
+        self.current_label.setText(
+            f"<span style='font-size: 20px; font-weight: 700; color: {t['text']};'>{value} ms</span> "
+            f"<span style='font-size: 12px; color: {t['text_muted']};'>(~{fps_equiv:.1f} files/sec)</span><br>"
+            f"<span style='font-size: 12px; font-weight: 600; color: {badge_col};'>{speed}</span>"
+        )
 
     def save_and_close(self):
         new_interval = clamp_rapid_interval(self.spinbox.value())
@@ -2771,19 +2933,22 @@ class ImageSorterApp(QMainWindow):
         self.loading_widget = QDialog(self, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.loading_widget.setAttribute(Qt.WA_TranslucentBackground)
         self.loading_label = QLabel("Loading folder...", self.loading_widget)
+        self.loading_label.setAlignment(Qt.AlignCenter)
         self.loading_label.setStyleSheet("""
-            font-size: 16px;
-            font-weight: bold;
-            color: white;
-            background-color: rgba(0, 0, 0, 180);
-            border-radius: 10px;
-            padding: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #f0f2f5;
+            background-color: rgba(18, 20, 27, 238);
+            border: 1px solid #363c4d;
+            border-radius: 12px;
+            padding: 18px 22px;
         """)
         layout = QVBoxLayout(self.loading_widget)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(self.loading_label)
         self.loading_widget.setLayout(layout)
         self.loading_widget.hide()
-        self.loading_widget.setFixedSize(300, 100)
+        self.loading_widget.setFixedSize(310, 96)
         self.start_update_check()
         self.init_ui()
         self.check_first_run()
@@ -3520,7 +3685,7 @@ class ImageSorterApp(QMainWindow):
             self.set_default_settings()
             settings["first_run"] = False
             save_settings(settings)
-            self.show_notification("Welcome to ImageSorter! Organize your photos in seconds 😊")
+            self.show_notification("Welcome to ImageSorter — organize your media in seconds.")
         else:
             # Muat pengaturan terakhir secara otomatis tanpa popup berisiko
             self.load_custom_folders()
@@ -3565,17 +3730,17 @@ class ImageSorterApp(QMainWindow):
             "video_muted": False,
             "video_volume": 0.8,
             "custom_theme": {
-                "bg_color": "#121212",
-                "text_color": "#FFFFFF",
-                "btn_bg": "#2e2e2e",
-                "btn_hover": "#444444",
-                "label_bg": "#1a1a1a",
-                "menu_bg": "#1a1a1a",
-                "menu_text": "#FFFFFF",
-                "main_border_color": "#00BFFF",
-                "next_border_color": "#32CD32",
-                "main_shadow": "0 0 10px rgba(0, 191, 255, 0.7)",
-                "next_shadow": "0 0 8px rgba(50, 205, 50, 0.5)"
+                "bg_color": "#0e1015",
+                "text_color": "#f0f2f5",
+                "btn_bg": "#181b23",
+                "btn_hover": "#212633",
+                "label_bg": "#13161d",
+                "menu_bg": "#12141b",
+                "menu_text": "#f0f2f5",
+                "main_border_color": "#3b82f6",
+                "next_border_color": "#10b981",
+                "main_shadow": "0 0 10px rgba(59, 130, 246, 0.55)",
+                "next_shadow": "0 0 8px rgba(16, 185, 129, 0.45)"
             }
         }
         save_settings(settings)
@@ -3857,15 +4022,32 @@ class ImageSorterApp(QMainWindow):
                 padding: 4px;
             }}
             QMenu::item {{
-                padding: 6px 20px;
+                padding: 6px 26px 6px 28px;
                 border-radius: 5px;
             }}
             QMenu::item:selected {{ background-color: {t["surface_hover"]}; }}
+            QMenu::icon {{
+                padding-left: 6px;
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background: {t["border"]};
+                margin: 4px 8px;
+            }}
+            QToolTip {{
+                background-color: {t["menu_bg"]};
+                color: {t["text"]};
+                border: 1px solid {t["border_strong"]};
+                border-radius: 6px;
+                padding: 5px 8px;
+                font-size: 11px;
+            }}
         """)
 
         self.update_progress_bar_style()
         self.update_label_styles()
         self.update_button_styles()
+        self.update_menu_icons()
         self.update_folder_buttons()
         self.show_current_image()
 
@@ -3991,15 +4173,54 @@ class ImageSorterApp(QMainWindow):
         y = max(56, self.height() - 220)
         self.notification_label.setGeometry(x, y, label_width, label_height)
 
+    def update_menu_icons(self):
+        """Perbarui seluruh ikon QMenuBar menggunakan ikon vektor Studio Slate agar seragam & tajam di semua tema."""
+        t = self._get_ui_tokens()
+        col = t["menu_text"]
+        accent = t["accent"]
+        danger = "#f87171" if t["is_dark"] else "#dc2626"
+        action_specs = [
+            ("import_action", "folder_plus", accent),
+            ("reveal_action", "folder_search", col),
+            ("recycle_action", "trash", danger),
+            ("export_action", "file_text", col),
+            ("custom_action", "palette", "#a855f7" if t["is_dark"] else "#7e22ce"),
+            ("light_action", "sun", "#f59e0b"),
+            ("dark_action", "moon", "#38bdf8" if t["is_dark"] else "#0284c7"),
+            ("system_action", "monitor", col),
+            ("hide_moved_action", "eye_off", col),
+            ("include_subfolders_action", "folder_tree", col),
+            ("dup_action", "duplicates", accent),
+            ("jump_action", "jump", col),
+            ("preview_action", "expand", col),
+            ("settings_action", "sliders", accent),
+            ("export_settings_action", "upload", col),
+            ("import_settings_action", "download", col),
+            ("rapid_move_action", "bolt", "#f59e0b"),
+            ("reset_settings_action", "reset", danger),
+            ("shortcuts_action", "keyboard", accent),
+            ("about_action", "info", col),
+            ("update_action", "update", "#10b981"),
+        ]
+        for attr_name, icon_kind, icon_col in action_specs:
+            act = getattr(self, attr_name, None)
+            if act is not None:
+                act.setIcon(make_vector_icon(icon_kind, icon_col, 15))
+        if hasattr(self, "recent_folders_menu") and self.recent_folders_menu is not None:
+            self.recent_folders_menu.setIcon(make_vector_icon("clock", col, 15))
+            self.update_recent_folders_menu()
+
     def update_recent_folders_menu(self):
         if not hasattr(self, 'recent_folders_menu') or self.recent_folders_menu is None:
             return
 
+        t = self._get_ui_tokens()
         for action in self.recent_folders_menu.actions():
             self.recent_folders_menu.removeAction(action)
 
         for folder in self.recent_folders:
             action = QAction(folder, self)
+            action.setIcon(make_vector_icon("folder", t["accent"], 14))
             action.triggered.connect(lambda _, path=folder: self.import_folder_from_path(path))
             self.recent_folders_menu.addAction(action)
 
@@ -4007,7 +4228,7 @@ class ImageSorterApp(QMainWindow):
             self.recent_folders_menu.addSeparator()
 
         clear_action = QAction("Clear Recent", self)
-        clear_action.setIcon(QIcon(resource_path("assets/icons/clear_recent.png")))
+        clear_action.setIcon(make_vector_icon("trash", "#f87171" if t["is_dark"] else "#dc2626", 14))
         clear_action.triggered.connect(self.clear_recent_folders)
         self.recent_folders_menu.addAction(clear_action)
 
@@ -4210,44 +4431,37 @@ class ImageSorterApp(QMainWindow):
         menu_bar = QMenuBar(self)
         self.setMenuBar(menu_bar)
         file_menu = menu_bar.addMenu("File")
-        import_action = QAction("Import Folder", self)
-        import_action.setIcon(QIcon(resource_path("assets/icons/folder.png")))
-        import_action.setShortcut(QKeySequence("Ctrl+O"))
-        import_action.setToolTip("Import images from folder (Ctrl+O)")
-        import_action.triggered.connect(self.import_folder)
-        file_menu.addAction(import_action)
-        reveal_action = QAction("Show in File Explorer", self)
-        reveal_action.setIcon(QIcon(resource_path("assets/icons/folder.png")))
-        reveal_action.setShortcut(QKeySequence("Ctrl+E"))
-        reveal_action.setToolTip("Reveal current image in File Explorer (Ctrl+E)")
-        reveal_action.triggered.connect(self.reveal_in_explorer)
-        file_menu.addAction(reveal_action)
+        self.import_action = QAction("Import Folder", self)
+        self.import_action.setShortcut(QKeySequence("Ctrl+O"))
+        self.import_action.setToolTip("Import images from folder (Ctrl+O)")
+        self.import_action.triggered.connect(self.import_folder)
+        file_menu.addAction(self.import_action)
 
-        recycle_action = QAction("Move to Recycle Bin", self)
-        recycle_action.setIcon(QIcon(resource_path("assets/icons/clear_recent.png")))
-        recycle_action.setShortcut(QKeySequence("Delete"))
-        recycle_action.setToolTip("Move current image to Windows Recycle Bin (Delete)")
-        recycle_action.triggered.connect(self.delete_current_to_recycle_bin)
-        file_menu.addAction(recycle_action)
+        self.reveal_action = QAction("Show in File Explorer", self)
+        self.reveal_action.setShortcut(QKeySequence("Ctrl+E"))
+        self.reveal_action.setToolTip("Reveal current image in File Explorer (Ctrl+E)")
+        self.reveal_action.triggered.connect(self.reveal_in_explorer)
+        file_menu.addAction(self.reveal_action)
 
-        export_action = QAction("Export Log", self)
-        export_action.setIcon(QIcon(resource_path("assets/icons/export_log.png")))
-        export_action.setToolTip("Export activity log to text file")
-        export_action.triggered.connect(self.export_log)
-        file_menu.addAction(export_action)
+        self.recycle_action = QAction("Move to Recycle Bin", self)
+        self.recycle_action.setShortcut(QKeySequence("Delete"))
+        self.recycle_action.setToolTip("Move current image to Windows Recycle Bin (Delete)")
+        self.recycle_action.triggered.connect(self.delete_current_to_recycle_bin)
+        file_menu.addAction(self.recycle_action)
+
+        self.export_action = QAction("Export Log", self)
+        self.export_action.setToolTip("Export activity log to text file")
+        self.export_action.triggered.connect(self.export_log)
+        file_menu.addAction(self.export_action)
+
         self.recent_folders_menu = file_menu.addMenu("Recent Folders")
-        self.recent_folders_menu.setIcon(QIcon(resource_path("assets/icons/recent_folder.png")))
         self.update_recent_folders_menu()
 
         view_menu = menu_bar.addMenu("View")
         self.light_action = QAction("Light Mode", self)
-        self.light_action.setIcon(QIcon(resource_path("assets/icons/light.png")))
         self.dark_action = QAction("Dark Mode", self)
-        self.dark_action.setIcon(QIcon(resource_path("assets/icons/dark.png")))
         self.system_action = QAction("System Default", self)
-        self.system_action.setIcon(QIcon(resource_path("assets/icons/system_default.png")))
         self.custom_action = QAction("Custom Theme", self)
-        self.custom_action.setIcon(QIcon(resource_path("assets/icons/theme.png")))
         self.custom_action.setCheckable(True)
         self.custom_action.setChecked(self.theme_mode == "custom")
         self.custom_action.triggered.connect(lambda: self.open_custom_theme_editor())
@@ -4284,63 +4498,56 @@ class ImageSorterApp(QMainWindow):
         self.include_subfolders_action.triggered.connect(self.toggle_include_subfolders)
         view_menu.addAction(self.include_subfolders_action)
 
-        dup_action = QAction("Find Duplicate / Similar Images", self)
-        dup_action.setShortcut(QKeySequence("Ctrl+D"))
-        dup_action.triggered.connect(self.scan_duplicates)
-        view_menu.addAction(dup_action)
+        self.dup_action = QAction("Find Duplicate / Similar Images", self)
+        self.dup_action.setShortcut(QKeySequence("Ctrl+D"))
+        self.dup_action.triggered.connect(self.scan_duplicates)
+        view_menu.addAction(self.dup_action)
 
-        jump_action = QAction("Jump to Image...", self)
-        jump_action.setShortcut(QKeySequence("Ctrl+G"))
-        jump_action.triggered.connect(self.jump_to_image_dialog)
-        view_menu.addAction(jump_action)
+        self.jump_action = QAction("Jump to Image...", self)
+        self.jump_action.setShortcut(QKeySequence("Ctrl+G"))
+        self.jump_action.triggered.connect(self.jump_to_image_dialog)
+        view_menu.addAction(self.jump_action)
 
-        preview_action = QAction("Full-Size Preview", self)
-        preview_action.setShortcut(QKeySequence("F"))
-        preview_action.triggered.connect(self.open_full_preview)
-        view_menu.addAction(preview_action)
+        self.preview_action = QAction("Full-Size Preview", self)
+        self.preview_action.setShortcut(QKeySequence("F"))
+        self.preview_action.triggered.connect(self.open_full_preview)
+        view_menu.addAction(self.preview_action)
 
         settings_menu = menu_bar.addMenu("Settings")
-        settings_action = QAction("Folder Settings", self)
-        settings_action.setIcon(QIcon(resource_path("assets/icons/folder.png")))
-        export_settings_action = QAction("Export Settings", self)
-        export_settings_action.setIcon(QIcon(resource_path("assets/icons/export.png")))
-        import_settings_action = QAction("Import Settings", self)
-        import_settings_action.setIcon(QIcon(resource_path("assets/icons/import.png")))
-        settings_action.triggered.connect(self.open_settings)
-        export_settings_action.triggered.connect(self.export_settings)
-        import_settings_action.triggered.connect(self.import_settings)
-        rapid_move_action = QAction("Rapid Move Speed", self)
-        rapid_move_action.setIcon(QIcon(resource_path("assets/icons/skip.png")))
-        rapid_move_action.triggered.connect(self.open_rapid_move_settings)
-        reset_settings_action = QAction("Reset Default Settings", self)
-        reset_settings_action.setIcon(QIcon(resource_path("assets/icons/clear_recent.png")))
-        reset_settings_action.triggered.connect(self.confirm_reset_default_settings)
+        self.settings_action = QAction("Folder Settings", self)
+        self.export_settings_action = QAction("Export Settings", self)
+        self.import_settings_action = QAction("Import Settings", self)
+        self.settings_action.triggered.connect(self.open_settings)
+        self.export_settings_action.triggered.connect(self.export_settings)
+        self.import_settings_action.triggered.connect(self.import_settings)
+        self.rapid_move_action = QAction("Rapid Move Speed", self)
+        self.rapid_move_action.triggered.connect(self.open_rapid_move_settings)
+        self.reset_settings_action = QAction("Reset Default Settings", self)
+        self.reset_settings_action.triggered.connect(self.confirm_reset_default_settings)
 
-        settings_menu.addAction(settings_action)
-        settings_menu.addAction(export_settings_action)
-        settings_menu.addAction(import_settings_action)
-        settings_menu.addAction(rapid_move_action)
+        settings_menu.addAction(self.settings_action)
+        settings_menu.addAction(self.export_settings_action)
+        settings_menu.addAction(self.import_settings_action)
+        settings_menu.addAction(self.rapid_move_action)
         settings_menu.addSeparator()
-        settings_menu.addAction(reset_settings_action)
+        settings_menu.addAction(self.reset_settings_action)
 
         help_menu = menu_bar.addMenu("Help")
-        shortcuts_action = QAction("Keyboard Shortcuts && Guide", self)
-        shortcuts_action.setIcon(QIcon(resource_path("assets/icons/about.png")))
-        shortcuts_action.setShortcut(QKeySequence("F1"))
-        shortcuts_action.setToolTip("View all keyboard shortcuts and usage tutorial (F1)")
-        shortcuts_action.triggered.connect(self.show_shortcuts_guide)
-        help_menu.addAction(shortcuts_action)
+        self.shortcuts_action = QAction("Keyboard Shortcuts && Guide", self)
+        self.shortcuts_action.setShortcut(QKeySequence("F1"))
+        self.shortcuts_action.setToolTip("View all keyboard shortcuts and usage tutorial (F1)")
+        self.shortcuts_action.triggered.connect(self.show_shortcuts_guide)
+        help_menu.addAction(self.shortcuts_action)
         help_menu.addSeparator()
 
-        about_action = QAction("About", self)
-        about_action.setIcon(QIcon(resource_path("assets/icons/about.png")))
-        about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
-        
-        update_action = QAction("Check for Updates", self)
-        update_action.setIcon(QIcon(resource_path("assets/icons/down_arrow.png")))
-        update_action.triggered.connect(self.check_for_updates)
-        help_menu.addAction(update_action)
+        self.about_action = QAction("About", self)
+        self.about_action.triggered.connect(self.show_about)
+        help_menu.addAction(self.about_action)
+
+        self.update_action = QAction("Check for Updates", self)
+        self.update_action.triggered.connect(self.check_for_updates)
+        help_menu.addAction(self.update_action)
+        self.update_menu_icons()
 
         central_widget.setLayout(main_layout)
 
@@ -4416,62 +4623,24 @@ class ImageSorterApp(QMainWindow):
         self.show_current_image()
 
     def show_info_dialog(self, title, message):
-        info_dialog = QMessageBox()
+        info_dialog = QMessageBox(self)
         info_dialog.setWindowTitle(title)
         info_dialog.setText(message)
         info_dialog.setIcon(QMessageBox.Information)
-        info_dialog.setWindowFlags(Qt.FramelessWindowHint)
-        info_dialog.setAttribute(Qt.WA_TranslucentBackground)
         self.apply_message_box_style(info_dialog)
         info_dialog.exec()
 
     def apply_message_box_style(self, message_box):
-        print(f"Theme Mode: {self.theme_mode}")
-        is_dark = self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark())
-        print(f"Is Dark: {is_dark}")
-
-        bg_color = "#1e1e1e" if is_dark else "#f9f9f9"
-        text_color = "white" if is_dark else "black"
-        btn_bg = "#2e2e2e" if is_dark else "#d0d0d0"
-        btn_hover = "#444444" if is_dark else "#b0b0b0"
-
-        message_box.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg_color};
-                color: {text_color};
-                border-radius: 10px;
-                padding: 10px;
-            }}
-            QMessageBox {{
-                background-color: {bg_color};
-                color: {text_color};
-                border-radius: 10px;
-                padding: 10px;
-            }}
-            QLabel {{
-                color: {text_color};
-                background-color: transparent;
-                font-size: 14px;
-            }}
-            QPushButton {{
-                background-color: {btn_bg};
-                color: {text_color};
-                border: none;
-                padding: 8px 20px;
-                font-weight: bold;
-                border-radius: 6px;
-                min-width: 90px;
-            }}
-            QPushButton:hover {{
-                background-color: {btn_hover};
-            }}
-            QPushButton:pressed {{
-                background-color: {btn_bg};
-            }}
-            QFrame {{
-                background-color: transparent;
-                border: none;
-            }}
+        t = self._get_ui_tokens()
+        message_box.setStyleSheet(build_studio_dialog_qss(t) + """
+            QMessageBox QLabel {
+                font-size: 13px;
+                padding: 4px 2px;
+            }
+            QMessageBox QPushButton {
+                min-width: 84px;
+                min-height: 28px;
+            }
         """)
 
     def write_log_to_file(self):
@@ -4832,26 +5001,18 @@ class ImageSorterApp(QMainWindow):
 
     def show_loading(self, show=True):
         if show:
-            # Sinkronkan gaya dengan tema
-            is_dark = self.theme_mode == "dark" or (self.theme_mode == "system" and self.is_system_dark())
-            if is_dark:
-                self.loading_label.setStyleSheet("""
-                    font-size: 16px;
-                    font-weight: bold;
-                    color: white;
-                    background-color: rgba(0, 0, 0, 180);
-                    border-radius: 10px;
-                    padding: 20px;
-                """)
-            else:
-                self.loading_label.setStyleSheet("""
-                    font-size: 16px;
-                    font-weight: bold;
-                    color: black;
-                    background-color: rgba(255, 255, 255, 180);
-                    border-radius: 10px;
-                    padding: 20px;
-                """)
+            t = self._get_ui_tokens()
+            bg_rgba = "rgba(18, 20, 27, 238)" if t["is_dark"] else "rgba(255, 255, 255, 244)"
+            self.loading_label.setAlignment(Qt.AlignCenter)
+            self.loading_label.setStyleSheet(f"""
+                font-size: 13px;
+                font-weight: 700;
+                color: {t["text"]};
+                background-color: {bg_rgba};
+                border: 1px solid {t["border_strong"]};
+                border-radius: 12px;
+                padding: 18px 22px;
+            """)
             window_rect = self.geometry()
             x = window_rect.x() + (window_rect.width() - self.loading_widget.width()) // 2
             y = window_rect.y() + (window_rect.height() - self.loading_widget.height()) // 2
@@ -5185,14 +5346,19 @@ class ImageSorterApp(QMainWindow):
         if not self.filtered_files:
             self.show_notification("No images loaded.")
             return
+        t = self._get_ui_tokens()
         dlg = QDialog(self)
         dlg.setWindowTitle("Jump to Image")
-        dlg.setMinimumWidth(300)
-        self.apply_message_box_style(dlg)
+        dlg.setMinimumWidth(330)
+        dlg.setStyleSheet(build_studio_dialog_qss(t))
         lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(10)
-        lbl = QLabel(f"Enter image number (1 – {len(self.filtered_files)}):")
+        lay.setContentsMargins(20, 18, 20, 16)
+        lay.setSpacing(12)
+        hdr = QLabel("Jump to Media Index")
+        hdr.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {t['text']};")
+        lay.addWidget(hdr)
+        lbl = QLabel(f"Enter media number (1 – {len(self.filtered_files):,}):")
+        lbl.setStyleSheet(f"font-size: 12px; color: {t['text_muted']};")
         lay.addWidget(lbl)
         spin = QSpinBox()
         spin.setRange(1, len(self.filtered_files))
@@ -5200,10 +5366,16 @@ class ImageSorterApp(QMainWindow):
         spin.setFixedHeight(34)
         lay.addWidget(spin)
         btns = QHBoxLayout()
+        btns.setSpacing(8)
         btns.addStretch()
         cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
         cancel_btn.clicked.connect(dlg.reject)
-        go_btn = QPushButton("Go")
+        go_btn = QPushButton("Jump")
+        go_btn.setObjectName("primaryBtn")
+        go_btn.setCursor(Qt.PointingHandCursor)
+        go_btn.setIcon(make_vector_icon("jump", "#ffffff", 14))
+        go_btn.setIconSize(QSize(14, 14))
         go_btn.setDefault(True)
         go_btn.clicked.connect(dlg.accept)
         btns.addWidget(cancel_btn)
@@ -5822,16 +5994,13 @@ class ImageSorterApp(QMainWindow):
             msg.exec()
 
     def get_empty_state_text(self, compact: bool = False):
-        """Teks panduan singkat bergaya monokrom bersih saat belum ada gambar yang dimuat."""
-        is_dark = (
-            self.theme_mode in ("dark", "custom")
-            or (self.theme_mode == "system" and self.is_system_dark())
-        )
-        title_col = "#ededef" if is_dark else "#18181b"
-        sub_col = "#787882" if is_dark else "#71717a"
-        key_col = "#e4e4e7" if is_dark else "#18181b"
-        desc_col = "#9e9ea8" if is_dark else "#52525b"
-        row_bg = "#18181c" if is_dark else "#f4f4f6"
+        """Teks panduan singkat bergaya Studio Slate saat belum ada media yang dimuat."""
+        t = self._get_ui_tokens()
+        title_col = t["text"]
+        sub_col = t["text_muted"]
+        key_col = t["accent"]
+        desc_col = t["text"]
+        row_bg = t["surface"]
 
         max_key = max(3, len(self.folder_names)) if getattr(self, "folder_names", None) else 5
         max_let = ALL_SLOT_LETTERS[min(max_key - 1, len(ALL_SLOT_LETTERS) - 1)]
@@ -5841,7 +6010,7 @@ class ImageSorterApp(QMainWindow):
         title_sz = 15 if compact else 17
         return (
             f"<div align='center'>"
-            f"<p style='font-size:{title_sz}px; font-weight:600; color:{title_col}; margin-bottom:3px;'>No Image Loaded</p>"
+            f"<p style='font-size:{title_sz}px; font-weight:700; color:{title_col}; margin-bottom:3px;'>No Media Loaded</p>"
             f"<p style='font-size:{font_sz}px; color:{sub_col}; margin-top:0px; margin-bottom:{8 if compact else 14}px;'>"
             f"Drop a folder or press <font face='Consolas' color='{key_col}'><b>Ctrl+O</b></font>"
             f"</p>"

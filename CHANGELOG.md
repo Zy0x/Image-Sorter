@@ -2,6 +2,14 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.17 — 2026-11-22
+
+### Improved — end-to-end Studio Slate UI consistency, complete menu vector icons & scrollable anti-clipping dialogs
+- **Unified Studio Slate Dialog, Popup & Overlay System (`resolve_studio_tokens` & `build_studio_dialog_qss`):** Standardized every secondary window, modal dialog, message box, loading overlay, and tooltip (`ShortcutsGuideDialog`, `AboutDialog`, `UpdateDialog`, `FolderSettingsDialog`, `RapidMoveSettingsDialog`, `CustomThemeDialog`, `jump_to_image_dialog`, `QMessageBox`, `loading_widget`, and `QToolTip`) on the shared Studio Slate token engine so colors, borders, typography, inputs, sliders, scrollbars, and action buttons remain 100% consistent across Dark, Light, System, and Custom themes.
+- **Complete High-DPI Vector Icon Suite Across All Menus (`update_menu_icons`):** Added 2× DPI anti-aliased `QPainter` vector icons for **every item** in `File`, `View`, `Settings`, and `Help`—including `Hide Moved Images`, `Include Subfolders`, `Find Duplicate / Similar Images`, `Jump to Image...`, `Full-Size Preview`, `Recent Folders` entries, `Custom Theme`, `Light/Dark/System Mode`, `Folder Settings`, `Export/Import Settings`, `Rapid Move Speed`, `Reset Default Settings`, `Keyboard Shortcuts & Guide`, `About`, and `Check for Updates`.
+- **Scrollable Anti-Clipping `ShortcutsGuideDialog` (`F1`):** Wrapped the two-column keymap table inside a frameless vertical `QScrollArea`, enabled word-wrapping on the Quick Workflow banner, and increased row height/padding so hairlines and keycaps never overlap or clip at any window height.
+- **Refined Settings & Info Dialogs:** Upgraded `FolderSettingsDialog` with color-coded `[1]`–`[9]` key badges matching the main window's slot accents, expanded `CustomThemeDialog` into a comfortable `450×480` live hex-swatch editor, and updated `RapidMoveSettingsDialog` with live files/sec throughput feedback for slots `1`–`9`.
+
 ## 2.1.16 — 2026-11-22
 
 ### Improved — enforced ergonomic minimum window & preview bounds

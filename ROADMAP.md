@@ -108,6 +108,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.17-Stable (Selesai)
+- [x] **Konsistensi Penuh Studio Slate di Seluruh Dialog, Popup, Overlay & Menu (`resolve_studio_tokens` / `build_studio_dialog_qss`):** Menyeragamkan seluruh jendela dialog (`ShortcutsGuideDialog`, `AboutDialog`, `UpdateDialog`, `FolderSettingsDialog`, `RapidMoveSettingsDialog`, `CustomThemeDialog`, `Jump to Image`, `QMessageBox`, `loading_widget`, dan `QToolTip`) dengan sistem token Studio Slate, menambahkan ikon vektor 2× DPI lengkap di **seluruh opsi menu** (`File`, `View`, `Settings`, `Help`), serta melengkapi `ShortcutsGuideDialog` (`F1`) dengan `QScrollArea` vertikal dan *word-wrap* agar tidak pernah tumpang tindih atau terpotong di ukuran layar mana pun.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.
