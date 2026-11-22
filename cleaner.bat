@@ -13,13 +13,16 @@ mkdir Source
 REM Pindahkan semua struktur folder dan file ke folder Source, kecuali ImageSorter.exe
 move assets Source\
 move config Source\
+move core Source\
+move media Source\
+move ui Source\
 move output Source\
 move utils Source\
+move tests Source\
 move build.bat Source\
 move ImageSorter.spec Source\
 move installer.iss Source\
 move main.py Source\
 move README.md Source\
 move requirements.txt Source\
-move res_compiler.bat Source\
 move cleaner.bat Source\

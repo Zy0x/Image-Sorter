@@ -1,5 +1,5 @@
 #define MyAppName "ImageSorter"
-#define MyAppVersion "2.1.19"
+#define MyAppVersion "2.1.20"
 #define MyAppPublisher "Jessie"
 #define MyAppExeName "ImageSorter.exe"
 
@@ -33,6 +33,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "core\*"; DestDir: "{app}\core"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "media\*"; DestDir: "{app}\media"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "ui\*"; DestDir: "{app}\ui"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "output\*"; DestDir: "{app}\output"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "utils\*"; DestDir: "{app}\utils"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -47,7 +50,7 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "{code:GetExeParameters}"; Descri
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
-Type: filesandordirs; Name: "{userappdata}\.image_sorter"
+Type: filesandordirs; Name: "{localappdata}\ImageSorter"
 
 [Code]
 var
@@ -198,10 +201,10 @@ begin
   begin
     if not IsPortableMode then
     begin
-      UserConfigDir := ExpandConstant('{userappdata}\.image_sorter');
+      UserConfigDir := ExpandConstant('{localappdata}\ImageSorter');
       if DirExists(UserConfigDir) then
       begin
-        if MsgBox('Do you want to delete the configuration folder (.image_sorter)? This will remove all saved settings.', mbConfirmation, MB_YESNO) = IDYES then
+        if MsgBox('Do you want to delete the saved user configuration folder (ImageSorter)? This will remove all saved settings and sorting history.', mbConfirmation, MB_YESNO) = IDYES then
         begin
           DelTree(UserConfigDir, True, True, True);
           Log('CurUninstallStepChanged: Deleted configuration folder ' + UserConfigDir);

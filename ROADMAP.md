@@ -123,6 +123,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.20-Stable (Selesai)
+- [x] **Modularisasi & Refactoring Arsitektur (`core/`, `media/`, `ui/`, `tests/`) + Pembersihan Aset Usang:** Memecah kode monolitik `main.py` menjadi modul `core/` (config, `HistoryStore`, `file_ops`, `MediaQueueModel`, `workers`, `HotReloadWatcher`), `media/` (`formats`, `decoders`, `duplicates`, `PixmapLRUCache`, `VideoMediaController`), dan `ui/` (`theme`, `widgets`, `dialogs/`, `main_window`), menghapus 16 ikon PNG usang & skrip Qt resource (`resources.py`/`.qrc`/`res_compiler.bat`), memperbarui `build.bat`/`installer.iss`/`cleaner.bat`, serta menambahkan test suite permanen di `tests/`.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.

@@ -2,6 +2,16 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.20 — 2026-11-22
+
+### Refactored & Improved — modular `core/`, `media/`, `ui/` architecture, legacy asset cleanup & structured `tests/` suite
+- **Modular Package Refactoring (`core/`, `media/`, `ui/`, thin `main.py`):** Split the monolithic 6,433-line `main.py` into cohesive modules:
+  - `core/` (`config.py`, `history.py`, `file_ops.py`, `media_queue.py`, `workers.py`, `hot_reload.py`) handling atomic settings JSON I/O, lockstep `HistoryStore`, `os.scandir` file operations, queue filtering, background worker threads, and recursive multi-module live hot-reload.
+  - `media/` (`formats.py`, `decoders.py`, `duplicates.py`, `cache.py`, `video_controller.py`) encapsulating unified OpenCV/Pillow decoders, perceptual 64-bit `dHash` duplicate grouping, stat-keyed `PixmapLRUCache`, and `VideoMediaController` for zero-lock QtMultimedia playback (while retaining `utils/image_utils.py` as a clean compatibility shim).
+  - `ui/` (`theme.py`, `widgets.py`, `dialogs/`, `main_window.py`) centralizing Studio Slate tokens/QSS/2× DPI vector icons, reusable widgets (`StageViewport`, `MediaHudOverlay`, `ClickSeekSlider`, `ToastNotification`, `LoadingOverlay`), and cleanly separated dialogs (`UpdateDialog`, `AboutDialog`, `ShortcutsGuideDialog`, `JumpToMediaDialog`, `CustomThemeDialog`, `FolderSettingsDialog`, `RapidMoveSettingsDialog`, `ImagePreviewDialog`).
+- **Obsolete Asset & Build Cleanup:** Removed unused legacy Qt resource files (`utils/resources.py`, `utils/resources.qrc`, `res_compiler.bat`), obsolete workflow stub, and 16 unused legacy PNG icons in `assets/icons/`. Updated `build.bat`, `cleaner.bat`, and `installer.iss` to bundle `core/`, `media/`, and `ui/`, and fixed `installer.iss` uninstaller cleanup to target `{localappdata}\ImageSorter`.
+- **Structured Unittest Suite & Visual Polish:** Added a permanent `tests/` suite (`python -m unittest discover -s tests -v`), deduplicated stage pixmap fitting (`_paint_fitted_pixmap`) and modal messaging (`show_studio_message`), enabled clean word-wrapping on `FolderSettingsDialog` slot captions, and replaced Qt mnemonic ampersand on the custom theme save button.
+
 ## 2.1.19 — 2026-11-22
 
 ### Improved — balanced menu icon-to-label spacing & GitHub Markdown Release Notes preview

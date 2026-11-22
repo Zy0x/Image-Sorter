@@ -16,7 +16,7 @@
   <a href="https://github.com/Zy0x/Image-Sorter/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/releases/latest"><img src="https://img.shields.io/github/v/release/Zy0x/Image-Sorter?sort=semver&color=orange" alt="Latest Release"></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python Version"></a>
-  <a href="#"><img src="https://img.shields.io/badge/version-2.1.19--Stable-brightgreen.svg" alt="Version"></a>
+  <a href="#"><img src="https://img.shields.io/badge/version-2.1.20--Stable-brightgreen.svg" alt="Version"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/stargazers"><img src="https://img.shields.io/github/stars/Zy0x/Image-Sorter?style=social" alt="Stars"></a>
 </div>
 
@@ -105,7 +105,26 @@ run.bat
 
 ## 🎨 Themes & Customization
 
-Switch between **Light Mode**, **Dark Mode**, **System Default**, or **Custom Theme** (customizable background, text, button, hover, border, and glow colors).
+Switch between **Light Mode**, **Dark Mode**, **System Default**, or **Custom Theme** (customizable background, text, button, hover, border, and menu tokens).
+
+## 🧩 Project Structure & Testing
+
+```
+Image Sorter/
+├── main.py                  # Application entrypoint & compatibility facade
+├── core/                    # Config, HistoryStore, file ops, MediaQueueModel, workers, hot-reload
+├── media/                   # Format detection, Pillow/OpenCV decoders, dHash duplicates, LRU cache, video controller
+├── ui/                      # Studio Slate tokens/QSS/vector icons, reusable widgets, dialogs/, main_window.py
+├── utils/                   # Backward-compatible utility shims
+├── tests/                   # Structured unit & headless UI test suite
+└── assets/                  # App icon & documentation screenshots
+```
+
+Run the automated test suite anytime with:
+
+```bash
+python -m unittest discover -s tests -v
+```
 
 ## 📦 Documentation
 

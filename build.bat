@@ -5,7 +5,6 @@ setlocal
 set "SPEC_NAME=ImageSorter"
 set "MAIN_SCRIPT=main.py"
 set "UTILS_DIR=utils"
-set "RESOURCES_PY=%UTILS_DIR%\resources.py"
 set "SPEC_FILE=%SPEC_NAME%.spec"
 set "DIST_DIR=dist"
 set "BUILD_DIR=build"
@@ -17,10 +16,9 @@ echo #                       IMAGE SORTER - BUILD SCRIPT                     #
 echo #########################################################################
 echo.
 
-:: 1. Check if resources.py exists
-if not exist "%RESOURCES_PY%" (
-    echo [ERROR] File %RESOURCES_PY% not found!
-    echo Please make sure you have run res_compiler.bat first.
+:: 1. Verify main entrypoint exists
+if not exist "%MAIN_SCRIPT%" (
+    echo [ERROR] Entrypoint %MAIN_SCRIPT% not found!
     echo.
     pause
     exit /b 1
@@ -47,6 +45,9 @@ if exist "%ICON_FILE%" (
     echo [INFO] Using application icon: %ICON_FILE%
     pyinstaller --noconfirm --clean --name=%SPEC_NAME% --onefile --windowed ^
         --icon="%ICON_FILE%" ^
+        --add-data "core;core" ^
+        --add-data "media;media" ^
+        --add-data "ui;ui" ^
         --add-data "%UTILS_DIR%;utils" ^
         --add-data "assets;assets" ^
         "%MAIN_SCRIPT%"
