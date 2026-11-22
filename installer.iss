@@ -1,5 +1,5 @@
 #define MyAppName "ImageSorter"
-#define MyAppVersion "2.1.21"
+#define MyAppVersion "2.1.22"
 #define MyAppPublisher "Jessie"
 #define MyAppExeName "ImageSorter.exe"
 

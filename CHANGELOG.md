@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.22 — 2026-11-22
+
+### Fixed & Improved — synchronized settings persistence, recent folders history & cross-session activity trail
+- **Lockstep Settings Synchronization (`_sync_and_save_settings` & `normalize_settings`):** Eliminated the stale in-memory `self.settings` overwrite race where changing `Recent Folders`, `Hide Moved Images`, `Include Subfolders`, or `Video Mute` after closing `FolderSettingsDialog`, `RapidMoveSettingsDialog`, or `CustomThemeDialog` could overwrite newly saved dialog configurations. All settings changes now merge, normalize, pad all 9 folder slot arrays, and persist atomically.
+- **Persistent Recent Folders, Last-Opened Directory Memory & Clear Option (`open_recent_folder` / `clear_recent_folders`):** Expanded `Recent Folders` persistence (up to 10 normalized, case-deduplicated directories), added `last_opened_folder` memory so `Import Folder` (`Ctrl+O`) starts at the user's most recent workspace across restarts, auto-prunes deleted directories with user feedback, and added a `Clear Recent Folders` action in `File → Recent Folders`.
+- **Cross-Session Event Log & Shutdown Flush (`read_recent_event_log` & `closeEvent`):** Preloads up to 500 recent activity entries from `config/event.log` on startup so `File → Export Log` retains multi-session history, and forces an immediate atomic flush of both `history.json` and `settings.json` on window close.
+
 ## 2.1.21 — 2026-11-22
 
 ### Improved — Dark & Light theme contrast, QPalette synchronization, vector icon alpha fills & custom controls

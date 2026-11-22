@@ -7,7 +7,7 @@ import sys
 from datetime import datetime
 
 APP_NAME = "ImageSorter"
-APP_VERSION = "2.1.21-Stable"
+APP_VERSION = "2.1.22-Stable"
 
 MIN_FOLDER_SLOTS = 3
 MAX_FOLDER_SLOTS = 9
@@ -38,13 +38,15 @@ DEFAULT_SETTINGS = {
     "first_run": True,
     "folder_slot_count": DEFAULT_FOLDER_SLOTS,
     "include_subfolders": False,
-    "folder_names": DEFAULT_FOLDER_NAMES[:DEFAULT_FOLDER_SLOTS],
-    "folder_paths": DEFAULT_FOLDER_PATHS[:DEFAULT_FOLDER_SLOTS],
+    "hide_moved": False,
+    "folder_names": list(DEFAULT_FOLDER_NAMES),
+    "folder_paths": list(DEFAULT_FOLDER_PATHS),
     "recent_folders": [],
+    "last_opened_folder": "",
     "theme_mode": "system",
     "rapid_move_interval": RAPID_MOVE_DEFAULT_MS,
     "video_muted": False,
-    "video_volume": 0.8,
+    "video_volume": 0.85,
     "custom_theme": copy.deepcopy(DEFAULT_CUSTOM_THEME),
 }
 
@@ -135,6 +137,20 @@ def append_event_log(lines) -> None:
         debug_log(f"Error writing to event.log: {e}")
 
 
+def read_recent_event_log(max_lines: int = 500) -> list:
+    """Read up to max_lines recent activity entries from persistent event.log."""
+    path = get_event_log_path()
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = [ln.rstrip("\r\n") for ln in f if ln.strip()]
+        return lines[-max_lines:]
+    except OSError as e:
+        debug_log(f"Error reading event.log: {e}")
+        return []
+
+
 def format_log_entry(message: str) -> str:
     """Format a timestamped activity entry."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -182,36 +198,104 @@ def atomic_json_write(target_path: str, payload, indent=None, ensure_ascii: bool
     os.replace(tmp_path, target_path)
 
 
+def normalize_settings(raw: dict, first_run_default: bool = True) -> dict:
+    """Validate, clamp, pad 9-slot lists, and deduplicate recent_folders in a settings dictionary."""
+    merged = default_settings_copy(first_run=first_run_default)
+    if not isinstance(raw, dict):
+        return merged
+
+    for key, value in raw.items():
+        if key != "custom_theme":
+            merged[key] = copy.deepcopy(value)
+
+    merged["first_run"] = bool(raw.get("first_run", first_run_default))
+    merged["folder_slot_count"] = clamp_folder_slots(raw.get("folder_slot_count", DEFAULT_FOLDER_SLOTS))
+    merged["include_subfolders"] = bool(raw.get("include_subfolders", False))
+    merged["hide_moved"] = bool(raw.get("hide_moved", False))
+
+    raw_names = raw.get("folder_names")
+    names = [str(x).strip() for x in raw_names] if isinstance(raw_names, list) else []
+    padded_names = []
+    for i in range(MAX_FOLDER_SLOTS):
+        val = names[i] if i < len(names) and names[i] else DEFAULT_FOLDER_NAMES[i]
+        padded_names.append(val)
+    merged["folder_names"] = padded_names
+
+    raw_paths = raw.get("folder_paths")
+    paths = [str(x).strip() for x in raw_paths] if isinstance(raw_paths, list) else []
+    padded_paths = []
+    for i in range(MAX_FOLDER_SLOTS):
+        val = paths[i] if i < len(paths) and paths[i] else DEFAULT_FOLDER_PATHS[i]
+        padded_paths.append(val)
+    merged["folder_paths"] = padded_paths
+
+    raw_recent = raw.get("recent_folders")
+    dedup_recent = []
+    seen_recent = set()
+    if isinstance(raw_recent, list):
+        for item in raw_recent:
+            if isinstance(item, str) and item.strip():
+                norm_p = os.path.normpath(item.strip())
+                key_p = os.path.normcase(os.path.abspath(norm_p))
+                if key_p not in seen_recent:
+                    seen_recent.add(key_p)
+                    dedup_recent.append(norm_p)
+    merged["recent_folders"] = dedup_recent[:10]
+
+    last_folder = raw.get("last_opened_folder", "")
+    if not isinstance(last_folder, str) or not last_folder.strip():
+        last_folder = dedup_recent[0] if dedup_recent else ""
+    else:
+        last_folder = os.path.normpath(last_folder.strip())
+    merged["last_opened_folder"] = last_folder
+
+    theme_mode = raw.get("theme_mode", "system")
+    merged["theme_mode"] = theme_mode if theme_mode in ("system", "dark", "light", "custom") else "system"
+
+    interval_raw = raw.get("rapid_move_interval", raw.get("rapid_move_interval_ms", RAPID_MOVE_DEFAULT_MS))
+    merged["rapid_move_interval"] = clamp_rapid_interval(interval_raw)
+    merged.pop("rapid_move_interval_ms", None)
+
+    merged["video_muted"] = bool(raw.get("video_muted", False))
+    try:
+        vol = float(raw.get("video_volume", 0.85))
+    except (TypeError, ValueError):
+        vol = 0.85
+    merged["video_volume"] = max(0.0, min(1.0, vol))
+
+    ct = copy.deepcopy(DEFAULT_CUSTOM_THEME)
+    raw_ct = raw.get("custom_theme")
+    if isinstance(raw_ct, dict):
+        for k, v in raw_ct.items():
+            if isinstance(v, str) and v.strip():
+                ct[k] = v.strip()
+    merged["custom_theme"] = ct
+    return merged
+
+
 def load_settings() -> dict:
-    """Load settings.json merged cleanly with canonical defaults."""
+    """Load settings.json merged and normalized cleanly with canonical defaults."""
     config_path = get_config_path()
-    defaults = default_settings_copy(first_run=True)
     try:
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
             if isinstance(loaded, dict):
-                for key, value in defaults.items():
-                    if key not in loaded:
-                        loaded[key] = copy.deepcopy(value)
-                ct_loaded = loaded.get("custom_theme")
-                if not isinstance(ct_loaded, dict):
-                    loaded["custom_theme"] = copy.deepcopy(DEFAULT_CUSTOM_THEME)
-                else:
-                    for ck, cv in DEFAULT_CUSTOM_THEME.items():
-                        ct_loaded.setdefault(ck, cv)
-                return loaded
-    except (json.JSONDecodeError, IOError) as e:
+                return normalize_settings(loaded, first_run_default=True)
+    except (json.JSONDecodeError, IOError, OSError) as e:
         debug_log(f"Error loading settings: {e}")
-    return defaults
+    return default_settings_copy(first_run=True)
 
 
 def save_settings(settings: dict) -> None:
-    """Persist settings.json atomically and record its signature to skip self hot-reloads."""
+    """Persist normalized settings.json atomically and record its signature to skip self hot-reloads."""
     global _LAST_INTERNAL_SETTINGS_SIG
     config_path = get_config_path()
+    normalized = normalize_settings(settings, first_run_default=False)
+    if isinstance(settings, dict) and "first_run" in settings:
+        normalized["first_run"] = bool(settings["first_run"])
     try:
-        atomic_json_write(config_path, settings, indent=4, ensure_ascii=True)
+        atomic_json_write(config_path, normalized, indent=4, ensure_ascii=False)
         _LAST_INTERNAL_SETTINGS_SIG = file_signature(config_path)
     except (IOError, OSError) as e:
         debug_log(f"Error saving settings: {e}")

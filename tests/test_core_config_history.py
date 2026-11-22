@@ -124,6 +124,24 @@ class CoreConfigHistoryQueueTests(unittest.TestCase):
         self.assertNotIn(f_png, q.filtered_files)
         self.assertEqual(q.find_next_unmoved_index(-1), 0)
 
+    def test_normalize_settings_pads_slots_and_deduplicates_recent_folders(self):
+        legacy = {
+            "folder_slot_count": 7,
+            "folder_names": ["Alpha", "Beta"],
+            "folder_paths": ["out/alpha", "out/beta"],
+            "recent_folders": [self.temp_dir, self.temp_dir, os.path.join(self.temp_dir, "sub")],
+            "rapid_move_interval_ms": 175,
+        }
+        cfg.save_settings(legacy)
+        loaded = cfg.load_settings()
+        self.assertEqual(loaded["folder_slot_count"], 7)
+        self.assertEqual(len(loaded["folder_names"]), cfg.MAX_FOLDER_SLOTS)
+        self.assertEqual(loaded["folder_names"][:2], ["Alpha", "Beta"])
+        self.assertEqual(len(loaded["folder_paths"]), cfg.MAX_FOLDER_SLOTS)
+        self.assertEqual(loaded["rapid_move_interval"], 175)
+        self.assertEqual(len(loaded["recent_folders"]), 2)
+        self.assertEqual(loaded["last_opened_folder"], os.path.normpath(self.temp_dir))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -133,6 +133,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.22-Stable (Selesai)
+- [x] **Persistensi Pengaturan Anti-Timpa, Memori Recent Folders & Jejak Histori Lintas Sesi (`_sync_and_save_settings`, `normalize_settings`, `read_recent_event_log`):** Menjamin seluruh perubahan di `FolderSettingsDialog`, `RapidMoveSettingsDialog`, `CustomThemeDialog`, `Recent Folders` (lengkap dengan `last_opened_folder` dan `Clear Recent Folders`), `Hide Moved`, `Include Subfolders`, `Video Mute`, `history.json`, serta `event.log` tersimpan atomik dan termuat kembali secara utuh saat aplikasi dibuka ulang.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.

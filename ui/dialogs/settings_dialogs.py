@@ -184,14 +184,15 @@ class CustomThemeDialog(QDialog):
         self._save_and_accept()
 
     def _save_and_accept(self) -> None:
-        settings = load_settings()
-        settings["custom_theme"] = copy.deepcopy(self.custom_theme)
-        settings["theme_mode"] = "custom"
-        save_settings(settings)
         parent = self.parentWidget()
         if parent is not None and hasattr(parent, "set_theme_mode"):
             parent.custom_theme = copy.deepcopy(self.custom_theme)
             parent.set_theme_mode("custom")
+        else:
+            settings = load_settings()
+            settings["custom_theme"] = copy.deepcopy(self.custom_theme)
+            settings["theme_mode"] = "custom"
+            save_settings(settings)
         self.accept()
 
 
@@ -400,21 +401,29 @@ class FolderSettingsDialog(QDialog):
             (self._path_inputs[i].text().strip() or DEFAULT_FOLDER_PATHS[i])
             for i in range(MAX_FOLDER_SLOTS)
         ]
-        settings = load_settings()
-        settings["folder_slot_count"] = self._slot_count
-        settings["folder_names"] = names
-        settings["folder_paths"] = paths
-        save_settings(settings)
-
         parent = self.parentWidget()
         if parent is not None:
             parent.folder_slot_count = self._slot_count
             parent.folder_names = list(names)
             parent.folder_paths = list(paths)
+            if hasattr(parent, "_sync_and_save_settings"):
+                parent._sync_and_save_settings()
+            else:
+                settings = load_settings()
+                settings["folder_slot_count"] = self._slot_count
+                settings["folder_names"] = names
+                settings["folder_paths"] = paths
+                save_settings(settings)
             if hasattr(parent, "update_folder_buttons"):
                 parent.update_folder_buttons()
             if hasattr(parent, "_sync_minimum_window_size"):
                 parent._sync_minimum_window_size()
+        else:
+            settings = load_settings()
+            settings["folder_slot_count"] = self._slot_count
+            settings["folder_names"] = names
+            settings["folder_paths"] = paths
+            save_settings(settings)
         self.accept()
 
 
@@ -507,10 +516,17 @@ class RapidMoveSettingsDialog(QDialog):
 
     def _save_and_accept(self) -> None:
         val = clamp_rapid_interval(self.spin.value())
-        settings = load_settings()
-        settings["rapid_move_interval"] = val
-        save_settings(settings)
         parent = self.parentWidget()
         if parent is not None:
             parent.rapid_move_interval_ms = val
+            if hasattr(parent, "_sync_and_save_settings"):
+                parent._sync_and_save_settings()
+            else:
+                settings = load_settings()
+                settings["rapid_move_interval"] = val
+                save_settings(settings)
+        else:
+            settings = load_settings()
+            settings["rapid_move_interval"] = val
+            save_settings(settings)
         self.accept()

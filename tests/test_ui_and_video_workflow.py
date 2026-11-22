@@ -145,6 +145,80 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
         finally:
             win.close()
 
+    def test_cross_session_persistence_of_recent_folders_dialogs_and_history(self):
+        png_1, dup_jpg, _gif_1, _mp4_1 = self._create_sample_media()
+        second_dir = os.path.join(self.temp_root, "src_second")
+        os.makedirs(second_dir, exist_ok=True)
+
+        win1 = app_main.ImageSorterApp()
+        try:
+            # 1. Configure 7 folder slots via FolderSettingsDialog
+            fs = app_main.FolderSettingsDialog(win1)
+            fs._set_slot_count(7)
+            fs.inputs[0][0].setText("Favorites")
+            fs.inputs[0][1].setText(self.dest_dir)
+            fs._save_and_accept()
+
+            # 2. Configure Rapid Move interval via RapidMoveSettingsDialog
+            rm = app_main.RapidMoveSettingsDialog(win1)
+            rm.spin.setValue(175)
+            rm._save_and_accept()
+
+            # 3. Configure Custom Theme via CustomThemeDialog
+            ct = app_main.CustomThemeDialog(win1)
+            ct.custom_theme["main_border_color"] = "#ff5500"
+            ct._save_and_accept()
+
+            # 4. Subsequent actions must NOT overwrite dialog settings with stale self.settings
+            win1._record_recent_folder(second_dir)
+            win1.load_file_list(self.src_dir, [png_1, dup_jpg])
+            win1.hide_moved_action.setChecked(True)
+            win1.toggle_hide_moved()
+            win1.include_subfolders_action.setChecked(True)
+            win1.toggle_include_subfolders()
+            win1.set_video_muted(True, notify=False)
+            self.assertTrue(win1.move_to_custom_folder(self.dest_dir))
+        finally:
+            win1.close()
+
+        # Re-open a brand-new window instance and verify 100% state restoration
+        win2 = app_main.ImageSorterApp()
+        try:
+            self.assertEqual(win2.folder_slot_count, 7)
+            self.assertEqual(win2.folder_names[0], "Favorites")
+            self.assertEqual(win2.folder_paths[0], self.dest_dir)
+            self.assertEqual(win2.rapid_move_interval_ms, 175)
+            self.assertEqual(win2.theme_mode, "custom")
+            self.assertEqual(win2.custom_theme["main_border_color"], "#ff5500")
+            self.assertTrue(win2.hide_moved)
+            self.assertTrue(win2.hide_moved_action.isChecked())
+            self.assertTrue(win2.include_subfolders)
+            self.assertTrue(win2.include_subfolders_action.isChecked())
+            self.assertTrue(win2.video_muted)
+            self.assertEqual(len(win2.recent_folders), 2)
+            self.assertEqual(
+                os.path.normcase(win2.recent_folders[0]),
+                os.path.normcase(os.path.abspath(self.src_dir)),
+            )
+            self.assertEqual(
+                os.path.normcase(win2.last_opened_folder),
+                os.path.normcase(os.path.abspath(self.src_dir)),
+            )
+            self.assertEqual(len(win2.history_store.records), 1)
+            self.assertGreaterEqual(len(win2.log_entries), 1)
+
+            # Undo across restart restores the moved file
+            win2.undo_action()
+            self.assertTrue(os.path.exists(png_1))
+            self.assertEqual(len(win2.history_store.records), 0)
+
+            # Clear recent folders persists immediately
+            win2.clear_recent_folders()
+            self.assertEqual(win2.recent_folders, [])
+            self.assertEqual(cfg.load_settings()["recent_folders"], [])
+        finally:
+            win2.close()
+
 
 if __name__ == "__main__":
     unittest.main()

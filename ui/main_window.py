@@ -43,6 +43,8 @@ from core.config import (
     default_settings_copy,
     format_log_entry,
     load_settings,
+    normalize_settings,
+    read_recent_event_log,
     resource_path,
     save_settings,
 )
@@ -124,7 +126,7 @@ class ImageSorterApp(QMainWindow):
         self.history_store = HistoryStore()
         self.media_queue = MediaQueueModel(self.history_store)
         self.pixmap_cache = PixmapLRUCache(max_entries=48)
-        self.log_entries = deque(maxlen=500)
+        self.log_entries = deque(read_recent_event_log(500), maxlen=500)
 
         # Config-backed state
         self.theme_mode = self.settings.get("theme_mode", "system")
@@ -139,6 +141,9 @@ class ImageSorterApp(QMainWindow):
             self.folder_paths.append(DEFAULT_FOLDER_PATHS[len(self.folder_paths)])
 
         self.recent_folders = list(self.settings.get("recent_folders", []))
+        self.last_opened_folder = self.settings.get("last_opened_folder", "") or (
+            self.recent_folders[0] if self.recent_folders else ""
+        )
         self.hide_moved = bool(self.settings.get("hide_moved", False))
         self.include_subfolders = bool(self.settings.get("include_subfolders", False))
         self.rapid_move_interval_ms = clamp_rapid_interval(
@@ -221,7 +226,34 @@ class ImageSorterApp(QMainWindow):
             QTimer.singleShot(50, lambda: self.import_folder(initial_folder))
         elif self.settings.get("first_run", True):
             self.settings["first_run"] = False
-            save_settings(self.settings)
+            self._sync_and_save_settings()
+
+    def _sync_and_save_settings(self) -> dict:
+        """Synchronize all live in-memory configuration fields into self.settings and persist atomically."""
+        latest = load_settings()
+        latest.update(self.settings)
+        latest["first_run"] = False
+        latest["theme_mode"] = self.theme_mode
+        latest["custom_theme"] = copy.deepcopy(self.custom_theme)
+        latest["folder_slot_count"] = clamp_folder_slots(self.folder_slot_count)
+        latest["folder_names"] = list(self.folder_names[:MAX_FOLDER_SLOTS])
+        latest["folder_paths"] = list(self.folder_paths[:MAX_FOLDER_SLOTS])
+        latest["recent_folders"] = list(self.recent_folders[:10])
+        latest["last_opened_folder"] = (
+            self.current_folder
+            or getattr(self, "last_opened_folder", "")
+            or (self.recent_folders[0] if self.recent_folders else "")
+        )
+        latest["hide_moved"] = bool(self.hide_moved)
+        latest["include_subfolders"] = bool(self.include_subfolders)
+        latest["rapid_move_interval"] = clamp_rapid_interval(self.rapid_move_interval_ms)
+        latest["video_muted"] = bool(self.video_muted)
+        latest["video_volume"] = float(self.video_volume)
+        self.settings = normalize_settings(latest, first_run_default=False)
+        self.recent_folders = list(self.settings["recent_folders"])
+        self.last_opened_folder = self.settings["last_opened_folder"]
+        save_settings(self.settings)
+        return self.settings
 
     # ------------------------------------------------------------------
     # Backwards-compatible properties & accessors for external tests
@@ -555,18 +587,49 @@ class ImageSorterApp(QMainWindow):
             return
         self.recent_menu.clear()
         tokens = resolve_studio_tokens(self)
-        valid_recent = [p for p in self.recent_folders if os.path.isdir(p)][:8]
+        valid_recent = [p for p in self.recent_folders if isinstance(p, str) and p.strip()][:10]
         if not valid_recent:
             empty_act = QAction("(No recent folders)", self)
             empty_act.setEnabled(False)
             empty_act.setIcon(make_vector_icon("clock", tokens["text_muted"], 14))
             self.recent_menu.addAction(empty_act)
             return
+        folder_col = slot_text_color("#3b82f6", tokens["is_dark"])
         for path in valid_recent:
             act = QAction(path, self)
-            act.setIcon(make_vector_icon("folder", slot_text_color("#3b82f6", tokens["is_dark"]), 14))
-            act.triggered.connect(lambda _=False, p=path: self.import_folder(p))
+            act.setIcon(make_vector_icon("folder", folder_col, 14))
+            act.triggered.connect(lambda _=False, p=path: self.open_recent_folder(p))
             self.recent_menu.addAction(act)
+        self.recent_menu.addSeparator()
+        clear_act = QAction("Clear Recent Folders", self)
+        clear_act.setIcon(make_vector_icon("trash", slot_text_color("#ef4444", tokens["is_dark"]), 14))
+        clear_act.triggered.connect(self.clear_recent_folders)
+        self.recent_menu.addAction(clear_act)
+
+    def open_recent_folder(self, folder_path: str) -> None:
+        """Open a folder from Recent Folders, or prune it cleanly if it no longer exists on disk."""
+        if not folder_path or not os.path.isdir(folder_path):
+            self.recent_folders = [
+                p for p in self.recent_folders if norm_path_key(p) != norm_path_key(folder_path or "")
+            ]
+            self._sync_and_save_settings()
+            self._rebuild_recent_menu()
+            show_studio_message(
+                self,
+                "Folder Not Found",
+                f"The folder no longer exists and was removed from Recent Folders:\n{folder_path}",
+                kind="warning",
+            )
+            return
+        self.import_folder(folder_path)
+
+    def clear_recent_folders(self) -> None:
+        """Clear saved recent folders list and persist immediately."""
+        self.recent_folders = []
+        self.last_opened_folder = self.current_folder or ""
+        self._sync_and_save_settings()
+        self._rebuild_recent_menu()
+        self._show_toast("Cleared Recent Folders")
 
     def _set_status_badge(self, text: str, kind: str = "empty") -> None:
         """Update top-left status badge with high-contrast semantic styling for Dark and Light themes."""
@@ -610,10 +673,7 @@ class ImageSorterApp(QMainWindow):
         self.theme_mode = mode
         if hasattr(self, "theme_actions") and mode in self.theme_actions:
             self.theme_actions[mode].setChecked(True)
-        self.settings["theme_mode"] = mode
-        if mode == "custom":
-            self.settings["custom_theme"] = copy.deepcopy(self.custom_theme)
-        save_settings(self.settings)
+        self._sync_and_save_settings()
         self.apply_theme()
 
     def apply_theme(self) -> None:
@@ -900,7 +960,13 @@ class ImageSorterApp(QMainWindow):
         self.loading_overlay.hide()
 
     def import_folder_dialog(self) -> None:
-        start_dir = self.current_folder if self.current_folder and os.path.isdir(self.current_folder) else os.path.expanduser("~")
+        start_dir = ""
+        for candidate in (self.current_folder, self.last_opened_folder, *(self.recent_folders or [])):
+            if candidate and os.path.isdir(candidate):
+                start_dir = candidate
+                break
+        if not start_dir:
+            start_dir = os.path.expanduser("~")
         folder = QFileDialog.getExistingDirectory(self, "Select Folder to Sort", start_dir)
         if folder:
             self.import_folder(folder)
@@ -937,16 +1003,20 @@ class ImageSorterApp(QMainWindow):
         self.load_file_list(folder_path, thread.files)
 
     def _record_recent_folder(self, folder_path: str) -> None:
-        norm = os.path.normpath(folder_path)
+        if not folder_path or not os.path.isdir(folder_path):
+            return
+        norm = os.path.normpath(os.path.abspath(folder_path))
+        self.last_opened_folder = norm
         self.recent_folders = [norm] + [p for p in self.recent_folders if norm_path_key(p) != norm_path_key(norm)]
-        self.recent_folders = self.recent_folders[:8]
-        self.settings["recent_folders"] = self.recent_folders
-        save_settings(self.settings)
+        self.recent_folders = self.recent_folders[:10]
+        self._sync_and_save_settings()
         self._rebuild_recent_menu()
 
     def load_file_list(self, folder_path: str, file_list) -> None:
         """Load pre-scanned media paths into the queue, validate history, and render index 0."""
         self.current_folder = folder_path
+        if folder_path and os.path.isdir(folder_path):
+            self._record_recent_folder(folder_path)
         self.current_meta_cache.clear()
         self.pixmap_cache.clear()
         self.media_queue.set_files(file_list)
@@ -963,14 +1033,12 @@ class ImageSorterApp(QMainWindow):
 
     def toggle_hide_moved(self) -> None:
         self.hide_moved = self.hide_moved_action.isChecked()
-        self.settings["hide_moved"] = self.hide_moved
-        save_settings(self.settings)
+        self._sync_and_save_settings()
         self.apply_filter()
 
     def toggle_include_subfolders(self) -> None:
         self.include_subfolders = self.include_subfolders_action.isChecked()
-        self.settings["include_subfolders"] = self.include_subfolders
-        save_settings(self.settings)
+        self._sync_and_save_settings()
         if self.current_folder and os.path.isdir(self.current_folder):
             self.import_folder(self.current_folder)
 
@@ -1373,8 +1441,7 @@ class ImageSorterApp(QMainWindow):
         """Persist mute preference and update active QtMultimedia audio output & HUD."""
         self.video_muted = bool(muted)
         self.video_controller.set_muted(self.video_muted)
-        self.settings["video_muted"] = self.video_muted
-        save_settings(self.settings)
+        self._sync_and_save_settings()
         if self.hud_overlay is not None:
             self.hud_overlay.refresh_labels(paused=self._main_paused, muted=self.video_muted)
         if notify:
@@ -1770,8 +1837,9 @@ class ImageSorterApp(QMainWindow):
         if not path:
             return
         try:
+            current_cfg = self._sync_and_save_settings()
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(load_settings(), f, indent=4, ensure_ascii=False)
+                json.dump(current_cfg, f, indent=4, ensure_ascii=False)
             self._show_toast("Settings exported.")
         except OSError as e:
             show_studio_message(self, "Export Failed", f"Could not export settings:\n{e}", kind="error")
@@ -1785,8 +1853,7 @@ class ImageSorterApp(QMainWindow):
                 imported = json.load(f)
             if not isinstance(imported, dict):
                 raise ValueError("Invalid settings JSON structure.")
-            merged = default_settings_copy(first_run=False)
-            merged.update(imported)
+            merged = normalize_settings(imported, first_run_default=False)
             save_settings(merged)
             self._apply_loaded_settings(merged)
             self._show_toast("Settings imported and applied.")
@@ -1812,25 +1879,28 @@ class ImageSorterApp(QMainWindow):
         self._apply_loaded_settings(defaults)
 
     def _apply_loaded_settings(self, data: dict) -> None:
-        self.settings = data
-        self.theme_mode = data.get("theme_mode", "system")
-        self.custom_theme = copy.deepcopy(DEFAULT_CUSTOM_THEME)
-        self.custom_theme.update(data.get("custom_theme", {}))
-        self.folder_slot_count = clamp_folder_slots(data.get("folder_slot_count", 5))
-        self.folder_names = list(data.get("folder_names", DEFAULT_FOLDER_NAMES))
-        self.folder_paths = list(data.get("folder_paths", DEFAULT_FOLDER_PATHS))
-        self.rapid_move_interval_ms = clamp_rapid_interval(
-            data.get("rapid_move_interval", data.get("rapid_move_interval_ms", RAPID_MOVE_DEFAULT_MS))
-        )
-        self.video_muted = bool(data.get("video_muted", False))
-        self.hide_moved = bool(data.get("hide_moved", False))
-        self.include_subfolders = bool(data.get("include_subfolders", False))
+        norm = normalize_settings(data, first_run_default=False)
+        self.settings = norm
+        self.theme_mode = norm["theme_mode"]
+        self.custom_theme = copy.deepcopy(norm["custom_theme"])
+        self.folder_slot_count = norm["folder_slot_count"]
+        self.folder_names = list(norm["folder_names"])
+        self.folder_paths = list(norm["folder_paths"])
+        self.recent_folders = list(norm["recent_folders"])
+        self.last_opened_folder = norm["last_opened_folder"]
+        self.rapid_move_interval_ms = norm["rapid_move_interval"]
+        self.video_muted = norm["video_muted"]
+        self.video_volume = norm["video_volume"]
+        self.hide_moved = norm["hide_moved"]
+        self.include_subfolders = norm["include_subfolders"]
         self.hide_moved_action.setChecked(self.hide_moved)
         self.include_subfolders_action.setChecked(self.include_subfolders)
         if self.theme_mode in self.theme_actions:
             self.theme_actions[self.theme_mode].setChecked(True)
         self.apply_theme()
         self._sync_minimum_window_size()
+        if self.image_files:
+            self.apply_filter()
 
     def _reload_external_settings(self) -> None:
         self._apply_loaded_settings(load_settings())
@@ -1887,5 +1957,8 @@ class ImageSorterApp(QMainWindow):
         self._stop_all_media_playback()
         if hasattr(self, "hot_reload"):
             self.hot_reload.stop()
+        if hasattr(self, "_history_flush_timer"):
+            self._history_flush_timer.stop()
         self.history_store.flush()
+        self._sync_and_save_settings()
         super().closeEvent(event)

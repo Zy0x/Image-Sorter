@@ -23,6 +23,8 @@ from core.config import (
     get_config_path,
     get_last_internal_settings_sig,
     load_settings,
+    normalize_settings,
+    read_recent_event_log,
     resource_path,
     save_settings,
 )
@@ -50,6 +52,8 @@ __all__ = [
     "file_signature",
     "clamp_rapid_interval",
     "clamp_folder_slots",
+    "normalize_settings",
+    "read_recent_event_log",
     "load_settings",
     "save_settings",
 ]
