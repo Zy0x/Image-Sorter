@@ -118,6 +118,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.19-Stable (Selesai)
+- [x] **Presisi Jarak Ikon Menu & Pratinjau Release Notes Bergaya GitHub (`QMenu::item` / `render_github_markdown_html`):** Merapatkan jarak antara ikon vektor dan teks label di seluruh menu (`File`, `View`, `Settings`, `Help`), serta merender *Release Notes* di dialog *Check for Updates* menjadi pratinjau Markdown bergaya GitHub yang rapi dengan indentasi ringkas (`15px`), tautan klik langsung, *code badge*, dan *blockquote* terstruktur.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.

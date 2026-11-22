@@ -24,6 +24,7 @@ except ImportError as e:
 
 import shutil
 import json
+import html
 import subprocess
 import ctypes
 from ctypes import wintypes
@@ -33,7 +34,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QWidget, QFileDialog,
     QMessageBox, QMenuBar, QSpacerItem, QSizePolicy, QDialog, QLineEdit,
     QColorDialog, QFrame, QComboBox, QGraphicsDropShadowEffect,
-    QProgressBar, QStackedLayout, QScrollArea, QTextEdit,
+    QProgressBar, QStackedLayout, QScrollArea, QTextEdit, QTextBrowser,
     QSpinBox, QSlider, QGridLayout
 )
 from PySide6.QtGui import (
@@ -807,18 +808,28 @@ def build_studio_dialog_qss(t: dict) -> str:
             min-height: 1px;
             border: none;
         }}
-        QLineEdit, QSpinBox, QTextEdit {{
+        QLineEdit, QSpinBox, QTextEdit, QTextBrowser {{
             background-color: {t["surface"]};
             color: {t["text"]};
             border: 1px solid {t["border"]};
             border-radius: 8px;
-            padding: 6px 10px;
+            padding: 8px 12px;
             font-size: 12px;
             selection-background-color: {t["accent"]};
             selection-color: #ffffff;
         }}
         QLineEdit:focus, QSpinBox:focus, QTextEdit:focus {{
             border-color: {t["accent"]};
+        }}
+        QTextBrowser#releaseNotesView {{
+            background-color: {t["stage_bg"]};
+            color: {t["text"]};
+            border: 1px solid {t["border"]};
+            border-radius: 10px;
+            padding: 10px 14px;
+        }}
+        QTextBrowser#releaseNotesView:focus {{
+            border-color: {t["border_strong"]};
         }}
         QSpinBox::up-button, QSpinBox::down-button {{
             width: 18px;
@@ -933,12 +944,195 @@ def build_studio_dialog_qss(t: dict) -> str:
         }}
     """
 
+def render_github_markdown_html(md_text: str, t: dict) -> str:
+    """Render teks Markdown GitHub Release menjadi HTML bergaya GitHub Preview yang rapi di QTextBrowser."""
+    raw = (md_text or "").strip()
+    if not raw:
+        raw = "No release notes available."
+
+    text_col = t["text"]
+    muted_col = t["text_muted"]
+    accent_col = t["accent"]
+    border_col = t["border"]
+    code_bg = "#1e2330" if t["is_dark"] else "#eef1f6"
+    code_fg = "#e2e8f0" if t["is_dark"] else "#1e293b"
+
+    def _fmt_inline(line_str: str) -> str:
+        code_tokens = []
+        link_tokens = []
+
+        def _hold_code(m):
+            idx = len(code_tokens)
+            inner = html.escape(m.group(1))
+            code_tokens.append(
+                f"<code style='background-color:{code_bg}; color:{code_fg}; "
+                f"font-family:Consolas,monospace; font-size:11px;'>&nbsp;{inner}&nbsp;</code>"
+            )
+            return f"\x00CODE{idx}\x00"
+
+        def _hold_md_link(m):
+            idx = len(link_tokens)
+            label = html.escape(m.group(1))
+            href = html.escape(m.group(2), quote=True)
+            link_tokens.append(
+                f"<a href='{href}' style='color:{accent_col}; text-decoration:none;'>{label}</a>"
+            )
+            return f"\x00LINK{idx}\x00"
+
+        # Lindungi inline code & Markdown link sebelum escaping + bare-URL matching
+        tmp = re.sub(r"`([^`]+)`", _hold_code, line_str)
+        tmp = re.sub(r"\[([^\]]+)\]\((https?://[^\s\)]+)\)", _hold_md_link, tmp)
+
+        def _hold_bare_link(m):
+            idx = len(link_tokens)
+            url_txt = m.group(1)
+            trailing = ""
+            while url_txt and url_txt[-1] in ".,;:!?)":
+                trailing = url_txt[-1] + trailing
+                url_txt = url_txt[:-1]
+            href = html.escape(url_txt, quote=True)
+            disp = html.escape(url_txt)
+            link_tokens.append(
+                f"<a href='{href}' style='color:{accent_col}; text-decoration:none;'>{disp}</a>"
+            )
+            return f"\x00LINK{idx}\x00{trailing}"
+
+        tmp = re.sub(r"(https?://[^\s<>\x00]+)", _hold_bare_link, tmp)
+        s = html.escape(tmp)
+        s = re.sub(r"\*\*\*([^*]+)\*\*\*", r"<b><i>\1</i></b>", s)
+        s = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", s)
+        s = re.sub(r"~~([^~]+)~~", r"<s>\1</s>", s)
+        s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<i>\1</i>", s)
+
+        for idx, val in enumerate(link_tokens):
+            s = s.replace(f"\x00LINK{idx}\x00", val)
+        for idx, val in enumerate(code_tokens):
+            s = s.replace(f"\x00CODE{idx}\x00", val)
+        return s
+
+    lines = raw.splitlines()
+    out = [
+        f"<div style='font-family:\"Segoe UI\",\"Inter\",sans-serif; font-size:12.5px; color:{text_col};'>"
+    ]
+    list_stack = []  # stack of (tag, indent_level)
+    in_code = False
+    code_lines = []
+
+    def _close_lists(target_level=0):
+        while list_stack and list_stack[-1][1] >= target_level:
+            tag, _lvl = list_stack.pop()
+            out.append(f"</{tag}>")
+
+    for line in lines:
+        expanded = line.replace("\t", "    ")
+        leading = len(expanded) - len(expanded.lstrip(" "))
+        stripped = expanded.strip()
+
+        if stripped.startswith("```"):
+            _close_lists(1)
+            if not in_code:
+                in_code = True
+                code_lines = []
+            else:
+                in_code = False
+                code_block = html.escape("\n".join(code_lines))
+                out.append(
+                    f"<pre style='background-color:{code_bg}; color:{code_fg}; border:1px solid {border_col}; "
+                    f"padding:8px 10px; font-family:Consolas,monospace; font-size:11px; margin:6px 0;'>{code_block}</pre>"
+                )
+            continue
+
+        if in_code:
+            code_lines.append(line)
+            continue
+
+        if not stripped:
+            _close_lists(1)
+            continue
+
+        if re.match(r"^[-*_]{3,}$", stripped):
+            _close_lists(1)
+            out.append(f"<hr style='border:none; background-color:{border_col}; height:1px; margin:8px 0;'>")
+            continue
+
+        h_match = re.match(r"^(#{1,4})\s+(.+)$", stripped)
+        if h_match:
+            _close_lists(1)
+            level = len(h_match.group(1))
+            h_text = _fmt_inline(h_match.group(2).strip())
+            if level == 1:
+                out.append(
+                    f"<p style='font-size:16px; font-weight:700; color:{text_col}; "
+                    f"margin:8px 0 3px 0;'>{h_text}</p>"
+                    f"<hr style='border:none; background-color:{border_col}; height:1px; margin:0 0 6px 0;'>"
+                )
+            elif level == 2:
+                out.append(
+                    f"<p style='font-size:14.5px; font-weight:700; color:{text_col}; "
+                    f"margin:8px 0 3px 0;'>{h_text}</p>"
+                    f"<hr style='border:none; background-color:{border_col}; height:1px; margin:0 0 5px 0;'>"
+                )
+            elif level == 3:
+                out.append(
+                    f"<p style='font-size:13px; font-weight:700; color:{accent_col}; "
+                    f"margin:8px 0 3px 0;'>{h_text}</p>"
+                )
+            else:
+                out.append(
+                    f"<p style='font-size:12px; font-weight:700; color:{muted_col}; "
+                    f"margin:6px 0 2px 0;'>{h_text}</p>"
+                )
+            continue
+
+        ul_match = re.match(r"^[-*+]\s+(.+)$", stripped)
+        ol_match = re.match(r"^(\d+)\.\s+(.+)$", stripped)
+        if ul_match or ol_match:
+            req_tag = "ul" if ul_match else "ol"
+            indent_lvl = 2 if leading >= 2 else 1
+            while list_stack and (list_stack[-1][1] > indent_lvl or (list_stack[-1][1] == indent_lvl and list_stack[-1][0] != req_tag)):
+                tag, _lvl = list_stack.pop()
+                out.append(f"</{tag}>")
+            if not list_stack or list_stack[-1][1] < indent_lvl:
+                out.append(
+                    f"<{req_tag} style='margin:2px 0 6px 0; padding:0; -qt-list-indent:{indent_lvl};'>"
+                )
+                list_stack.append((req_tag, indent_lvl))
+            item_body = (ul_match.group(1) if ul_match else ol_match.group(2)).strip()
+            if item_body.startswith("[x] ") or item_body.startswith("[X] "):
+                item_html = f"<span style='color:#10b981; font-weight:700;'>✓</span> {_fmt_inline(item_body[4:])}"
+            elif item_body.startswith("[ ] "):
+                item_html = f"<span style='color:{muted_col};'>○</span> {_fmt_inline(item_body[4:])}"
+            else:
+                item_html = _fmt_inline(item_body)
+            out.append(f"<li style='margin:2px 0; line-height:135%; color:{text_col};'>{item_html}</li>")
+            continue
+
+        if stripped.startswith(">"):
+            _close_lists(1)
+            q_body = _fmt_inline(stripped.lstrip(">").strip())
+            out.append(
+                f"<table width='100%' cellspacing='0' cellpadding='0' style='margin:5px 0;'>"
+                f"<tr>"
+                f"<td width='3' style='background-color:{accent_col};'></td>"
+                f"<td style='background-color:{code_bg}; color:{muted_col}; padding:5px 10px; line-height:135%;'>{q_body}</td>"
+                f"</tr></table>"
+            )
+            continue
+
+        _close_lists(1)
+        out.append(f"<p style='margin:4px 0 6px 0; line-height:138%; color:{text_col};'>{_fmt_inline(stripped)}</p>")
+
+    _close_lists(1)
+    out.append("</div>")
+    return "".join(out)
+
+
 class UpdateDialog(QDialog):
     def __init__(self, parent=None, current_version="2.0", latest_version=None, release_notes="", download_url=None):
         super().__init__(parent)
         self.setWindowTitle("Check for Updates")
-        self.setMinimumSize(460, 360)
-        self.resize(480, 390)
+        self.setMinimumSize(490, 400)
+        self.resize(550, 460)
         self.parent = parent
         self._tokens = resolve_studio_tokens(parent)
         self.apply_theme()
@@ -996,10 +1190,14 @@ class UpdateDialog(QDialog):
         )
         layout.addWidget(notes_label)
 
-        self.notes_text = QTextEdit()
+        self.notes_text = QTextBrowser()
+        self.notes_text.setObjectName("releaseNotesView")
+        self.notes_text.setOpenExternalLinks(True)
         self.notes_text.setReadOnly(True)
-        self.notes_text.setText(release_notes if release_notes else "No release notes available.")
-        self.notes_text.setMinimumHeight(140)
+        self.notes_text.document().setDocumentMargin(2)
+        self.notes_text.document().setIndentWidth(15)
+        self.notes_text.setHtml(render_github_markdown_html(release_notes, t))
+        self.notes_text.setMinimumHeight(180)
         layout.addWidget(self.notes_text, stretch=1)
 
         btn_layout = QHBoxLayout()
@@ -1020,6 +1218,13 @@ class UpdateDialog(QDialog):
         self.download_btn.setEnabled(bool(download_url and has_newer))
         self.download_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(download_url)))
         btn_layout.addWidget(self.download_btn)
+
+        if has_newer and download_url:
+            self.download_btn.setDefault(True)
+            self.download_btn.setFocus()
+        else:
+            close_btn.setDefault(True)
+            close_btn.setFocus()
 
         layout.addLayout(btn_layout)
 
@@ -1089,7 +1294,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.18-Stable"
+    VERSION = "2.1.19-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -4022,12 +4227,12 @@ class ImageSorterApp(QMainWindow):
                 padding: 4px;
             }}
             QMenu::item {{
-                padding: 6px 26px 6px 28px;
+                padding: 6px 18px 6px 10px;
                 border-radius: 5px;
             }}
             QMenu::item:selected {{ background-color: {t["surface_hover"]}; }}
             QMenu::icon {{
-                padding-left: 6px;
+                padding-left: 8px;
             }}
             QMenu::separator {{
                 height: 1px;

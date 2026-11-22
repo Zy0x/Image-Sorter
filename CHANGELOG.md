@@ -2,6 +2,12 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.19 — 2026-11-22
+
+### Improved — balanced menu icon-to-label spacing & GitHub Markdown Release Notes preview
+- **Refined Menu Item & Icon Padding (`QMenu::item` / `QMenu::icon`):** Reduced left `QMenu::item` padding from `28px` to `10px` (since Qt's Fusion menu style already reserves the left icon gutter column) and balanced `QMenu::icon` offset (`8px`), bringing menu icons and labels into a tight, natural studio alignment across `File`, `View`, `Settings`, `Help`, and `Recent Folders`.
+- **GitHub-Style Rendered Release Notes Preview (`UpdateDialog` / `render_github_markdown_html`):** Replaced raw plain-text release notes with a formatted `QTextBrowser` renderer supporting GitHub Markdown headings (`#`–`####` + hairline dividers), compactly indented bullet & numbered lists (`setIndentWidth(15)` with sub-item nesting and task checkmarks), inline code pills, fenced code blocks, styled blockquotes, and clickable Markdown / release URLs in both Dark and Light themes.
+
 ## 2.1.18 — 2026-11-22
 
 ### Improved — compact scrollable Filter ComboBox popup (`combobox-popup: 0` & `maxVisibleItems=10`)
