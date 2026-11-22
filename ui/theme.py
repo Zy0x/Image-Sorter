@@ -1,6 +1,7 @@
 """Unified Studio Slate theme tokens, QSS builders, 2x DPI vector icon engine, and GitHub Markdown renderer."""
 
 import html
+import math
 import re
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap, QPolygonF
@@ -614,6 +615,58 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         p.drawEllipse(QPointF(mid, s * 0.32), 1.4, 1.4)
     elif kind == "check":
         p.drawPolyline(QPolygonF([QPointF(s * 0.22, s * 0.52), QPointF(s * 0.42, s * 0.72), QPointF(s * 0.78, s * 0.28)]))
+    elif kind in ("star", "star_filled"):
+        mid_x, mid_y = s * 0.5, s * 0.52
+        r_out, r_in = s * 0.38, s * 0.17
+        pts = []
+        for i in range(10):
+            r = r_out if i % 2 == 0 else r_in
+            ang = -3.14159265 / 2.0 + i * (3.14159265 / 5.0)
+            pts.append(QPointF(mid_x + r * math.cos(ang), mid_y + r * math.sin(ang)))
+        star_poly = QPolygonF(pts)
+        if kind == "star_filled":
+            p.setBrush(qcol)
+            p.setPen(Qt.NoPen)
+            p.drawPolygon(star_poly)
+        else:
+            p.setBrush(_qcolor_alpha(qcol, 34))
+            p.drawPolygon(star_poly)
+    elif kind == "sort":
+        p.drawLine(QPointF(s * 0.16, s * 0.26), QPointF(s * 0.84, s * 0.26))
+        p.drawLine(QPointF(s * 0.16, s * 0.48), QPointF(s * 0.62, s * 0.48))
+        p.drawLine(QPointF(s * 0.16, s * 0.70), QPointF(s * 0.42, s * 0.70))
+        p.drawPolyline(QPolygonF([QPointF(s * 0.68, s * 0.58), QPointF(s * 0.78, s * 0.72), QPointF(s * 0.88, s * 0.58)]))
+        p.drawLine(QPointF(s * 0.78, s * 0.40), QPointF(s * 0.78, s * 0.72))
+    elif kind == "filmstrip":
+        p.drawRoundedRect(QRectF(s * 0.14, s * 0.22, s * 0.72, s * 0.56), 2.0, 2.0)
+        p.drawLine(QPointF(mid, s * 0.22), QPointF(mid, s * 0.78))
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        for xr in (0.22, 0.38, 0.62, 0.78):
+            p.drawRect(QRectF(s * xr - 1.0, s * 0.26, 2.0, 2.0))
+            p.drawRect(QRectF(s * xr - 1.0, s * 0.70, 2.0, 2.0))
+    elif kind == "rename":
+        p.drawLine(QPointF(s * 0.22, s * 0.78), QPointF(s * 0.74, s * 0.26))
+        p.drawPolyline(QPolygonF([
+            QPointF(s * 0.62, s * 0.16),
+            QPointF(s * 0.84, s * 0.38),
+            QPointF(s * 0.74, s * 0.48),
+            QPointF(s * 0.52, s * 0.26),
+            QPointF(s * 0.62, s * 0.16),
+        ]))
+        p.drawPolyline(QPolygonF([
+            QPointF(s * 0.18, s * 0.82),
+            QPointF(s * 0.32, s * 0.80),
+            QPointF(s * 0.20, s * 0.68),
+            QPointF(s * 0.18, s * 0.82),
+        ]))
+    elif kind == "report":
+        p.drawRoundedRect(QRectF(s * 0.18, s * 0.14, s * 0.64, s * 0.72), 2.0, 2.0)
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        p.drawRect(QRectF(s * 0.28, s * 0.56, s * 0.10, s * 0.20))
+        p.drawRect(QRectF(s * 0.45, s * 0.42, s * 0.10, s * 0.34))
+        p.drawRect(QRectF(s * 0.62, s * 0.30, s * 0.10, s * 0.46))
 
     p.end()
     icon = QIcon(pix)

@@ -5,7 +5,9 @@ import webbrowser
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -360,12 +362,14 @@ class ShortcutsGuideDialog(QDialog):
                 (f"Move to Folder 1–{slot_count}", [f"1", "–", f"{slot_count}"]),
                 ("Rapid Move (continuous)", ["Hold", "1", "–", f"{slot_count}"]),
                 ("Undo last move", ["Ctrl", "Z"]),
+                ("Bookmark / Flag file", ["*", "or", "Alt+F"]),
             ]),
             ("NAVIGATION", [
                 ("Previous / Next media", ["←", "→"]),
                 ("Skip to next unmoved", ["Space"]),
                 ("First / Last media", ["Home", "End"]),
                 ("Jump to media number", ["Ctrl", "G"]),
+                ("Toggle filmstrip bar", ["Ctrl", "B"]),
             ]),
         ]
         right_sections = [
@@ -378,8 +382,9 @@ class ShortcutsGuideDialog(QDialog):
                 ("Hide moved media", ["Ctrl", "H"]),
                 ("Shortcuts reference", ["F1"]),
             ]),
-            ("FILE & MOUSE", [
+            ("TOOLS & FILE", [
                 ("Import folder", ["Ctrl", "O"]),
+                ("Session summary report", ["Ctrl", "Shift", "R"]),
                 ("Show in File Explorer", ["Ctrl", "E"]),
                 ("Move to Recycle Bin", ["Delete"]),
                 ("Rapid Move with mouse", ["Hold", f"Click 1–{slot_count}"]),
@@ -495,3 +500,159 @@ class JumpToMediaDialog(QDialog):
     def selected_index(self) -> int:
         """Return 0-based queue index selected by the user."""
         return self.index_spin.value() - 1
+
+
+class SessionSummaryDialog(QDialog):
+    """Studio Slate dialog presenting comprehensive sorting statistics for the current folder session."""
+
+    def __init__(self, summary: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Session Summary Report")
+        self.resize(520, 520)
+        self.setMinimumSize(460, 420)
+        tokens = apply_studio_dialog_style(self, parent)
+
+        self.summary = summary or {}
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 18)
+        root.setSpacing(14)
+
+        header = QVBoxLayout()
+        header.setSpacing(4)
+        title = QLabel("Session Summary Report")
+        title.setStyleSheet(f"font-size: 17px; font-weight: 700; color: {tokens['text']};")
+        src_lbl = QLabel(f"Folder: {self.summary.get('source_folder', '-')}")
+        src_lbl.setStyleSheet(f"font-size: 12px; color: {tokens['text_muted']};")
+        header.addWidget(title)
+        header.addWidget(src_lbl)
+        root.addLayout(header)
+
+        stat_grid = QGridLayout()
+        stat_grid.setSpacing(10)
+
+        def make_stat_card(label: str, value: str, col: str):
+            card = QFrame()
+            card.setObjectName("studioCard")
+            lay = QVBoxLayout(card)
+            lay.setContentsMargins(12, 10, 12, 10)
+            lay.setSpacing(2)
+            v_lbl = QLabel(value)
+            v_lbl.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {col};")
+            l_lbl = QLabel(label)
+            l_lbl.setStyleSheet(f"font-size: 11px; color: {tokens['text_muted']};")
+            lay.addWidget(v_lbl)
+            lay.addWidget(l_lbl)
+            return card
+
+        c_total = make_stat_card("Total Media", str(self.summary.get("total_files", 0)), tokens["text"])
+        c_moved = make_stat_card("Moved", str(self.summary.get("total_moved", 0)), tokens["accent"])
+        c_remain = make_stat_card("Remaining", str(self.summary.get("remaining_unmoved", 0)), tokens["text_muted"])
+        c_flag = make_stat_card("★ Flagged", str(self.summary.get("flagged_count", 0)), "#f59e0b")
+
+        stat_grid.addWidget(c_total, 0, 0)
+        stat_grid.addWidget(c_moved, 0, 1)
+        stat_grid.addWidget(c_remain, 1, 0)
+        stat_grid.addWidget(c_flag, 1, 1)
+        root.addLayout(stat_grid)
+
+        breakdown_card = QFrame()
+        breakdown_card.setObjectName("studioCard")
+        b_lay = QVBoxLayout(breakdown_card)
+        b_lay.setContentsMargins(14, 12, 14, 12)
+        b_lay.setSpacing(8)
+
+        b_title = QLabel("Destination Breakdown")
+        b_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {tokens['text']};")
+        b_lay.addWidget(b_title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll_content = QWidget()
+        scroll_lay = QVBoxLayout(scroll_content)
+        scroll_lay.setContentsMargins(0, 0, 0, 0)
+        scroll_lay.setSpacing(6)
+
+        folder_counts = self.summary.get("folder_counts", {})
+        for name, cnt in folder_counts.items():
+            row = QHBoxLayout()
+            n_lbl = QLabel(name)
+            n_lbl.setStyleSheet(f"font-size: 12px; color: {tokens['text']};")
+            c_lbl = QLabel(f"{cnt} files")
+            c_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {tokens['accent'] if cnt > 0 else tokens['text_muted']};")
+            row.addWidget(n_lbl)
+            row.addStretch()
+            row.addWidget(c_lbl)
+            scroll_lay.addLayout(row)
+
+        other_cnt = self.summary.get("other_moved_count", 0)
+        if other_cnt > 0:
+            row = QHBoxLayout()
+            n_lbl = QLabel("Other Destinations")
+            n_lbl.setStyleSheet(f"font-size: 12px; color: {tokens['text']};")
+            c_lbl = QLabel(f"{other_cnt} files")
+            c_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {tokens['accent']};")
+            row.addWidget(n_lbl)
+            row.addStretch()
+            row.addWidget(c_lbl)
+            scroll_lay.addLayout(row)
+
+        scroll_lay.addStretch()
+        scroll.setWidget(scroll_content)
+        b_lay.addWidget(scroll)
+        root.addWidget(breakdown_card, stretch=1)
+
+        footer = QHBoxLayout()
+        copy_btn = QPushButton("Copy Report")
+        copy_btn.setCursor(Qt.PointingHandCursor)
+        copy_btn.clicked.connect(self._copy_to_clipboard)
+        footer.addWidget(copy_btn)
+
+        export_btn = QPushButton("Export to File...")
+        export_btn.setCursor(Qt.PointingHandCursor)
+        export_btn.clicked.connect(self._export_to_file)
+        footer.addWidget(export_btn)
+
+        footer.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("primaryBtn")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.accept)
+        footer.addWidget(close_btn)
+        root.addLayout(footer)
+
+    def _generate_report_text(self) -> str:
+        lines = [
+            "=== Image Sorter - Session Summary Report ===",
+            f"Source Folder: {self.summary.get('source_folder', '-')}",
+            f"Total Media: {self.summary.get('total_files', 0)}",
+            f"Total Moved: {self.summary.get('total_moved', 0)}",
+            f"Remaining Unmoved: {self.summary.get('remaining_unmoved', 0)}",
+            f"Flagged Media: {self.summary.get('flagged_count', 0)}",
+            "",
+            "Destination Folder Breakdown:",
+        ]
+        for name, cnt in self.summary.get("folder_counts", {}).items():
+            lines.append(f"  - {name}: {cnt} files")
+        if self.summary.get("other_moved_count", 0) > 0:
+            lines.append(f"  - Other Destinations: {self.summary.get('other_moved_count', 0)} files")
+        lines.append("===========================================")
+        return "\n".join(lines)
+
+    def _copy_to_clipboard(self):
+        cb = QApplication.clipboard()
+        if cb:
+            cb.setText(self._generate_report_text())
+            show_studio_message(self, "Copied", "Session report copied to clipboard.", kind="info")
+
+    def _export_to_file(self):
+        default_name = "session_summary.txt"
+        path, _ = QFileDialog.getSaveFileName(self, "Export Session Summary", default_name, "Text Files (*.txt)")
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self._generate_report_text())
+            show_studio_message(self, "Export Complete", f"Session report saved to:\n{path}", kind="info")
+        except OSError as e:
+            show_studio_message(self, "Export Error", f"Could not save report file:\n{e}", kind="error")

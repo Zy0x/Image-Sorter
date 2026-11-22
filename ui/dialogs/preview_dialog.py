@@ -231,6 +231,18 @@ class ImagePreviewDialog(QDialog):
             self.mute_btn.setToolTip("Mute / Unmute Sound (M)")
             self.mute_btn.clicked.connect(self.toggle_audio_mute)
             bar.addWidget(self.mute_btn)
+
+            self.vol_slider = ClickSeekSlider(Qt.Horizontal)
+            self.vol_slider.setObjectName("previewVolSlider")
+            self.vol_slider.setRange(0, 100)
+            self.vol_slider.setFixedWidth(56)
+            self.vol_slider.setFixedHeight(20)
+            self.vol_slider.setFocusPolicy(Qt.NoFocus)
+            vol_val = int(getattr(self, "_audio_volume", 0.85) * 100)
+            self.vol_slider.setValue(vol_val)
+            self.vol_slider.setToolTip(f"Volume: {vol_val}%")
+            self.vol_slider.valueChanged.connect(self._on_vol_slider_changed)
+            bar.addWidget(self.vol_slider)
         else:
             bar.addStretch()
 
@@ -358,6 +370,22 @@ class ImagePreviewDialog(QDialog):
             settings["video_muted"] = self._audio_muted
             save_settings(settings)
         self._refresh_media_buttons()
+
+    def _on_vol_slider_changed(self, val: int) -> None:
+        """Update live preview video volume and synchronize back to main window and settings."""
+        self.vol_slider.setToolTip(f"Volume: {val}%")
+        self._audio_volume = val / 100.0
+        if self.video_controller is not None:
+            self.video_controller.set_volume(self._audio_volume)
+        if self._audio_muted and self._audio_volume > 0.0:
+            self.toggle_audio_mute()
+        parent = self.parentWidget()
+        if parent is not None and hasattr(parent, "set_video_volume"):
+            parent.set_video_volume(self._audio_volume)
+        else:
+            settings = load_settings()
+            settings["video_volume"] = self._audio_volume
+            save_settings(settings)
 
     def _refresh_media_buttons(self) -> None:
         if self.play_pause_btn is not None:

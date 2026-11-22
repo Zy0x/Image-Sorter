@@ -14,3 +14,4 @@ dist/
 *.tmp
 config/.write_test
 config/.hot_reload_state.json
+output/

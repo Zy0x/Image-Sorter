@@ -5,6 +5,7 @@ import os
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QColorDialog,
     QDialog,
     QFileDialog,
@@ -529,4 +530,129 @@ class RapidMoveSettingsDialog(QDialog):
             settings = load_settings()
             settings["rapid_move_interval"] = val
             save_settings(settings)
+        self.accept()
+
+
+class AutoRenameSettingsDialog(QDialog):
+    """Studio Slate configuration dialog for automatic file renaming when moving."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Auto-Rename on Move")
+        self.resize(500, 390)
+        self.setMinimumSize(440, 340)
+        tokens = apply_studio_dialog_style(self, parent)
+
+        parent_settings = getattr(parent, "settings", None) or load_settings()
+        self.enabled = bool(parent_settings.get("auto_rename_enabled", False))
+        self.pattern = str(parent_settings.get("auto_rename_pattern", "{folder}_{index:04d}"))
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 18)
+        root.setSpacing(14)
+
+        header = QVBoxLayout()
+        header.setSpacing(4)
+        title = QLabel("Auto-Rename on Move")
+        title.setStyleSheet(f"font-size: 17px; font-weight: 700; color: {tokens['text']};")
+        desc = QLabel("Automatically rename files with a standardized template pattern when moved.")
+        desc.setStyleSheet(f"font-size: 12px; color: {tokens['text_muted']};")
+        header.addWidget(title)
+        header.addWidget(desc)
+        root.addLayout(header)
+
+        card = QFrame()
+        card.setObjectName("studioCard")
+        card_lay = QVBoxLayout(card)
+        card_lay.setContentsMargins(16, 14, 16, 14)
+        card_lay.setSpacing(12)
+
+        self.enable_check = QCheckBox("Enable automatic renaming when moving files")
+        self.enable_check.setChecked(self.enabled)
+        self.enable_check.setCursor(Qt.PointingHandCursor)
+        self.enable_check.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {tokens['text']};")
+        self.enable_check.toggled.connect(self._update_preview)
+        card_lay.addWidget(self.enable_check)
+
+        pat_lbl = QLabel("Rename Template Pattern:")
+        pat_lbl.setStyleSheet(f"font-size: 11.5px; font-weight: 600; color: {tokens['text_muted']};")
+        card_lay.addWidget(pat_lbl)
+
+        self.pat_edit = QLineEdit(self.pattern)
+        self.pat_edit.setPlaceholderText("{folder}_{index:04d}")
+        self.pat_edit.textChanged.connect(self._update_preview)
+        card_lay.addWidget(self.pat_edit)
+
+        tok_lay = QHBoxLayout()
+        tok_lay.setSpacing(6)
+        presets = [
+            ("{folder}_{index:04d}", "Default"),
+            ("{folder}_{date}_{index:04d}", "With Date"),
+            ("{name}_{folder}", "Name + Folder"),
+            ("{folder}_{name}", "Folder + Name"),
+        ]
+        for p_val, p_lbl in presets:
+            btn = QPushButton(p_lbl)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, v=p_val: self.pat_edit.setText(v))
+            tok_lay.addWidget(btn)
+        card_lay.addLayout(tok_lay)
+
+        vars_info = QLabel("Available tags: {folder}, {name}, {date}, {index:04d}")
+        vars_info.setStyleSheet(f"font-size: 11px; color: {tokens['text_muted']};")
+        card_lay.addWidget(vars_info)
+
+        self.prev_lbl = QLabel()
+        self.prev_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {tokens['accent']}; padding: 4px 0;")
+        card_lay.addWidget(self.prev_lbl)
+
+        root.addWidget(card)
+        root.addStretch()
+
+        footer = QHBoxLayout()
+        footer.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.clicked.connect(self.reject)
+        footer.addWidget(cancel_btn)
+
+        save_btn = QPushButton("Save Settings")
+        save_btn.setObjectName("primaryBtn")
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.clicked.connect(self._save_and_accept)
+        footer.addWidget(save_btn)
+        root.addLayout(footer)
+
+        self._update_preview()
+
+    def _update_preview(self):
+        from core.file_ops import format_auto_rename_filename
+        pat = self.pat_edit.text().strip() or "{folder}_{index:04d}"
+        enabled = self.enable_check.isChecked()
+        sample = format_auto_rename_filename(pat, "sample_photo.jpg", "Folder A", index=1)
+        if enabled:
+            self.prev_lbl.setText(f"Preview: sample_photo.jpg  ➔  {sample}")
+        else:
+            self.prev_lbl.setText("Disabled (original filenames will be kept unchanged)")
+
+    def _save_and_accept(self):
+        enabled = self.enable_check.isChecked()
+        pat = self.pat_edit.text().strip() or "{folder}_{index:04d}"
+        parent = self.parentWidget()
+        if parent is not None:
+            if hasattr(parent, "settings") and isinstance(parent.settings, dict):
+                parent.settings["auto_rename_enabled"] = enabled
+                parent.settings["auto_rename_pattern"] = pat
+            if hasattr(parent, "_sync_and_save_settings"):
+                parent._sync_and_save_settings()
+            else:
+                s = load_settings()
+                s["auto_rename_enabled"] = enabled
+                s["auto_rename_pattern"] = pat
+                save_settings(s)
+        else:
+            s = load_settings()
+            s["auto_rename_enabled"] = enabled
+            s["auto_rename_pattern"] = pat
+            save_settings(s)
         self.accept()

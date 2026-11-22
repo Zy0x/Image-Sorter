@@ -47,6 +47,12 @@ DEFAULT_SETTINGS = {
     "rapid_move_interval": RAPID_MOVE_DEFAULT_MS,
     "video_muted": False,
     "video_volume": 0.85,
+    "sort_by": "name",
+    "sort_order": "asc",
+    "show_filmstrip": True,
+    "auto_rename_enabled": False,
+    "auto_rename_pattern": "{folder}_{index:04d}",
+    "flagged_files": [],
     "custom_theme": copy.deepcopy(DEFAULT_CUSTOM_THEME),
 }
 
@@ -262,6 +268,31 @@ def normalize_settings(raw: dict, first_run_default: bool = True) -> dict:
     except (TypeError, ValueError):
         vol = 0.85
     merged["video_volume"] = max(0.0, min(1.0, vol))
+
+    sort_by = str(raw.get("sort_by", "name")).lower().strip()
+    merged["sort_by"] = sort_by if sort_by in ("name", "date", "size", "ext") else "name"
+
+    sort_order = str(raw.get("sort_order", "asc")).lower().strip()
+    merged["sort_order"] = sort_order if sort_order in ("asc", "desc") else "asc"
+
+    merged["show_filmstrip"] = bool(raw.get("show_filmstrip", True))
+    merged["auto_rename_enabled"] = bool(raw.get("auto_rename_enabled", False))
+
+    arp = str(raw.get("auto_rename_pattern", "{folder}_{index:04d}")).strip()
+    merged["auto_rename_pattern"] = arp if arp else "{folder}_{index:04d}"
+
+    raw_flagged = raw.get("flagged_files")
+    dedup_flagged = []
+    seen_flagged = set()
+    if isinstance(raw_flagged, list):
+        for item in raw_flagged:
+            if isinstance(item, str) and item.strip():
+                norm_p = os.path.normpath(item.strip())
+                key_p = os.path.normcase(os.path.abspath(norm_p))
+                if key_p not in seen_flagged:
+                    seen_flagged.add(key_p)
+                    dedup_flagged.append(norm_p)
+    merged["flagged_files"] = dedup_flagged
 
     ct = copy.deepcopy(DEFAULT_CUSTOM_THEME)
     raw_ct = raw.get("custom_theme")

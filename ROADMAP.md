@@ -135,9 +135,15 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ## ✅ v2.1.22-Stable (Selesai)
 - [x] **Persistensi Pengaturan Anti-Timpa, Memori Recent Folders & Jejak Histori Lintas Sesi (`_sync_and_save_settings`, `normalize_settings`, `read_recent_event_log`):** Menjamin seluruh perubahan di `FolderSettingsDialog`, `RapidMoveSettingsDialog`, `CustomThemeDialog`, `Recent Folders` (lengkap dengan `last_opened_folder` dan `Clear Recent Folders`), `Hide Moved`, `Include Subfolders`, `Video Mute`, `history.json`, serta `event.log` tersimpan atomik dan termuat kembali secara utuh saat aplikasi dibuka ulang.
+- [x] **Pengurutan Antrean Fleksibel (*Sort By*: Nama, Tanggal, Ukuran, Tipe File):** Akses cepat melalui `View → Sort By` dengan pilihan Nama (A–Z / Z–A natural sort), Tanggal Modifikasi (Terbaru/Terlama), Ukuran File (Besar/Kecil), dan Tipe/Ekstensi tanpa mengubah target pilihan kursor aktif secara tiba-tiba.
+- [x] **Mini Filmstrip / Dock Thumbnail Interaktif (`FilmstripBar` / `Ctrl+B`):** Pratinjau strip thumbnail horizontal di bawah stage yang menampilkan item sebelum dan sesudah media aktif, dilengkapi bingkai fokus aktif, ikon bintang emas untuk bookmark, badge play untuk video, dan navigasi klik langsung (`jump_to_index`).
+- [x] **Batch Auto-Rename Saat Pemindahan File (`AutoRenameSettingsDialog`):** Pengaturan pola format nama otomatis (`Settings → Auto-Rename on Move...`) berbasis token dinamis (`{folder}`, `{name}`, `{date}`, `{index:04d}`) yang terintegrasi aman dengan proteksi konflik tanpa timpa serta dukungan pemulihan *Undo* (`Ctrl+Z`) penuh.
+- [x] **Media Bookmark & Quick Flagging (`*` / `Alt+F`):** Menandai file favorit atau penting dengan tombol bintang di info bar atau pintasan `*` / `Alt+F`, dilengkapi filter eksklusif **`Flagged Only`** dan penyimpanan status flag persisten di konfigurasi.
+- [x] **Interactive HUD Video Volume Slider (0–100%):** Slider volume audio pada kapsul `MediaHudOverlay` dan `ImagePreviewDialog` dengan tooltip persentase, auto-unmute saat digeser, dan sinkronisasi preferensi volume antar sesi.
+- [x] **Laporan Ringkasan Sesi Sortir (`SessionSummaryDialog` / `Ctrl+Shift+R`):** Dialog statistik komprehensif bergaya Studio Slate yang merangkum total file, jumlah terpindah per slot, sisa file, dan media bertanda bookmark, lengkap dengan fitur salin ke clipboard dan ekspor ke file teks.
 
 ---
 
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
-- [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
-- [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.
+- [ ] **Multi-Select & Bulk Action:** Memilih beberapa file sekaligus dari filmstrip atau antrean untuk dipindahkan bersamaan.
+- [ ] **Integrasi Tagging & Metadata EXIF Viewer:** Panel inspeksi metadata EXIF/kamera mendalam dan penyematan tag kustom.

@@ -2,6 +2,7 @@
 
 import ctypes
 from ctypes import wintypes
+from datetime import datetime
 import os
 import re
 import subprocess
@@ -63,6 +64,95 @@ def get_unique_destination(dest_folder: str, filename: str) -> str:
         candidate = os.path.join(dest_folder, f"{base} ({counter}){ext}")
         counter += 1
     return candidate
+
+
+def format_auto_rename_filename(
+    pattern: str,
+    orig_path: str,
+    folder_name: str,
+    index: int = 1,
+) -> str:
+    """Format target filename using user template pattern, preserving file extension and escaping invalid OS chars."""
+    orig_stem, orig_ext = os.path.splitext(os.path.basename(orig_path))
+    date_str = datetime.now().strftime("%Y%m%d")
+    clean_folder = re.sub(r'[\\/*?:"<>|]', "_", str(folder_name or "Folder").strip())
+    clean_stem = re.sub(r'[\\/*?:"<>|]', "_", str(orig_stem or "media").strip())
+
+    template = (pattern or "").strip() or "{folder}_{index:04d}"
+    try:
+        formatted = template.format(
+            folder=clean_folder,
+            name=clean_stem,
+            date=date_str,
+            index=index,
+            ext=orig_ext,
+        )
+    except (ValueError, KeyError, IndexError):
+        formatted = (
+            template.replace("{folder}", clean_folder)
+            .replace("{name}", clean_stem)
+            .replace("{date}", date_str)
+            .replace("{index}", f"{index:04d}")
+            .replace("{ext}", orig_ext)
+        )
+
+    if not formatted.lower().endswith(orig_ext.lower()):
+        formatted = f"{formatted}{orig_ext}"
+
+    base_name = os.path.basename(formatted)
+    clean_name = re.sub(r'[\\/*?:"<>|]', "_", base_name).strip()
+    return clean_name or f"{clean_stem}{orig_ext}"
+
+
+def generate_session_summary(
+    source_folder: str,
+    all_files: list,
+    history_records: list,
+    flagged_paths: set,
+    slot_names: list,
+    slot_paths: list,
+) -> dict:
+    """Compute complete statistical summary of sorting activity in current session."""
+    total_files = len(all_files)
+    flagged_count = len(flagged_paths or set())
+
+    norm_slot_map = {}
+    for name, p in zip(slot_names or [], slot_paths or []):
+        if p:
+            norm_slot_map[os.path.normcase(os.path.normpath(os.path.abspath(p)))] = name
+
+    folder_counts = {name: 0 for name in (slot_names or [])}
+    other_moved_count = 0
+
+    known_src_norms = {os.path.normcase(os.path.normpath(f)) for f in (all_files or [])}
+
+    for src, dst in (history_records or []):
+        norm_src = os.path.normcase(os.path.normpath(src))
+        if norm_src not in known_src_norms:
+            continue
+        dst_dir = os.path.normcase(os.path.normpath(os.path.abspath(os.path.dirname(dst))))
+        matched_slot = None
+        for s_dir, s_name in norm_slot_map.items():
+            if dst_dir == s_dir or dst_dir.startswith(s_dir + os.sep):
+                matched_slot = s_name
+                break
+        if matched_slot:
+            folder_counts[matched_slot] = folder_counts.get(matched_slot, 0) + 1
+        else:
+            other_moved_count += 1
+
+    total_moved = sum(folder_counts.values()) + other_moved_count
+    remaining = max(0, total_files - total_moved)
+
+    return {
+        "source_folder": source_folder or "No folder loaded",
+        "total_files": total_files,
+        "total_moved": total_moved,
+        "folder_counts": folder_counts,
+        "other_moved_count": other_moved_count,
+        "flagged_count": flagged_count,
+        "remaining_unmoved": remaining,
+    }
 
 
 def norm_path_key(path: str) -> str:

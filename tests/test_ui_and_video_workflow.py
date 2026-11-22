@@ -219,6 +219,98 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
         finally:
             win2.close()
 
+    def test_all_new_curation_features_workflow(self):
+        png_1, dup_jpg, gif_1, mp4_1 = self._create_sample_media()
+
+        win = app_main.ImageSorterApp()
+        try:
+            win.show()
+            win.load_file_list(self.src_dir, [png_1, dup_jpg, gif_1, mp4_1])
+            self.app.processEvents()
+
+            # 1. Test Sort By feature
+            win.set_sort_order("date", "desc")
+            self.assertEqual(win.settings["sort_by"], "date")
+            self.assertEqual(win.settings["sort_order"], "desc")
+
+            # 2. Test Flagging & Flagged Only filter
+            cur_file = win.filtered_files[win.current_index]
+            self.assertFalse(win.queue_model.is_flagged(cur_file))
+            win.toggle_flag_current()
+            self.assertTrue(win.queue_model.is_flagged(cur_file))
+            self.assertIn("Flagged", win.flag_btn.text())
+
+            win.filter_combo.setCurrentText("Flagged Only")
+            win.apply_filter()
+            self.assertEqual(len(win.filtered_files), 1)
+            self.assertEqual(win.filtered_files[0], cur_file)
+
+            win.filter_combo.setCurrentText("All Files")
+            win.apply_filter()
+
+            # 3. Test Filmstrip Bar
+            self.assertFalse(win.filmstrip_bar.isHidden())
+            self.assertGreaterEqual(len(win.filmstrip_bar._items), 2)
+            # Jump via filmstrip item
+            target_idx = min(2, len(win.filtered_files) - 1)
+            win.filmstrip_bar.item_selected.emit(target_idx)
+            self.assertEqual(win.current_index, target_idx)
+
+            # Toggle filmstrip
+            win.show_filmstrip_action.setChecked(False)
+            win.toggle_filmstrip()
+            self.assertTrue(win.filmstrip_bar.isHidden())
+            win.show_filmstrip_action.setChecked(True)
+            win.toggle_filmstrip()
+            self.assertFalse(win.filmstrip_bar.isHidden())
+
+            # 4. Test Auto-Rename on Move & Safe Undo
+            from ui.dialogs import AutoRenameSettingsDialog, SessionSummaryDialog
+            ar_dlg = AutoRenameSettingsDialog(win)
+            ar_dlg.enable_check.setChecked(True)
+            ar_dlg.pat_edit.setText("{folder}_{index:03d}_{name}")
+            ar_dlg._save_and_accept()
+            self.assertTrue(win.settings["auto_rename_enabled"])
+
+            cur_before = win.filtered_files[win.current_index]
+            dest_dir = win.folder_paths[0]
+            self.assertTrue(win.move_to_custom_folder(dest_dir))
+
+            # Verify moved file was renamed according to pattern
+            moved_actual = win.history_store.resolve_actual_path(cur_before)
+            self.assertTrue(os.path.exists(moved_actual))
+            self.assertIn("Folder A_001_", os.path.basename(moved_actual))
+
+            # Verify Undo restores original name
+            win.undo_action()
+            self.assertTrue(os.path.exists(cur_before))
+
+            # 5. Test Video Volume Slider
+            win.set_video_volume(0.42)
+            self.assertAlmostEqual(win.video_volume, 0.42, places=2)
+            self.assertAlmostEqual(win.settings["video_volume"], 0.42, places=2)
+
+            # 6. Test Session Summary Dialog
+            from core.file_ops import generate_session_summary
+            summ = generate_session_summary(
+                source_folder=win.current_folder,
+                all_files=win.queue_model.all_files,
+                history_records=win.history_store.records,
+                flagged_paths=win.queue_model.flagged_norms,
+                slot_names=win.folder_names[: win.folder_slot_count],
+                slot_paths=win.folder_paths[: win.folder_slot_count],
+            )
+            self.assertEqual(summ["total_files"], 4)
+            self.assertEqual(summ["flagged_count"], 1)
+
+            sum_dlg = SessionSummaryDialog(summ, win)
+            rep_text = sum_dlg._generate_report_text()
+            self.assertIn("Session Summary Report", rep_text)
+            self.assertIn("Total Media: 4", rep_text)
+            sum_dlg.close()
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

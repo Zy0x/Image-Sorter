@@ -49,6 +49,8 @@ from core.config import (
     save_settings,
 )
 from core.file_ops import (
+    format_auto_rename_filename,
+    generate_session_summary,
     get_unique_destination,
     norm_path_key,
     reveal_in_file_explorer,
@@ -78,11 +80,13 @@ from media.formats import (
 from media.video_controller import VideoDecodeThread, VideoMediaController
 from ui.dialogs import (
     AboutDialog,
+    AutoRenameSettingsDialog,
     CustomThemeDialog,
     FolderSettingsDialog,
     ImagePreviewDialog,
     JumpToMediaDialog,
     RapidMoveSettingsDialog,
+    SessionSummaryDialog,
     ShortcutsGuideDialog,
     UpdateDialog,
     show_studio_message,
@@ -98,6 +102,7 @@ from ui.theme import (
     slot_text_color,
 )
 from ui.widgets import (
+    FilmstripBar,
     LoadingOverlay,
     MediaHudOverlay,
     StageViewport,
@@ -151,6 +156,12 @@ class ImageSorterApp(QMainWindow):
         )
         self.video_muted = bool(self.settings.get("video_muted", False))
         self.video_volume = float(self.settings.get("video_volume", 0.85))
+        self.sort_by = str(self.settings.get("sort_by", "name"))
+        self.sort_order = str(self.settings.get("sort_order", "asc"))
+        self.filmstrip_bar = None
+        self.flag_btn = None
+        self.sort_actions = {}
+        self.media_queue.load_flagged(self.settings.get("flagged_files", []))
         self.current_folder = None
         self.current_meta_cache = {}
         self.folder_buttons = []
@@ -249,6 +260,12 @@ class ImageSorterApp(QMainWindow):
         latest["rapid_move_interval"] = clamp_rapid_interval(self.rapid_move_interval_ms)
         latest["video_muted"] = bool(self.video_muted)
         latest["video_volume"] = float(self.video_volume)
+        latest["sort_by"] = getattr(self, "sort_by", self.settings.get("sort_by", "name"))
+        latest["sort_order"] = getattr(self, "sort_order", self.settings.get("sort_order", "asc"))
+        latest["show_filmstrip"] = bool(self.settings.get("show_filmstrip", True))
+        latest["auto_rename_enabled"] = bool(self.settings.get("auto_rename_enabled", False))
+        latest["auto_rename_pattern"] = str(self.settings.get("auto_rename_pattern", "{folder}_{index:04d}"))
+        latest["flagged_files"] = list(self.media_queue.get_flagged_list() if hasattr(self, "media_queue") else self.settings.get("flagged_files", []))
         self.settings = normalize_settings(latest, first_run_default=False)
         self.recent_folders = list(self.settings["recent_folders"])
         self.last_opened_folder = self.settings["last_opened_folder"]
@@ -258,6 +275,10 @@ class ImageSorterApp(QMainWindow):
     # ------------------------------------------------------------------
     # Backwards-compatible properties & accessors for external tests
     # ------------------------------------------------------------------
+    @property
+    def queue_model(self):
+        return self.media_queue
+
     @property
     def history(self):
         return self.history_store.records
@@ -368,6 +389,14 @@ class ImageSorterApp(QMainWindow):
         self.moved_badge.setObjectName("statusBadge")
         info_lay.addWidget(self.moved_badge)
 
+        self.flag_btn = QPushButton("☆ Flag")
+        self.flag_btn.setObjectName("flagBtn")
+        self.flag_btn.setCursor(Qt.PointingHandCursor)
+        self.flag_btn.setFocusPolicy(Qt.NoFocus)
+        self.flag_btn.setToolTip("Toggle Bookmark/Flag (* or Alt+F)")
+        self.flag_btn.clicked.connect(self.toggle_flag_current)
+        info_lay.addWidget(self.flag_btn)
+
         self.file_info_label = QLabel("")
         self.file_info_label.setObjectName("fileInfoLabel")
         self.file_info_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -421,6 +450,12 @@ class ImageSorterApp(QMainWindow):
         stage_row.addWidget(self.next_panel, stretch=26)
 
         root.addLayout(stage_row, stretch=1)
+
+        # Filmstrip preview dock
+        self.filmstrip_bar = FilmstripBar(parent=self)
+        self.filmstrip_bar.item_selected.connect(self.jump_to_index)
+        self.filmstrip_bar.setVisible(self.settings.get("show_filmstrip", True))
+        root.addWidget(self.filmstrip_bar)
 
         # 3. Previous / Next navigation strip
         nav_row = QHBoxLayout()
@@ -495,7 +530,7 @@ class ImageSorterApp(QMainWindow):
         self.filter_combo.blockSignals(True)
         self.filter_combo.clear()
         self.filter_combo.addItems(
-            ["All Files", "All Images", "All Videos", "Animated / GIF", "Duplicates Only"]
+            ["All Files", "All Images", "All Videos", "Animated / GIF", "Duplicates Only", "Flagged Only"]
         )
         for ext in SUPPORTED_IMAGE_EXTENSIONS:
             self.filter_combo.addItem(ext)
@@ -524,6 +559,7 @@ class ImageSorterApp(QMainWindow):
         self._add_menu_action(file_menu, "Show in File Explorer", "folder", self.show_in_explorer, "Ctrl+E")
         self._add_menu_action(file_menu, "Move to Recycle Bin", "trash", self.move_to_recycle_bin, "Delete", icon_color="#ef4444")
         self._add_menu_action(file_menu, "Export Log", "file_text", self.export_log)
+        self._add_menu_action(file_menu, "Session Summary Report...", "report", self.show_session_summary, "Ctrl+Shift+R")
         file_menu.addSeparator()
         self.recent_menu = file_menu.addMenu("Recent Folders")
         self._menu_icon_specs.append((self.recent_menu.menuAction(), "clock", None))
@@ -553,6 +589,38 @@ class ImageSorterApp(QMainWindow):
             self.theme_actions[mode_id] = act
 
         view_menu.addSeparator()
+
+        # Sort By Submenu
+        sort_menu = view_menu.addMenu("Sort By")
+        self._menu_icon_specs.append((sort_menu.menuAction(), "sort", None))
+        sort_group = QActionGroup(self)
+        sort_group.setExclusive(True)
+        self.sort_actions = {}
+        for s_by, s_ord, s_lbl in (
+            ("name", "asc", "Name (A – Z)"),
+            ("name", "desc", "Name (Z – A)"),
+            ("date", "desc", "Date Modified (Newest First)"),
+            ("date", "asc", "Date Modified (Oldest First)"),
+            ("size", "desc", "File Size (Largest First)"),
+            ("size", "asc", "File Size (Smallest First)"),
+            ("ext", "asc", "File Type / Extension"),
+        ):
+            is_active = (self.sort_by == s_by and self.sort_order == s_ord)
+            s_act = self._add_menu_action(
+                sort_menu,
+                s_lbl,
+                "sort",
+                lambda _c=False, sb=s_by, so=s_ord: self.set_sort_order(sb, so),
+                checkable=True,
+                checked=is_active,
+            )
+            sort_group.addAction(s_act)
+            self.sort_actions[(s_by, s_ord)] = s_act
+
+        self.show_filmstrip_action = self._add_menu_action(
+            view_menu, "Show Filmstrip Bar", "filmstrip", self.toggle_filmstrip, "Ctrl+B",
+            checkable=True, checked=self.settings.get("show_filmstrip", True),
+        )
         self.hide_moved_action = self._add_menu_action(
             view_menu, "Hide Moved Images", "eye_off", self.toggle_hide_moved, "Ctrl+H",
             checkable=True, checked=self.hide_moved,
@@ -569,6 +637,7 @@ class ImageSorterApp(QMainWindow):
         settings_menu = menubar.addMenu("Settings")
         self._add_menu_action(settings_menu, "Folder Settings", "folder_plus", self.open_folder_settings, icon_color="#10b981")
         self._add_menu_action(settings_menu, "Rapid Move Settings", "bolt", self.open_rapid_move_settings, icon_color="#f59e0b")
+        self._add_menu_action(settings_menu, "Auto-Rename on Move...", "rename", self.open_auto_rename_settings)
         settings_menu.addSeparator()
         self._add_menu_action(settings_menu, "Export Settings", "upload", self.export_settings)
         self._add_menu_action(settings_menu, "Import Settings", "download", self.import_settings)
@@ -662,6 +731,9 @@ class ImageSorterApp(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.undo_action)
         QShortcut(QKeySequence(Qt.Key_P), self, activated=self.toggle_main_playback)
         QShortcut(QKeySequence(Qt.Key_M), self, activated=self.toggle_main_mute)
+        QShortcut(QKeySequence(Qt.Key_Asterisk), self, activated=self.toggle_flag_current)
+        QShortcut(QKeySequence("Shift+8"), self, activated=self.toggle_flag_current)
+        QShortcut(QKeySequence("Alt+F"), self, activated=self.toggle_flag_current)
 
     # ------------------------------------------------------------------
     # Theme & Responsive Button/Stage Styling
@@ -885,6 +957,9 @@ class ImageSorterApp(QMainWindow):
 
         self._rebuild_recent_menu()
         self.update_folder_buttons()
+        if hasattr(self, "filmstrip_bar") and self.filmstrip_bar is not None:
+            self.filmstrip_bar.apply_tokens(t)
+        self._update_flag_button()
         self._render_empty_or_current_stage()
         if self.hud_overlay is not None:
             self.hud_overlay.apply_tokens(t)
@@ -1020,6 +1095,11 @@ class ImageSorterApp(QMainWindow):
         self.current_meta_cache.clear()
         self.pixmap_cache.clear()
         self.media_queue.set_files(file_list)
+        self.media_queue.load_flagged(self.settings.get("flagged_files", []))
+        sort_by = self.settings.get("sort_by", "name")
+        sort_order = self.settings.get("sort_order", "asc")
+        if sort_by != "name" or sort_order != "asc":
+            self.media_queue.sort_files(sort_by, sort_order)
         self.history_store.validate()
         self.apply_filter(preserve_current=False)
 
@@ -1124,6 +1204,8 @@ class ImageSorterApp(QMainWindow):
         self._set_status_badge("Empty Queue" if self.image_files else "No media loaded", kind="empty")
         self.file_info_label.setText("Drop a folder or press Ctrl+O to start sorting" if not self.image_files else "No items match the active filter")
         self.counter_label.setText(f"0 / {len(self.image_files)}" if self.image_files else "0 / 0")
+        self._update_flag_button(None)
+        self._update_filmstrip()
 
     def show_current_image(self, files=None) -> None:
         """Display the active queue item, Up-Next preview, metadata strip, and deferred animation/video."""
@@ -1172,6 +1254,8 @@ class ImageSorterApp(QMainWindow):
 
         dur_s = self._update_file_info_bar(src_path, actual_path, pix)
         self._update_next_preview(queue, nw, nh)
+        self._update_flag_button(src_path)
+        self._update_filmstrip()
 
         ext = os.path.splitext(actual_path)[1].lower()
         is_vid = is_video_file(actual_path)
@@ -1192,14 +1276,154 @@ class ImageSorterApp(QMainWindow):
             target_size,
             is_video=is_video,
             duration_s=duration_s,
+            volume=self.video_volume,
             tokens=resolve_studio_tokens(self),
         )
         self.hud_overlay.play_pause_clicked.connect(self.toggle_main_playback)
         self.hud_overlay.mute_clicked.connect(self.toggle_main_mute)
+        self.hud_overlay.volume_changed.connect(self.set_video_volume)
         self.hud_overlay.seek_pressed.connect(lambda: setattr(self, "_main_seeking", True))
         self.hud_overlay.seek_released.connect(self._on_main_seek_released)
         self.hud_overlay.seek_clicked.connect(self._on_main_seek_clicked)
         self.hud_overlay.reposition(self.main_image_label.size(), paused=self._main_paused, muted=self.video_muted)
+
+    def set_video_volume(self, volume: float) -> None:
+        """Update live audio volume and persist setting."""
+        self.video_volume = max(0.0, min(1.0, float(volume)))
+        self.settings["video_volume"] = self.video_volume
+        if self._main_video_using_qtmm and self._main_audio_output:
+            self._main_audio_output.setVolume(self.video_volume)
+        if self.video_muted and self.video_volume > 0.0:
+            self.set_video_muted(False)
+        self._sync_and_save_settings()
+
+    def _update_flag_button(self, src_path: str = None) -> None:
+        """Update bookmark/flag button label and icon reflecting the active media state."""
+        if not hasattr(self, "flag_btn") or self.flag_btn is None:
+            return
+        t = resolve_studio_tokens(self)
+        if not src_path and self.filtered_files and 0 <= self.current_index < len(self.filtered_files):
+            src_path = self.filtered_files[self.current_index]
+        is_fl = self.media_queue.is_flagged(src_path) if src_path else False
+        if is_fl:
+            self.flag_btn.setText("★ Flagged")
+            self.flag_btn.setIcon(make_vector_icon("star_filled", "#f59e0b", 13))
+            self.flag_btn.setStyleSheet(
+                "QPushButton#flagBtn {"
+                " background-color: rgba(245, 158, 11, 42);"
+                " color: #f59e0b;"
+                " border: 1px solid rgba(245, 158, 11, 150);"
+                " border-radius: 6px;"
+                " font-size: 11.5px; font-weight: 700; padding: 3px 9px;"
+                "}"
+            )
+        else:
+            self.flag_btn.setText("☆ Flag")
+            self.flag_btn.setIcon(make_vector_icon("star", t["text_muted"], 13))
+            self.flag_btn.setStyleSheet(
+                f"QPushButton#flagBtn {{"
+                f" background-color: {t['surface']};"
+                f" color: {t['text_muted']};"
+                f" border: 1px solid {t['border']};"
+                f" border-radius: 6px;"
+                f" font-size: 11.5px; font-weight: 600; padding: 3px 9px;"
+                f"}}"
+                f"QPushButton#flagBtn:hover {{"
+                f" color: {t['text']};"
+                f" border-color: {t['border_strong']};"
+                f"}}"
+            )
+
+    def toggle_flag_current(self) -> None:
+        """Toggle bookmark/flag state for currently selected media item."""
+        if not self.filtered_files or not (0 <= self.current_index < len(self.filtered_files)):
+            return
+        src_path = self.filtered_files[self.current_index]
+        new_state = self.media_queue.toggle_flag(src_path)
+        self.settings["flagged_files"] = self.media_queue.get_flagged_list()
+        self._sync_and_save_settings()
+        self._update_flag_button(src_path)
+        self._update_filmstrip()
+        self._show_toast("Marked as Flagged ★" if new_state else "Removed Flag ☆")
+        if hasattr(self, "filter_combo") and self.filter_combo.currentText() == "Flagged Only":
+            self.apply_filter()
+
+    def _update_filmstrip(self) -> None:
+        """Synchronize filmstrip bar thumbnails with active queue item."""
+        if not hasattr(self, "filmstrip_bar") or self.filmstrip_bar is None:
+            return
+        if not self.settings.get("show_filmstrip", True):
+            self.filmstrip_bar.hide()
+            return
+        self.filmstrip_bar.update_strip(
+            self.filtered_files,
+            self.current_index,
+            self.pixmap_cache,
+            is_flagged_cb=self.media_queue.is_flagged,
+            is_moved_cb=self.history_store.is_moved,
+        )
+
+    def toggle_filmstrip(self) -> None:
+        """Toggle filmstrip preview bar visibility and persist setting."""
+        show = self.show_filmstrip_action.isChecked()
+        self.settings["show_filmstrip"] = show
+        self._sync_and_save_settings()
+        if hasattr(self, "filmstrip_bar"):
+            self.filmstrip_bar.setVisible(show)
+            if show:
+                self._update_filmstrip()
+
+    def set_sort_order(self, sort_by: str, sort_order: str) -> None:
+        """Re-sort media queue by selected criteria (name, date, size, ext) and preserve active anchor."""
+        self.sort_by = sort_by
+        self.sort_order = sort_order
+        self.settings["sort_by"] = sort_by
+        self.settings["sort_order"] = sort_order
+        self._sync_and_save_settings()
+
+        if hasattr(self, "sort_actions"):
+            for (sb, so), act in self.sort_actions.items():
+                act.setChecked(sb == sort_by and so == sort_order)
+
+        selected_filter = self.filter_combo.currentText() if hasattr(self, "filter_combo") else "All Files"
+        self.media_queue.sort_files(
+            sort_by=sort_by,
+            sort_order=sort_order,
+            selected_filter=selected_filter,
+            hide_moved=self.hide_moved,
+        )
+        self.show_current_image(self.filtered_files)
+        self._update_filmstrip()
+
+        titles = {
+            ("name", "asc"): "Name (A – Z)",
+            ("name", "desc"): "Name (Z – A)",
+            ("date", "desc"): "Date Modified (Newest First)",
+            ("date", "asc"): "Date Modified (Oldest First)",
+            ("size", "desc"): "File Size (Largest First)",
+            ("size", "asc"): "File Size (Smallest First)",
+            ("ext", "asc"): "File Type / Extension",
+        }
+        title = titles.get((sort_by, sort_order), f"{sort_by} ({sort_order})")
+        self._show_toast(f"Sorted by {title}")
+
+    def open_auto_rename_settings(self) -> None:
+        """Open auto-rename configuration dialog."""
+        dlg = AutoRenameSettingsDialog(self)
+        dlg.exec()
+
+    def show_session_summary(self) -> None:
+        """Open session sorting statistics summary report dialog."""
+        summary = generate_session_summary(
+            source_folder=self.current_folder,
+            all_files=self.media_queue.all_files,
+            history_records=self.history_store.records,
+            flagged_paths=self.media_queue.flagged_norms,
+            slot_names=self.folder_names[: self.folder_slot_count],
+            slot_paths=self.folder_paths[: self.folder_slot_count],
+        )
+        dlg = SessionSummaryDialog(summary, self)
+        dlg.exec()
 
     def _update_file_info_bar(self, src_path: str, actual_path: str, pix: QPixmap) -> float:
         meta = self.current_meta_cache.get(actual_path)
@@ -1511,6 +1735,15 @@ class ImageSorterApp(QMainWindow):
             self.current_index = max(0, min(len(self.filtered_files) - 1, dlg.selected_index()))
             self.show_current_image(self.filtered_files)
 
+    def jump_to_index(self, idx: int) -> None:
+        """Jump directly to a specific 0-based queue index."""
+        if not self.filtered_files:
+            return
+        if 0 <= idx < len(self.filtered_files) and idx != self.current_index:
+            self._record_nav()
+            self.current_index = idx
+            self.show_current_image(self.filtered_files)
+
     def open_full_preview(self) -> None:
         src, actual = self.media_queue.current_paths()
         if not actual or not os.path.exists(actual):
@@ -1548,7 +1781,24 @@ class ImageSorterApp(QMainWindow):
                 self.show_current_image(self.filtered_files)
                 return False
 
-            dest_path = get_unique_destination(dest_folder, os.path.basename(actual_path))
+            filename_candidate = os.path.basename(actual_path)
+            matched_name = None
+            for name, p in zip(self.folder_names, self.folder_paths):
+                if p and norm_path_key(p) == norm_dest_dir:
+                    matched_name = name
+                    break
+            folder_label = matched_name or os.path.basename(dest_folder)
+
+            if self.settings.get("auto_rename_enabled", False):
+                pattern = self.settings.get("auto_rename_pattern", "{folder}_{index:04d}")
+                filename_candidate = format_auto_rename_filename(
+                    pattern=pattern,
+                    orig_path=actual_path,
+                    folder_name=folder_label,
+                    index=len(self.history_store.records) + 1,
+                )
+
+            dest_path = get_unique_destination(dest_folder, filename_candidate)
             shutil.move(actual_path, dest_path)
 
             self.history_store.record_move(src_path, dest_path)

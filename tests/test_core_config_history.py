@@ -6,7 +6,13 @@ import tempfile
 import unittest
 
 import core.config as cfg
-from core.file_ops import get_unique_destination, natural_sort_key, scan_image_files
+from core.file_ops import (
+    format_auto_rename_filename,
+    generate_session_summary,
+    get_unique_destination,
+    natural_sort_key,
+    scan_image_files,
+)
 from core.history import HistoryStore
 from core.media_queue import MediaQueueModel
 
@@ -141,6 +147,112 @@ class CoreConfigHistoryQueueTests(unittest.TestCase):
         self.assertEqual(loaded["rapid_move_interval"], 175)
         self.assertEqual(len(loaded["recent_folders"]), 2)
         self.assertEqual(loaded["last_opened_folder"], os.path.normpath(self.temp_dir))
+
+    def test_sort_files_by_name_date_size_and_ext(self):
+        store = HistoryStore()
+        q = MediaQueueModel(store)
+        f1 = os.path.join(self.temp_dir, "b_small.png")
+        f2 = os.path.join(self.temp_dir, "a_large.gif")
+        f3 = os.path.join(self.temp_dir, "c_mid.jpg")
+
+        with open(f1, "wb") as fp:
+            fp.write(b"x" * 10)
+        with open(f2, "wb") as fp:
+            fp.write(b"x" * 1000)
+        with open(f3, "wb") as fp:
+            fp.write(b"x" * 100)
+
+        # Set specific timestamps: f1 oldest, f3 newest
+        os.utime(f1, (1000, 1000))
+        os.utime(f2, (2000, 2000))
+        os.utime(f3, (3000, 3000))
+
+        q.set_files([f1, f2, f3])
+
+        # 1. Sort by name asc
+        q.sort_files("name", "asc")
+        self.assertEqual([os.path.basename(p) for p in q.all_files], ["a_large.gif", "b_small.png", "c_mid.jpg"])
+
+        # 2. Sort by name desc
+        q.sort_files("name", "desc")
+        self.assertEqual([os.path.basename(p) for p in q.all_files], ["c_mid.jpg", "b_small.png", "a_large.gif"])
+
+        # 3. Sort by date desc (newest first)
+        q.sort_files("date", "desc")
+        self.assertEqual([os.path.basename(p) for p in q.all_files], ["c_mid.jpg", "a_large.gif", "b_small.png"])
+
+        # 4. Sort by size desc (largest first)
+        q.sort_files("size", "desc")
+        self.assertEqual([os.path.basename(p) for p in q.all_files], ["a_large.gif", "c_mid.jpg", "b_small.png"])
+
+        # 5. Sort by ext asc
+        q.sort_files("ext", "asc")
+        self.assertEqual([os.path.basename(p) for p in q.all_files], ["a_large.gif", "c_mid.jpg", "b_small.png"])
+
+    def test_media_queue_flagging_and_filter(self):
+        store = HistoryStore()
+        q = MediaQueueModel(store)
+        f1 = os.path.join(self.temp_dir, "img1.png")
+        f2 = os.path.join(self.temp_dir, "img2.png")
+        for f in (f1, f2):
+            with open(f, "wb") as fp:
+                fp.write(b"1")
+
+        q.set_files([f1, f2])
+        self.assertFalse(q.is_flagged(f1))
+
+        # Toggle flag
+        self.assertTrue(q.toggle_flag(f1))
+        self.assertTrue(q.is_flagged(f1))
+        self.assertEqual(q.get_flagged_list(), [f1])
+
+        # Filter by Flagged Only
+        q.apply_filter("Flagged Only", hide_moved=False)
+        self.assertEqual(q.filtered_files, [f1])
+
+        # Toggle off
+        self.assertFalse(q.toggle_flag(f1))
+        self.assertFalse(q.is_flagged(f1))
+        q.apply_filter("Flagged Only", hide_moved=False)
+        self.assertEqual(q.filtered_files, [])
+
+    def test_format_auto_rename_filename_and_session_summary(self):
+        # Auto-rename token formatting
+        fn = format_auto_rename_filename(
+            pattern="{folder}_{index:03d}_{name}",
+            orig_path="C:/Photos/vacation.jpg",
+            folder_name="Best Shots",
+            index=5,
+        )
+        self.assertEqual(fn, "Best Shots_005_vacation.jpg")
+
+        # Session summary calculation
+        all_f = [
+            os.path.join(self.temp_dir, "f1.jpg"),
+            os.path.join(self.temp_dir, "f2.jpg"),
+            os.path.join(self.temp_dir, "f3.jpg"),
+        ]
+        out_a = os.path.join(self.temp_dir, "out_a")
+        out_b = os.path.join(self.temp_dir, "out_b")
+        history = [
+            (all_f[0], os.path.join(out_a, "f1.jpg")),
+            (all_f[1], os.path.join(out_b, "f2.jpg")),
+        ]
+        flagged = {q_norm for q_norm in [os.path.normcase(os.path.normpath(all_f[2]))]}
+        summary = generate_session_summary(
+            source_folder=self.temp_dir,
+            all_files=all_f,
+            history_records=history,
+            flagged_paths=flagged,
+            slot_names=["Slot A", "Slot B"],
+            slot_paths=[out_a, out_b],
+        )
+        self.assertEqual(summary["total_files"], 3)
+        self.assertEqual(summary["total_moved"], 2)
+        self.assertEqual(summary["remaining_unmoved"], 1)
+        self.assertEqual(summary["flagged_count"], 1)
+        self.assertEqual(summary["folder_counts"]["Slot A"], 1)
+        self.assertEqual(summary["folder_counts"]["Slot B"], 1)
 
 
 if __name__ == "__main__":

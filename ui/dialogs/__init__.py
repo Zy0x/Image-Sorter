@@ -3,6 +3,7 @@
 from ui.dialogs.info_dialogs import (
     AboutDialog,
     JumpToMediaDialog,
+    SessionSummaryDialog,
     ShortcutsGuideDialog,
     UpdateDialog,
     apply_studio_dialog_style,
@@ -10,6 +11,7 @@ from ui.dialogs.info_dialogs import (
 )
 from ui.dialogs.preview_dialog import ImagePreviewDialog
 from ui.dialogs.settings_dialogs import (
+    AutoRenameSettingsDialog,
     CustomThemeDialog,
     FolderSettingsDialog,
     RapidMoveSettingsDialog,
@@ -17,11 +19,13 @@ from ui.dialogs.settings_dialogs import (
 
 __all__ = [
     "AboutDialog",
+    "AutoRenameSettingsDialog",
     "CustomThemeDialog",
     "FolderSettingsDialog",
     "ImagePreviewDialog",
     "JumpToMediaDialog",
     "RapidMoveSettingsDialog",
+    "SessionSummaryDialog",
     "ShortcutsGuideDialog",
     "UpdateDialog",
     "apply_studio_dialog_style",

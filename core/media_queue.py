@@ -4,6 +4,7 @@ from collections import deque
 import os
 from typing import Dict, List, Optional, Tuple
 
+from core.file_ops import natural_sort_key
 from core.history import HistoryStore
 from media.formats import is_video_file
 
@@ -22,10 +23,32 @@ class MediaQueueModel:
         self.duplicate_norms: set = set()
         self.duplicate_groups: List[List[str]] = []
         self.duplicate_group_lookup: Dict[str, Tuple[int, int]] = {}
+        self.flagged_norms: set = set()
 
     @staticmethod
     def _norm(path: str) -> str:
         return os.path.normcase(os.path.normpath(path))
+
+    def load_flagged(self, paths: List[str]) -> None:
+        self.flagged_norms = {self._norm(p) for p in paths if p}
+
+    def is_flagged(self, path: Optional[str]) -> bool:
+        if not path:
+            return False
+        return self._norm(path) in self.flagged_norms
+
+    def toggle_flag(self, path: Optional[str]) -> bool:
+        if not path:
+            return False
+        norm = self._norm(path)
+        if norm in self.flagged_norms:
+            self.flagged_norms.remove(norm)
+            return False
+        self.flagged_norms.add(norm)
+        return True
+
+    def get_flagged_list(self) -> List[str]:
+        return [p for p in self.all_files if self._norm(p) in self.flagged_norms]
 
     def clear_duplicates(self) -> None:
         self.duplicate_norms.clear()
@@ -82,6 +105,8 @@ class MediaQueueModel:
             candidates = [p for p in self.all_files if p.lower().endswith(_ANIMATED_EXTS)]
         elif selected_filter == "Duplicates Only":
             candidates = [p for p in self.all_files if self._norm(p) in self.duplicate_norms]
+        elif selected_filter == "Flagged Only":
+            candidates = [p for p in self.all_files if self._norm(p) in self.flagged_norms]
         else:
             wanted = selected_filter.lower()
             candidates = [p for p in self.all_files if p.lower().endswith(wanted)]
@@ -108,6 +133,56 @@ class MediaQueueModel:
                     self.current_index = valid_idx
         else:
             self.current_index = 0
+
+    def sort_files(
+        self,
+        sort_by: str = "name",
+        sort_order: str = "asc",
+        selected_filter: str = "All Files",
+        hide_moved: bool = False,
+    ) -> None:
+        """Sort in-place all_files according to criteria and reapply filter preserving active cursor."""
+        if not self.all_files:
+            return
+
+        reverse = (sort_order.lower() == "desc")
+
+        if sort_by == "date":
+            mtime_cache = {}
+            for p in self.all_files:
+                actual = self.history_store.resolve_actual_path(p)
+                target = actual if os.path.exists(actual) else p
+                try:
+                    mtime_cache[p] = os.path.getmtime(target)
+                except OSError:
+                    mtime_cache[p] = 0.0
+            self.all_files.sort(
+                key=lambda p: (mtime_cache.get(p, 0.0), natural_sort_key(p)),
+                reverse=reverse,
+            )
+        elif sort_by == "size":
+            size_cache = {}
+            for p in self.all_files:
+                actual = self.history_store.resolve_actual_path(p)
+                target = actual if os.path.exists(actual) else p
+                try:
+                    size_cache[p] = os.path.getsize(target)
+                except OSError:
+                    size_cache[p] = 0
+            self.all_files.sort(
+                key=lambda p: (size_cache.get(p, 0), natural_sort_key(p)),
+                reverse=reverse,
+            )
+        elif sort_by == "ext":
+            self.all_files.sort(
+                key=lambda p: (os.path.splitext(p)[1].lower(), natural_sort_key(p)),
+                reverse=reverse,
+            )
+        else:
+            # "name" natural sort
+            self.all_files.sort(key=natural_sort_key, reverse=reverse)
+
+        self.apply_filter(selected_filter, hide_moved=hide_moved, preserve_current=True)
 
     def find_valid_next_index(self, start_index: int, files=None) -> Optional[int]:
         items = self.filtered_files if files is None else files

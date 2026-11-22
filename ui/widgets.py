@@ -1,7 +1,8 @@
 """Reusable Studio Slate UI widgets: ClickSeekSlider, StageViewport, MediaHudOverlay, LoadingOverlay, ToastNotification."""
 
-from PySide6.QtCore import QPropertyAnimation, QRect, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QPainter
+import os
+from PySide6.QtCore import QPointF, QPropertyAnimation, QRect, QRectF, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -17,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from media.formats import format_duration
+from media.formats import format_duration, is_video_file
 from ui.theme import make_vector_icon, resolve_studio_tokens
 
 
@@ -214,11 +215,20 @@ class MediaHudOverlay(QFrame):
 
     play_pause_clicked = Signal()
     mute_clicked = Signal()
+    volume_changed = Signal(float)
     seek_pressed = Signal()
     seek_released = Signal(int)
     seek_clicked = Signal(int)
 
-    def __init__(self, parent_label: QWidget, target_size: QSize, is_video: bool, duration_s: float = 0.0, tokens: dict = None):
+    def __init__(
+        self,
+        parent_label: QWidget,
+        target_size: QSize,
+        is_video: bool,
+        duration_s: float = 0.0,
+        volume: float = 0.85,
+        tokens: dict = None,
+    ):
         super().__init__(parent_label)
         self.setObjectName("mainMediaHud")
         self.is_video = bool(is_video)
@@ -227,6 +237,7 @@ class MediaHudOverlay(QFrame):
         self.cur_time_lbl = None
         self.tot_time_lbl = None
         self.mute_btn = None
+        self.volume_slider = None
         self._tokens = tokens or resolve_studio_tokens(parent_label.window() if parent_label else None)
         self._icon_color = self._tokens["text"]
 
@@ -290,6 +301,18 @@ class MediaHudOverlay(QFrame):
             self.mute_btn.setFixedHeight(24)
             self.mute_btn.clicked.connect(self.mute_clicked.emit)
             btn_row.addWidget(self.mute_btn)
+
+            self.volume_slider = ClickSeekSlider(Qt.Horizontal)
+            self.volume_slider.setObjectName("hudVolumeSlider")
+            self.volume_slider.setRange(0, 100)
+            self.volume_slider.setValue(max(0, min(100, int(volume * 100))))
+            self.volume_slider.setFixedWidth(54)
+            self.volume_slider.setFixedHeight(20)
+            self.volume_slider.setFocusPolicy(Qt.NoFocus)
+            self.volume_slider.setToolTip(f"Volume: {int(volume * 100)}%")
+            self.volume_slider.valueChanged.connect(self._handle_volume_slider)
+            btn_row.addWidget(self.volume_slider)
+
             btn_row.addStretch()
             outer.addLayout(btn_row)
         else:
@@ -374,6 +397,19 @@ class MediaHudOverlay(QFrame):
             self.cur_time_lbl.setText(format_duration(pos_ms / 1000.0))
         self.seek_clicked.emit(int(pos_ms))
 
+    def _handle_volume_slider(self, val: int):
+        if self.volume_slider is not None:
+            self.volume_slider.setToolTip(f"Volume: {val}%")
+        self.volume_changed.emit(val / 100.0)
+
+    def set_volume(self, volume: float):
+        if self.volume_slider is not None:
+            val = max(0, min(100, int(volume * 100)))
+            self.volume_slider.blockSignals(True)
+            self.volume_slider.setValue(val)
+            self.volume_slider.blockSignals(False)
+            self.volume_slider.setToolTip(f"Volume: {val}%")
+
     def set_duration_ms(self, dur_ms: int):
         if dur_ms <= 0:
             return
@@ -404,6 +440,8 @@ class MediaHudOverlay(QFrame):
                 hud_h = 58 if show_seek else 36
             else:
                 hud_h = self.height() or 36
+            if self.volume_slider is not None:
+                self.volume_slider.setVisible(hud_w >= 220)
         else:
             self.compact_labels = w_lbl < 140
             hud_w = min(118, max(64, w_lbl - 12))
@@ -426,3 +464,226 @@ class MediaHudOverlay(QFrame):
 
 _ClickSeekSlider = ClickSeekSlider
 _StageViewport = StageViewport
+
+
+class FilmstripItem(QFrame):
+    """Clickable thumbnail item inside FilmstripBar."""
+
+    clicked = Signal(int)
+
+    def __init__(self, index: int, parent=None):
+        super().__init__(parent)
+        self.index = index
+        self.setFixedSize(54, 54)
+        self.setCursor(Qt.PointingHandCursor)
+        self.thumb_label = QLabel(self)
+        self.thumb_label.setAlignment(Qt.AlignCenter)
+        self.thumb_label.setGeometry(2, 2, 50, 50)
+        self.thumb_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.is_active = False
+        self.is_flagged = False
+        self.is_video = False
+        self.is_moved = False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.index)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+
+        if self.is_flagged:
+            # Draw mini gold star badge in top-right corner
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#f59e0b"))
+            star_pts = QPolygonF([
+                QPointF(self.width() - 8, 3),
+                QPointF(self.width() - 6.5, 6.5),
+                QPointF(self.width() - 3, 7),
+                QPointF(self.width() - 5.5, 9.5),
+                QPointF(self.width() - 4.5, 13),
+                QPointF(self.width() - 8, 11),
+                QPointF(self.width() - 11.5, 13),
+                QPointF(self.width() - 10.5, 9.5),
+                QPointF(self.width() - 13, 7),
+                QPointF(self.width() - 9.5, 6.5),
+            ])
+            p.drawPolygon(star_pts)
+
+        if self.is_video:
+            # Draw mini play badge in bottom-right corner
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(0, 0, 0, 190))
+            p.drawRoundedRect(QRectF(self.width() - 15, self.height() - 13, 12, 10), 2, 2)
+            p.setBrush(QColor("#ffffff"))
+            p.drawPolygon(QPolygonF([
+                QPointF(self.width() - 12, self.height() - 11),
+                QPointF(self.width() - 6, self.height() - 8),
+                QPointF(self.width() - 12, self.height() - 5),
+            ]))
+        p.end()
+
+
+class FilmstripBar(QFrame):
+    """Horizontal mini thumbnail preview dock centered around active queue index."""
+
+    item_selected = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("filmstripBar")
+        self.setFixedHeight(72)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(10, 6, 10, 6)
+        self._layout.setSpacing(8)
+        self._layout.setAlignment(Qt.AlignCenter)
+
+        self._items = []
+        self._last_files = []
+        self._last_current_idx = -1
+        self._last_lru_cache = None
+        self._last_is_flagged_cb = None
+        self._last_is_moved_cb = None
+        self._tokens = resolve_studio_tokens(parent.window() if parent else None)
+        self.apply_tokens(self._tokens)
+
+    def apply_tokens(self, tokens: dict = None):
+        if tokens is not None:
+            self._tokens = tokens
+        t = self._tokens
+        is_dark = t.get("is_dark", True)
+        bg = "rgba(18, 22, 31, 220)" if is_dark else "rgba(240, 244, 250, 240)"
+        border = t.get("border", "#282e3d")
+        self.setStyleSheet(f"""
+            QFrame#filmstripBar {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 10px;
+            }}
+        """)
+        self._refresh_items_style()
+
+    def _refresh_items_style(self):
+        t = self._tokens
+        accent = t.get("accent", "#3b82f6")
+        border = t.get("border", "#282e3d")
+        surface = t.get("surface", "#1b202b")
+
+        for item in self._items:
+            if item.is_active:
+                item.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {surface};
+                        border: 2px solid {accent};
+                        border-radius: 8px;
+                    }}
+                """)
+            else:
+                dim = "opacity: 0.55;" if item.is_moved else ""
+                item.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {surface};
+                        border: 1px solid {border};
+                        border-radius: 8px;
+                        {dim}
+                    }}
+                    QFrame:hover {{
+                        border-color: {accent};
+                    }}
+                """)
+
+    def update_strip(
+        self,
+        files: list,
+        current_idx: int,
+        lru_cache,
+        is_flagged_cb=None,
+        is_moved_cb=None,
+    ):
+        """Update filmstrip cards centered on current_idx."""
+        self._last_files = files or []
+        self._last_current_idx = current_idx
+        self._last_lru_cache = lru_cache
+        self._last_is_flagged_cb = is_flagged_cb
+        self._last_is_moved_cb = is_moved_cb
+
+        while self._layout.count():
+            item_w = self._layout.takeAt(0).widget()
+            if item_w:
+                item_w.deleteLater()
+        self._items.clear()
+
+        if not files or not (0 <= current_idx < len(files)):
+            self.hide()
+            return
+
+        self.show()
+
+        total = len(files)
+        # Determine number of slots based on widget width
+        w = self.width() if self.width() > 100 else 760
+        slots = max(5, min(9, (w - 30) // 62))
+        if slots % 2 == 0:
+            slots -= 1
+        half = slots // 2
+
+        start_idx = max(0, current_idx - half)
+        end_idx = min(total, start_idx + slots)
+        if end_idx - start_idx < slots and start_idx > 0:
+            start_idx = max(0, end_idx - slots)
+
+        for idx in range(start_idx, end_idx):
+            fpath = files[idx]
+            item = FilmstripItem(idx, self)
+            item.is_active = (idx == current_idx)
+            item.is_video = is_video_file(fpath)
+            item.is_flagged = bool(is_flagged_cb(fpath)) if is_flagged_cb else False
+            item.is_moved = bool(is_moved_cb(fpath)) if is_moved_cb else False
+
+            name = os.path.basename(fpath)
+            status_desc = " (Moved)" if item.is_moved else ""
+            flag_desc = " [★ Flagged]" if item.is_flagged else ""
+            item.setToolTip(f"#{idx + 1}: {name}{status_desc}{flag_desc}\nClick to jump")
+
+            pix = None
+            if lru_cache:
+                pix = lru_cache.get(fpath)
+            if pix is None and os.path.exists(fpath) and lru_cache:
+                try:
+                    pix = lru_cache.get_or_load(fpath, max_width=50, max_height=50)
+                except Exception:
+                    pix = None
+
+            if pix and not pix.isNull():
+                scaled = pix.scaled(QSize(48, 48), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                item.thumb_label.setPixmap(scaled)
+            else:
+                item.thumb_label.setText("VID" if item.is_video else "IMG")
+                item.thumb_label.setStyleSheet("font-size: 10px; font-weight: 700; color: #949cb0;")
+
+            item.clicked.connect(self.item_selected.emit)
+            self._items.append(item)
+            self._layout.addWidget(item)
+
+        self._refresh_items_style()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._last_files and 0 <= self._last_current_idx < len(self._last_files):
+            QTimer.singleShot(
+                50,
+                lambda: self.update_strip(
+                    self._last_files,
+                    self._last_current_idx,
+                    self._last_lru_cache,
+                    self._last_is_flagged_cb,
+                    self._last_is_moved_cb,
+                ),
+            )
