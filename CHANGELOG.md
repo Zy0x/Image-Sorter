@@ -2,6 +2,11 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.18 — 2026-11-22
+
+### Improved — compact scrollable Filter ComboBox popup (`combobox-popup: 0` & `maxVisibleItems=10`)
+- **Bounded 10-Row Scrollable Filter Dropdown (`filter_combo`):** Enabled `combobox-popup: 0` on `QComboBox`, capped visible popup rows to **10 items (`~350 px` height)** via `setMaxVisibleItems(10)`, and styled a sleek 8px vertical scrollbar + 26px rounded item rows inside `QAbstractItemView` so the 38-item media filter menu never stretches across the full screen height.
+
 ## 2.1.17 — 2026-11-22
 
 ### Improved — end-to-end Studio Slate UI consistency, complete menu vector icons & scrollable anti-clipping dialogs

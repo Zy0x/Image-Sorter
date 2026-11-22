@@ -1089,7 +1089,7 @@ class UpdateCheckThread(QThread):
             self.error_occurred.emit(str(e))
 
 class AboutDialog(QDialog):
-    VERSION = "2.1.17-Stable"
+    VERSION = "2.1.18-Stable"
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About Image Sorter")
@@ -4388,6 +4388,8 @@ class ImageSorterApp(QMainWindow):
         self.filter_combo = QComboBox()
         self.filter_combo.setToolTip("Select file extension or media type to filter")
         self.filter_combo.setCursor(Qt.PointingHandCursor)
+        self.filter_combo.setMaxVisibleItems(10)
+        self.filter_combo.view().setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.filter_combo.addItem("All Files")
         self.filter_combo.addItem("All Images")
         self.filter_combo.addItem("All Videos")
@@ -4934,6 +4936,8 @@ class ImageSorterApp(QMainWindow):
     def set_modern_button_style(self, button):
         t = self._get_ui_tokens()
         if isinstance(button, QComboBox):
+            button.setMaxVisibleItems(10)
+            button.view().setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             button.setStyleSheet(f"""
                 QComboBox {{
                     background-color: {t["surface"]};
@@ -4944,6 +4948,7 @@ class ImageSorterApp(QMainWindow):
                     font-weight: 600;
                     border-radius: 9px;
                     min-height: 26px;
+                    combobox-popup: 0;
                 }}
                 QComboBox:hover {{
                     background-color: {t["surface_hover"]};
@@ -4956,9 +4961,30 @@ class ImageSorterApp(QMainWindow):
                 QComboBox QAbstractItemView {{
                     background-color: {t["menu_bg"]};
                     color: {t["text"]};
-                    border: 1px solid {t["border"]};
+                    border: 1px solid {t["border_strong"]};
+                    border-radius: 8px;
                     selection-background-color: {t["surface_hover"]};
+                    selection-color: {t["text"]};
                     padding: 4px;
+                    outline: 0;
+                }}
+                QComboBox QAbstractItemView::item {{
+                    min-height: 26px;
+                    padding: 4px 10px;
+                    border-radius: 5px;
+                }}
+                QComboBox QScrollBar:vertical {{
+                    background: transparent;
+                    width: 8px;
+                    margin: 2px 0;
+                }}
+                QComboBox QScrollBar::handle:vertical {{
+                    background: {t["border_strong"]};
+                    min-height: 24px;
+                    border-radius: 4px;
+                }}
+                QComboBox QScrollBar::add-line:vertical, QComboBox QScrollBar::sub-line:vertical {{
+                    height: 0px;
                 }}
             """)
             return

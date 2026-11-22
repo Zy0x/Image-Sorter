@@ -113,6 +113,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.18-Stable (Selesai)
+- [x] **Compact Scrollable Filter Dropdown (`combobox-popup: 0` & `setMaxVisibleItems(10)`):** Membatasi tinggi popup `QComboBox` filter ekstensi/kategori media menjadi maksimal **10 baris (`~350 px`)** lengkap dengan *scrollbar* vertikal 8px bergaya Studio Slate agar tidak lagi menjulang memenuhi tinggi layar.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.
