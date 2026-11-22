@@ -111,10 +111,13 @@ class ImagePreviewDialog(QDialog):
             f"QScrollArea {{ background-color: {self._tokens['canvas_bg']}; "
             f"border: 1px solid {self._tokens['border']}; border-radius: 10px; }}"
         )
+        self.scroll_area.viewport().setStyleSheet(f"background-color: {self._tokens['canvas_bg']};")
 
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("background: transparent; border: none;")
+        self.image_label.setStyleSheet(
+            f"background: transparent; border: none; color: {self._tokens['text']}; font-size: 13px; font-weight: 600;"
+        )
         self.image_label.setCursor(Qt.OpenHandCursor)
         self.image_label.installEventFilter(self)
         self.scroll_area.viewport().installEventFilter(self)
@@ -202,8 +205,9 @@ class ImagePreviewDialog(QDialog):
 
         if self.is_video:
             self.cur_time_lbl = QLabel("0:00")
+            self.cur_time_lbl.setFixedWidth(40)
             self.cur_time_lbl.setStyleSheet(
-                f"font-family: Consolas, monospace; font-size: 11px; color: {self._tokens['text_muted']};"
+                f"font-family: Consolas, monospace; font-size: 11.5px; font-weight: 600; color: {self._tokens['text']};"
             )
             self.seek_slider = ClickSeekSlider(Qt.Horizontal)
             self.seek_slider.setRange(0, 100)
@@ -212,8 +216,10 @@ class ImagePreviewDialog(QDialog):
             self.seek_slider.sliderReleased.connect(self._on_seek_released)
             self.seek_slider.seek_clicked.connect(self._on_seek_clicked)
             self.tot_time_lbl = QLabel("0:00")
+            self.tot_time_lbl.setFixedWidth(40)
+            self.tot_time_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.tot_time_lbl.setStyleSheet(
-                f"font-family: Consolas, monospace; font-size: 11px; color: {self._tokens['text_muted']};"
+                f"font-family: Consolas, monospace; font-size: 11.5px; font-weight: 600; color: {self._tokens['text']};"
             )
             bar.addWidget(self.cur_time_lbl)
             bar.addWidget(self.seek_slider, stretch=1)

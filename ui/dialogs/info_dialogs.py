@@ -21,18 +21,22 @@ from PySide6.QtWidgets import (
 
 from core.config import APP_NAME, APP_VERSION, ALL_SLOT_LETTERS, resource_path
 from core.workers import is_newer_version
+from ui.widgets import StudioSpinBox
 from ui.theme import (
+    apply_studio_palette,
     build_studio_dialog_qss,
     hex_rgba,
     make_vector_icon,
     render_github_markdown_html,
     resolve_studio_tokens,
+    slot_text_color,
 )
 
 
 def apply_studio_dialog_style(widget: QWidget, owner=None) -> dict:
-    """Apply unified Studio Slate tokens, window icon, and dialog QSS to any QDialog or QMessageBox."""
+    """Apply unified Studio Slate tokens, palette, window icon, and dialog QSS to any QDialog or QMessageBox."""
     tokens = resolve_studio_tokens(owner or widget.parentWidget())
+    apply_studio_palette(tokens)
     widget.setStyleSheet(build_studio_dialog_qss(tokens))
     icon_path = resource_path("assets/icons/app_icon.png")
     if os.path.exists(icon_path):
@@ -113,11 +117,12 @@ class UpdateDialog(QDialog):
             badge_text = "Up to Date"
             badge_col = "#10b981"
 
+        badge_fg = slot_text_color(badge_col, tokens["is_dark"])
         self.status_badge = QLabel(badge_text)
         self.status_badge.setStyleSheet(
-            f"font-size: 11px; font-weight: 700; color: {badge_col}; "
-            f"background-color: {hex_rgba(badge_col, 28)}; "
-            f"border: 1px solid {hex_rgba(badge_col, 95)}; "
+            f"font-size: 11px; font-weight: 700; color: {badge_fg}; "
+            f"background-color: {hex_rgba(badge_col, 28 if tokens['is_dark'] else 22)}; "
+            f"border: 1px solid {hex_rgba(badge_fg, 110)}; "
             f"border-radius: 6px; padding: 3px 12px;"
         )
         header.addWidget(self.status_badge)
@@ -341,8 +346,10 @@ class ShortcutsGuideDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.viewport().setStyleSheet("background-color: transparent;")
 
         body = QWidget()
+        body.setObjectName("scrollBody")
         grid = QGridLayout(body)
         grid.setContentsMargins(2, 4, 6, 4)
         grid.setHorizontalSpacing(26)
@@ -404,6 +411,7 @@ class ShortcutsGuideDialog(QDialog):
 
     def _build_column(self, sections, tokens: dict) -> QWidget:
         col = QWidget()
+        col.setObjectName("scrollColumn")
         lay = QVBoxLayout(col)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
@@ -419,28 +427,26 @@ class ShortcutsGuideDialog(QDialog):
 
     def _make_shortcut_row(self, desc: str, keys, tokens: dict) -> QFrame:
         row = QFrame()
-        row.setStyleSheet(
-            f"QFrame {{ border-bottom: 1px solid {tokens['border']}; background: transparent; }}"
-        )
+        row.setObjectName("shortcutRow")
         row_lay = QHBoxLayout(row)
         row_lay.setContentsMargins(0, 6, 0, 6)
         row_lay.setSpacing(6)
 
         lbl = QLabel(desc)
-        lbl.setStyleSheet(f"font-size: 12.5px; color: {tokens['text']}; border: none;")
+        lbl.setStyleSheet(f"font-size: 12.5px; font-weight: 500; color: {tokens['text']}; border: none;")
         row_lay.addWidget(lbl)
         row_lay.addStretch()
 
         for k in keys:
             if k in ("–", "Hold"):
                 hint = QLabel(k)
-                hint.setStyleSheet(f"font-size: 11px; color: {tokens['text_muted']}; border: none; padding: 0 2px;")
+                hint.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {tokens['text_muted']}; border: none; padding: 0 2px;")
                 row_lay.addWidget(hint)
             else:
                 cap = QLabel(k)
                 cap.setAlignment(Qt.AlignCenter)
                 cap.setStyleSheet(
-                    f"font-family: Consolas, monospace; font-size: 11.5px; font-weight: 600; "
+                    f"font-family: Consolas, monospace; font-size: 11.5px; font-weight: 700; "
                     f"color: {tokens['text']}; background-color: {tokens['surface']}; "
                     f"border: 1px solid {tokens['border_strong']}; border-radius: 5px; padding: 2px 7px;"
                 )
@@ -465,7 +471,7 @@ class JumpToMediaDialog(QDialog):
         prompt.setStyleSheet(f"font-size: 12.5px; font-weight: 600; color: {tokens['text']};")
         root.addWidget(prompt)
 
-        self.index_spin = QSpinBox()
+        self.index_spin = StudioSpinBox()
         self.index_spin.setRange(1, max(1, int(total_count)))
         self.index_spin.setValue(max(1, min(int(total_count), int(current_one_based))))
         self.index_spin.selectAll()

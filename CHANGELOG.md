@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.21 — 2026-11-22
+
+### Improved — Dark & Light theme contrast, QPalette synchronization, vector icon alpha fills & custom controls
+- **Synchronized Global QPalette & Transparent Scroll Viewports (`apply_studio_palette` & `build_studio_dialog_qss`):** Synchronized `QApplication.setPalette(...)` with active Studio Slate tokens (`Dark`, `Light`, `System`, `Custom`) while caching true OS color-scheme detection in `is_system_dark()`, and styled `QScrollArea`, `QWidget#scrollBody`, and `QWidget#scrollColumn` viewports so `ShortcutsGuideDialog`, `FolderSettingsDialog`, `CustomThemeDialog`, and `ImagePreviewDialog` never display mismatched dark/light inner boxes.
+- **High-Contrast Light & Dark Token Calibration (`resolve_studio_tokens` & `slot_text_color`):** Calibrated Light Mode and Dark Mode text, muted text (`#525a6b` light / `#949cb0` dark), borders, empty-state table rows, semantic `Moved → Folder` status badges, and dynamic `slot_text_color()` darkening for light surfaces so all 9 folder slot buttons, slot badges (`[1] A`–`[9] I`), and tinted menu icons remain legible without text overlap or low contrast.
+- **Vector Icon Translucent Fill Fix & Custom `StudioComboBox` / `StudioSpinBox` / Theme-Aware `MediaHudOverlay`:** Fixed `make_vector_icon()` brush alpha conversion (`_qcolor_alpha`) so folder, moon, duplicate, and bolt glyphs render clean translucent fills instead of opaque black in Light Mode; introduced `StudioComboBox` and `StudioSpinBox` with anti-aliased vector chevron steppers; and updated `MediaHudOverlay` (`apply_tokens`) to adapt its frosted capsule, buttons, slider, and timestamps (`36px` width) to both Dark and Light themes.
+
 ## 2.1.20 — 2026-11-22
 
 ### Refactored & Improved — modular `core/`, `media/`, `ui/` architecture, legacy asset cleanup & structured `tests/` suite

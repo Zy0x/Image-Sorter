@@ -3,7 +3,7 @@
 import html
 import re
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QApplication
 
 from core.config import ALL_SLOT_LETTERS, DEFAULT_CUSTOM_THEME, load_settings
@@ -14,12 +14,20 @@ SLOT_ACCENTS = (
 )
 
 _VECTOR_ICON_CACHE = {}
+_INITIAL_OS_IS_DARK = None
 
 
 def hex_rgba(hex_color: str, alpha: int) -> str:
     """Convert #RRGGBB string and 0-255 alpha into Qt CSS rgba(...) string."""
     c = QColor(hex_color)
     return f"rgba({c.red()}, {c.green()}, {c.blue()}, {max(0, min(255, int(alpha)))})"
+
+
+def _qcolor_alpha(color_or_hex, alpha: int) -> QColor:
+    """Return a QColor with explicit 0-255 alpha safe for QPainter.setBrush()."""
+    c = QColor(color_or_hex)
+    c.setAlpha(max(0, min(255, int(alpha))))
+    return c
 
 
 def darken_color(hex_color: str, factor: float = 0.8) -> str:
@@ -31,14 +39,66 @@ def darken_color(hex_color: str, factor: float = 0.8) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def slot_text_color(accent: str, is_dark: bool) -> str:
+    """Return high-contrast foreground/icon accent adjusted for dark or light surfaces."""
+    if is_dark:
+        return accent
+    return darken_color(accent, 0.64)
+
+
 def is_system_dark() -> bool:
-    """Detect OS dark theme luminance from current QApplication palette."""
+    """Detect OS dark theme luminance reliably even after QApplication palette overrides."""
+    global _INITIAL_OS_IS_DARK
     app = QApplication.instance()
     if app is None:
         return True
-    base = app.palette().window().color()
-    brightness = base.red() * 0.299 + base.green() * 0.587 + base.blue() * 0.114
-    return brightness < 128
+    try:
+        scheme = app.styleHints().colorScheme()
+        if scheme == Qt.ColorScheme.Dark:
+            return True
+        if scheme == Qt.ColorScheme.Light:
+            return False
+    except Exception:
+        pass
+    if _INITIAL_OS_IS_DARK is None:
+        base = app.palette().window().color()
+        brightness = base.red() * 0.299 + base.green() * 0.587 + base.blue() * 0.114
+        _INITIAL_OS_IS_DARK = brightness < 128
+    return _INITIAL_OS_IS_DARK
+
+
+def apply_studio_palette(t: dict) -> None:
+    """Synchronize QApplication QPalette with active Studio Slate tokens so native viewports never mismatch."""
+    app = QApplication.instance()
+    if app is None:
+        return
+    is_system_dark()  # Ensure initial OS scheme is cached before overriding palette
+    pal = QPalette()
+    win_col = QColor(t["win_bg"])
+    surf_col = QColor(t["surface"])
+    stage_col = QColor(t["stage_bg"])
+    text_col = QColor(t["text"])
+    muted_col = QColor(t["text_muted"])
+    accent_col = QColor(t["accent"])
+    white_col = QColor("#ffffff")
+
+    pal.setColor(QPalette.Window, win_col)
+    pal.setColor(QPalette.WindowText, text_col)
+    pal.setColor(QPalette.Base, surf_col)
+    pal.setColor(QPalette.AlternateBase, stage_col)
+    pal.setColor(QPalette.Text, text_col)
+    pal.setColor(QPalette.Button, surf_col)
+    pal.setColor(QPalette.ButtonText, text_col)
+    pal.setColor(QPalette.BrightText, white_col)
+    pal.setColor(QPalette.Highlight, accent_col)
+    pal.setColor(QPalette.HighlightedText, white_col)
+    pal.setColor(QPalette.ToolTipBase, QColor(t["menu_bg"]))
+    pal.setColor(QPalette.ToolTipText, text_col)
+    pal.setColor(QPalette.PlaceholderText, muted_col)
+    pal.setColor(QPalette.Disabled, QPalette.Text, muted_col)
+    pal.setColor(QPalette.Disabled, QPalette.ButtonText, muted_col)
+    pal.setColor(QPalette.Disabled, QPalette.WindowText, muted_col)
+    app.setPalette(pal)
 
 
 def resolve_studio_tokens(owner=None) -> dict:
@@ -48,7 +108,7 @@ def resolve_studio_tokens(owner=None) -> dict:
         theme_mode = load_settings().get("theme_mode", "system")
 
     if theme_mode == "custom":
-        ct = load_settings().get("custom_theme", DEFAULT_CUSTOM_THEME)
+        ct = getattr(owner, "custom_theme", None) or load_settings().get("custom_theme", DEFAULT_CUSTOM_THEME)
         bg = ct.get("bg_color", DEFAULT_CUSTOM_THEME["bg_color"])
         dark_custom = QColor(bg).lightness() < 128
         return {
@@ -58,14 +118,14 @@ def resolve_studio_tokens(owner=None) -> dict:
             "surface": ct.get("btn_bg", DEFAULT_CUSTOM_THEME["btn_bg"]),
             "surface_hover": ct.get("btn_hover", DEFAULT_CUSTOM_THEME["btn_hover"]),
             "surface_pressed": ct.get("btn_hover", "#2a3040"),
-            "border": "#262a36" if dark_custom else "#d6dae3",
+            "border": "#282e3d" if dark_custom else "#cfd6e3",
             "border_strong": ct.get("main_border_color", DEFAULT_CUSTOM_THEME["main_border_color"]),
             "next_border": ct.get("next_border_color", DEFAULT_CUSTOM_THEME["next_border_color"]),
             "text": ct.get("text_color", DEFAULT_CUSTOM_THEME["text_color"]),
-            "text_muted": "#8b91a1" if dark_custom else "#646b7a",
-            "card_bg": ct.get("label_bg", "#151820"),
-            "next_card_bg": ct.get("label_bg", "#151820"),
-            "canvas_bg": "#0c0e13" if dark_custom else "#e9ecf2",
+            "text_muted": "#949cb0" if dark_custom else "#525a6b",
+            "card_bg": ct.get("label_bg", "#151922"),
+            "next_card_bg": ct.get("label_bg", "#151922"),
+            "canvas_bg": "#0b0d12" if dark_custom else "#e6ebf2",
             "menu_bg": ct.get("menu_bg", DEFAULT_CUSTOM_THEME["menu_bg"]),
             "menu_text": ct.get("menu_text", DEFAULT_CUSTOM_THEME["menu_text"]),
             "accent": ct.get("main_border_color", DEFAULT_CUSTOM_THEME["main_border_color"]),
@@ -76,39 +136,39 @@ def resolve_studio_tokens(owner=None) -> dict:
         return {
             "is_dark": True,
             "win_bg": "#0e1015",
-            "stage_bg": "#13161d",
-            "surface": "#181b23",
-            "surface_hover": "#212633",
-            "surface_pressed": "#2a3040",
-            "border": "#262a36",
-            "border_strong": "#363c4d",
-            "next_border": "#282c39",
-            "text": "#f0f2f5",
-            "text_muted": "#8b91a1",
-            "card_bg": "#151820",
-            "next_card_bg": "#151820",
-            "canvas_bg": "#0c0e13",
-            "menu_bg": "#12141b",
-            "menu_text": "#f0f2f5",
+            "stage_bg": "#141821",
+            "surface": "#1b202b",
+            "surface_hover": "#242b3a",
+            "surface_pressed": "#2d3548",
+            "border": "#282e3d",
+            "border_strong": "#3b4358",
+            "next_border": "#2a3040",
+            "text": "#f1f3f9",
+            "text_muted": "#949cb0",
+            "card_bg": "#151922",
+            "next_card_bg": "#151922",
+            "canvas_bg": "#0b0d12",
+            "menu_bg": "#131720",
+            "menu_text": "#f1f3f9",
             "accent": "#3b82f6",
         }
     return {
         "is_dark": False,
-        "win_bg": "#f3f4f7",
-        "stage_bg": "#e9ecf2",
+        "win_bg": "#f4f6fa",
+        "stage_bg": "#eaeef5",
         "surface": "#ffffff",
-        "surface_hover": "#f0f2f6",
-        "surface_pressed": "#e4e7ee",
-        "border": "#d6dae3",
-        "border_strong": "#bfc6d4",
-        "next_border": "#d0d5e0",
-        "text": "#16181d",
-        "text_muted": "#646b7a",
+        "surface_hover": "#eef2f8",
+        "surface_pressed": "#e1e7f0",
+        "border": "#cfd6e3",
+        "border_strong": "#adb7c9",
+        "next_border": "#c5cedd",
+        "text": "#11141c",
+        "text_muted": "#525a6b",
         "card_bg": "#ffffff",
-        "next_card_bg": "#f8f9fb",
-        "canvas_bg": "#e9ecf2",
+        "next_card_bg": "#f9fafc",
+        "canvas_bg": "#e6ebf2",
         "menu_bg": "#ffffff",
-        "menu_text": "#16181d",
+        "menu_text": "#11141c",
         "accent": "#2563eb",
     }
 
@@ -145,15 +205,46 @@ def build_studio_dialog_qss(t: dict) -> str:
             min-height: 1px;
             border: none;
         }}
-        QLineEdit, QSpinBox, QTextEdit, QTextBrowser {{
+        QLineEdit, QTextEdit, QTextBrowser {{
             background-color: {t["surface"]};
             color: {t["text"]};
             border: 1px solid {t["border"]};
             border-radius: 8px;
-            padding: 8px 12px;
+            padding: 7px 12px;
             font-size: 12px;
             selection-background-color: {t["accent"]};
             selection-color: #ffffff;
+        }}
+        QSpinBox {{
+            background-color: {t["surface"]};
+            color: {t["text"]};
+            border: 1px solid {t["border"]};
+            border-radius: 8px;
+            padding: 6px 24px 6px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            selection-background-color: {t["accent"]};
+            selection-color: #ffffff;
+        }}
+        QSpinBox::up-button {{
+            subcontrol-origin: border;
+            subcontrol-position: top right;
+            width: 22px;
+            background: transparent;
+            border: none;
+        }}
+        QSpinBox::down-button {{
+            subcontrol-origin: border;
+            subcontrol-position: bottom right;
+            width: 22px;
+            background: transparent;
+            border: none;
+        }}
+        QSpinBox::up-arrow, QSpinBox::down-arrow {{
+            image: none;
+            width: 0px;
+            height: 0px;
+            border: none;
         }}
         QLineEdit:focus, QSpinBox:focus, QTextEdit:focus {{
             border-color: {t["accent"]};
@@ -168,10 +259,10 @@ def build_studio_dialog_qss(t: dict) -> str:
         QTextBrowser#releaseNotesView:focus {{
             border-color: {t["border_strong"]};
         }}
-        QSpinBox::up-button, QSpinBox::down-button {{
-            width: 18px;
-            background: transparent;
+        QFrame#shortcutRow {{
+            background-color: transparent;
             border: none;
+            border-bottom: 1px solid {t["border"]};
         }}
         QPushButton {{
             background-color: {t["surface"]};
@@ -241,7 +332,7 @@ def build_studio_dialog_qss(t: dict) -> str:
         QSlider::handle:horizontal:hover {{
             background: {t["accent"]};
         }}
-        QScrollArea {{
+        QScrollArea, QWidget#scrollBody, QWidget#scrollColumn, QWidget#qt_scrollarea_viewport {{
             background-color: transparent;
             border: none;
         }}
@@ -327,7 +418,7 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
             QPointF(s * 0.86, s * 0.78),
             QPointF(s * 0.14, s * 0.78),
         ])
-        p.setBrush(hex_rgba(color, 36))
+        p.setBrush(_qcolor_alpha(qcol, 42))
         p.drawPolygon(path_pts)
     elif kind == "play":
         p.setBrush(qcol)
@@ -378,7 +469,7 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
             QPointF(s * 0.88, s * 0.78),
             QPointF(s * 0.12, s * 0.78),
         ])
-        p.setBrush(hex_rgba(color, 28))
+        p.setBrush(_qcolor_alpha(qcol, 36))
         p.drawPolygon(path_pts)
         p.setBrush(Qt.NoBrush)
         p.drawLine(QPointF(mid, s * 0.46), QPointF(mid, s * 0.68))
@@ -392,7 +483,7 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
             QPointF(s * 0.88, s * 0.78),
             QPointF(s * 0.12, s * 0.78),
         ])
-        p.setBrush(hex_rgba(color, 28))
+        p.setBrush(_qcolor_alpha(qcol, 36))
         p.drawPolygon(path_pts)
         p.setBrush(Qt.NoBrush)
         p.drawEllipse(QPointF(s * 0.48, s * 0.55), s * 0.11, s * 0.11)
@@ -431,7 +522,7 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         cut = QPainterPath()
         cut.addEllipse(QPointF(s * 0.63, s * 0.37), s * 0.27, s * 0.27)
         cres = path.subtracted(cut)
-        p.setBrush(hex_rgba(color, 42))
+        p.setBrush(_qcolor_alpha(qcol, 48))
         p.drawPath(cres)
     elif kind == "monitor":
         p.drawRoundedRect(QRectF(s * 0.16, s * 0.18, s * 0.68, s * 0.48), 2.0, 2.0)
@@ -454,7 +545,7 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         p.drawRoundedRect(QRectF(s * 0.50, s * 0.66, s * 0.34, s * 0.18), 1.5, 1.5)
     elif kind == "duplicates":
         p.drawRoundedRect(QRectF(s * 0.16, s * 0.16, s * 0.46, s * 0.46), 2.0, 2.0)
-        p.setBrush(hex_rgba(color, 34))
+        p.setBrush(_qcolor_alpha(qcol, 42))
         p.drawRoundedRect(QRectF(s * 0.38, s * 0.38, s * 0.46, s * 0.46), 2.0, 2.0)
     elif kind == "jump":
         p.drawLine(QPointF(s * 0.18, mid), QPointF(s * 0.68, mid))
@@ -499,8 +590,12 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
             QPointF(s * 0.74, s * 0.46),
             QPointF(s * 0.52, s * 0.46),
         ])
-        p.setBrush(hex_rgba(color, 38))
+        p.setBrush(_qcolor_alpha(qcol, 44))
         p.drawPolygon(bolt)
+    elif kind == "chevron_down":
+        p.drawPolyline(QPolygonF([QPointF(s * 0.24, s * 0.38), QPointF(mid, s * 0.64), QPointF(s * 0.76, s * 0.38)]))
+    elif kind == "chevron_up":
+        p.drawPolyline(QPolygonF([QPointF(s * 0.24, s * 0.62), QPointF(mid, s * 0.36), QPointF(s * 0.76, s * 0.62)]))
     elif kind in ("reset", "update"):
         p.drawArc(QRectF(s * 0.20, s * 0.20, s * 0.60, s * 0.60), 35 * 16, 290 * 16)
         p.drawPolyline(QPolygonF([QPointF(s * 0.60, s * 0.16), QPointF(s * 0.78, s * 0.28), QPointF(s * 0.60, s * 0.38)]))
@@ -711,23 +806,23 @@ def build_empty_state_html(t: dict, slot_count: int = 5, compact: bool = False) 
     """Build clean Studio Slate HTML quick-start guide when no media is loaded."""
     max_key = max(3, int(slot_count or 5))
     max_let = ALL_SLOT_LETTERS[min(max_key - 1, len(ALL_SLOT_LETTERS) - 1)]
-    tbl_w = 240 if compact else 310
-    cell_pad = 3 if compact else 6
+    tbl_w = 250 if compact else 325
+    cell_pad = 4 if compact else 7
     font_sz = 11 if compact else 12
     title_sz = 15 if compact else 17
     key_col = t["accent"]
     desc_col = t["text"]
     sub_col = t["text_muted"]
-    row_bg = t["surface"]
+    row_bg = "#1c212e" if t["is_dark"] else "#eef2f8"
     return (
         f"<div align='center'>"
-        f"<p style='font-size:{title_sz}px; font-weight:700; color:{desc_col}; margin-bottom:3px;'>No Media Loaded</p>"
+        f"<p style='font-size:{title_sz}px; font-weight:700; color:{desc_col}; margin-bottom:4px;'>No Media Loaded</p>"
         f"<p style='font-size:{font_sz}px; color:{sub_col}; margin-top:0px; margin-bottom:{8 if compact else 14}px;'>"
         f"Drop a folder or press <font face='Consolas' color='{key_col}'><b>Ctrl+O</b></font>"
         f"</p>"
-        f"<table align='center' width='{tbl_w}' cellspacing='2' cellpadding='{cell_pad}' style='font-size:{font_sz}px;'>"
+        f"<table align='center' width='{tbl_w}' cellspacing='3' cellpadding='{cell_pad}' style='font-size:{font_sz}px;'>"
         f"<tr bgcolor='{row_bg}'>"
-        f"<td align='left' width='42%'><font face='Consolas' color='{key_col}'><b>[1] – [{max_key}]</b></font></td>"
+        f"<td align='left' width='44%'><font face='Consolas' color='{key_col}'><b>[1] – [{max_key}]</b></font></td>"
         f"<td align='left'><font color='{desc_col}'>Move to Folder A–{max_let}</font></td>"
         f"</tr>"
         f"<tr bgcolor='{row_bg}'>"

@@ -16,7 +16,7 @@
   <a href="https://github.com/Zy0x/Image-Sorter/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/releases/latest"><img src="https://img.shields.io/github/v/release/Zy0x/Image-Sorter?sort=semver&color=orange" alt="Latest Release"></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python Version"></a>
-  <a href="#"><img src="https://img.shields.io/badge/version-2.1.20--Stable-brightgreen.svg" alt="Version"></a>
+  <a href="#"><img src="https://img.shields.io/badge/version-2.1.21--Stable-brightgreen.svg" alt="Version"></a>
   <a href="https://github.com/Zy0x/Image-Sorter/stargazers"><img src="https://img.shields.io/github/stars/Zy0x/Image-Sorter?style=social" alt="Stars"></a>
 </div>
 

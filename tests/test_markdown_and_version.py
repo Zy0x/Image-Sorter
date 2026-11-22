@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 import core.config as cfg
 import main as app_main
 from core.workers import is_newer_version
-from ui.theme import render_github_markdown_html, resolve_studio_tokens
+from ui.theme import make_vector_icon, render_github_markdown_html, resolve_studio_tokens, slot_text_color
 
 
 class MarkdownVersionDialogTests(unittest.TestCase):
@@ -29,12 +29,12 @@ class MarkdownVersionDialogTests(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_version_comparison_and_app_version(self):
-        self.assertEqual(app_main.APP_VERSION, "2.1.20-Stable")
-        self.assertEqual(app_main.AboutDialog.VERSION, "2.1.20-Stable")
-        self.assertTrue(is_newer_version("2.1.19-Stable", "2.1.20-Stable"))
-        self.assertTrue(is_newer_version("2.1.20-Beta", "2.1.20-Stable"))
-        self.assertFalse(is_newer_version("2.1.20-Stable", "2.1.19-Stable"))
-        self.assertFalse(is_newer_version("2.1.20-Stable", "1.0-Stable"))
+        self.assertEqual(app_main.APP_VERSION, "2.1.21-Stable")
+        self.assertEqual(app_main.AboutDialog.VERSION, "2.1.21-Stable")
+        self.assertTrue(is_newer_version("2.1.20-Stable", "2.1.21-Stable"))
+        self.assertTrue(is_newer_version("2.1.21-Beta", "2.1.21-Stable"))
+        self.assertFalse(is_newer_version("2.1.21-Stable", "2.1.20-Stable"))
+        self.assertFalse(is_newer_version("2.1.21-Stable", "1.0-Stable"))
 
     def test_github_markdown_html_renderer(self):
         t = resolve_studio_tokens()
@@ -81,6 +81,18 @@ class MarkdownVersionDialogTests(unittest.TestCase):
 
             sg = app_main.ShortcutsGuideDialog(win)
             sg.close()
+
+            # Verify Light Mode & Dark Mode palette sync, contrast helpers, and non-black translucent vector icon fill
+            win.set_theme_mode("light")
+            self.assertEqual(self.app.palette().window().color().name().lower(), "#f4f6fa")
+            self.assertNotEqual(slot_text_color("#f59e0b", is_dark=False), "#f59e0b")
+
+            icon_img = make_vector_icon("folder", "#3b82f6", 16).pixmap(16, 16).toImage()
+            mid_px = icon_img.pixelColor(icon_img.width() // 2, icon_img.height() // 2)
+            self.assertGreater(mid_px.blue(), mid_px.red(), "Folder vector icon fill must be blue-tinted, not opaque black")
+
+            win.set_theme_mode("dark")
+            self.assertEqual(self.app.palette().window().color().name().lower(), "#0e1015")
         finally:
             win.close()
 

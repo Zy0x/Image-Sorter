@@ -87,16 +87,19 @@ from ui.dialogs import (
 )
 from ui.theme import (
     SLOT_ACCENTS,
+    apply_studio_palette,
     build_empty_state_html,
     darken_color,
     hex_rgba,
     make_vector_icon,
     resolve_studio_tokens,
+    slot_text_color,
 )
 from ui.widgets import (
     LoadingOverlay,
     MediaHudOverlay,
     StageViewport,
+    StudioComboBox,
     ToastNotification,
 )
 
@@ -425,12 +428,13 @@ class ImageSorterApp(QMainWindow):
         bottom_row = QHBoxLayout()
         bottom_row.setSpacing(10)
 
-        self.filter_combo = QComboBox()
+        self.filter_combo = StudioComboBox()
         self.filter_combo.setObjectName("filterCombo")
+        self.filter_combo.setCursor(Qt.PointingHandCursor)
         self.filter_combo.setFocusPolicy(Qt.NoFocus)
         self.filter_combo.setMaxVisibleItems(10)
         self.filter_combo.view().setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.filter_combo.setMinimumWidth(145)
+        self.filter_combo.setMinimumWidth(152)
         self.filter_combo.setMinimumHeight(38)
         self._populate_filter_combo()
         self.filter_combo.currentTextChanged.connect(lambda _txt: self.apply_filter())
@@ -560,9 +564,31 @@ class ImageSorterApp(QMainWindow):
             return
         for path in valid_recent:
             act = QAction(path, self)
-            act.setIcon(make_vector_icon("folder", tokens["menu_text"], 14))
+            act.setIcon(make_vector_icon("folder", slot_text_color("#3b82f6", tokens["is_dark"]), 14))
             act.triggered.connect(lambda _=False, p=path: self.import_folder(p))
             self.recent_menu.addAction(act)
+
+    def _set_status_badge(self, text: str, kind: str = "empty") -> None:
+        """Update top-left status badge with high-contrast semantic styling for Dark and Light themes."""
+        self._status_badge_kind = kind
+        self.moved_badge.setText(text)
+        t = resolve_studio_tokens(self)
+        if kind == "moved":
+            fg = slot_text_color("#10b981", t["is_dark"])
+            bg = hex_rgba("#10b981", 32 if t["is_dark"] else 24)
+            bd = hex_rgba(fg, 115)
+        elif kind == "unsorted":
+            fg = t["text"]
+            bg = t["surface"]
+            bd = t["border_strong"]
+        else:
+            fg = t["text_muted"]
+            bg = t["surface"]
+            bd = t["border"]
+        self.moved_badge.setStyleSheet(
+            f"background-color: {bg}; color: {fg}; border: 1px solid {bd}; "
+            f"border-radius: 6px; padding: 3px 10px; font-size: 11.5px; font-weight: 700;"
+        )
 
     def _bind_shortcuts(self) -> None:
         QShortcut(QKeySequence(Qt.Key_Left), self, activated=self.show_previous)
@@ -593,6 +619,7 @@ class ImageSorterApp(QMainWindow):
     def apply_theme(self) -> None:
         """Apply unified Studio Slate tokens across window, menubar, menus, buttons, and media views."""
         t = resolve_studio_tokens(self)
+        apply_studio_palette(t)
         accent_hover = darken_color(t["accent"], 0.88)
         self.setStyleSheet(f"""
             QMainWindow, QWidget#centralHost {{
@@ -608,14 +635,17 @@ class ImageSorterApp(QMainWindow):
                 border-bottom: 1px solid {t['border']};
                 padding: 3px 8px;
                 font-size: 12.5px;
+                font-weight: 600;
             }}
             QMenuBar::item {{
                 background: transparent;
+                color: {t['text']};
                 padding: 5px 11px;
                 border-radius: 6px;
             }}
             QMenuBar::item:selected {{
                 background-color: {t['surface_hover']};
+                color: {t['text']};
             }}
             QMenu {{
                 background-color: {t['menu_bg']};
@@ -625,6 +655,7 @@ class ImageSorterApp(QMainWindow):
                 padding: 6px 4px;
             }}
             QMenu::item {{
+                color: {t['menu_text']};
                 padding: 7px 26px 7px 10px;
                 border-radius: 6px;
                 margin: 1px 4px;
@@ -634,6 +665,7 @@ class ImageSorterApp(QMainWindow):
             }}
             QMenu::item:selected {{
                 background-color: {t['surface_hover']};
+                color: {t['menu_text']};
             }}
             QMenu::item:disabled {{
                 color: {t['text_muted']};
@@ -663,7 +695,7 @@ class ImageSorterApp(QMainWindow):
                 font-weight: 700;
             }}
             QLabel#fileInfoLabel {{
-                color: {t['text_muted']};
+                color: {t['text']};
                 font-size: 12px;
                 font-weight: 600;
                 background: transparent;
@@ -672,7 +704,7 @@ class ImageSorterApp(QMainWindow):
             QLabel#counterBadge {{
                 background-color: {t['surface']};
                 color: {t['text']};
-                border: 1px solid {t['border']};
+                border: 1px solid {t['border_strong']};
                 border-radius: 6px;
                 padding: 3px 12px;
                 font-family: Consolas, monospace;
@@ -693,6 +725,7 @@ class ImageSorterApp(QMainWindow):
                 border-radius: 9px;
                 color: {t['text_muted']};
                 font-size: 12px;
+                font-weight: 600;
             }}
             QPushButton#navButton, QPushButton#actionButton {{
                 background-color: {t['surface']};
@@ -717,12 +750,26 @@ class ImageSorterApp(QMainWindow):
                 color: {t['text']};
                 border: 1px solid {t['border']};
                 border-radius: 9px;
-                padding: 4px 12px;
+                padding: 4px 28px 4px 12px;
                 font-size: 12px;
                 font-weight: 600;
             }}
             QComboBox#filterCombo:hover {{
+                background-color: {t['surface_hover']};
                 border-color: {accent_hover};
+            }}
+            QComboBox#filterCombo::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 26px;
+                border: none;
+                background: transparent;
+            }}
+            QComboBox#filterCombo::down-arrow {{
+                image: none;
+                width: 0px;
+                height: 0px;
+                border: none;
             }}
             QComboBox#filterCombo QAbstractItemView {{
                 background-color: {t['menu_bg']};
@@ -732,11 +779,17 @@ class ImageSorterApp(QMainWindow):
                 padding: 4px;
                 outline: 0;
                 selection-background-color: {t['surface_hover']};
+                selection-color: {t['menu_text']};
             }}
             QComboBox#filterCombo QAbstractItemView::item {{
+                color: {t['menu_text']};
                 min-height: 26px;
                 padding: 3px 10px;
                 border-radius: 5px;
+            }}
+            QComboBox#filterCombo QAbstractItemView::item:selected {{
+                background-color: {t['surface_hover']};
+                color: {t['menu_text']};
             }}
             QComboBox#filterCombo QAbstractItemView QScrollBar:vertical {{
                 background: transparent;
@@ -754,9 +807,13 @@ class ImageSorterApp(QMainWindow):
             }}
         """)
 
+        if hasattr(self, "filter_combo") and hasattr(self.filter_combo, "set_arrow_color"):
+            self.filter_combo.set_arrow_color(t["text"])
+
         # Refresh vector icons across menus and navigation/action buttons
         for act, kind, explicit_col in self._menu_icon_specs:
-            act.setIcon(make_vector_icon(kind, explicit_col or t["menu_text"], 15))
+            ic = slot_text_color(explicit_col, t["is_dark"]) if explicit_col else t["menu_text"]
+            act.setIcon(make_vector_icon(kind, ic, 15))
         self.prev_button.setIcon(make_vector_icon("prev", t["text"], 14))
         self.prev_button.setIconSize(QSize(14, 14))
         self.next_button.setIcon(make_vector_icon("next", t["text"], 14))
@@ -769,6 +826,9 @@ class ImageSorterApp(QMainWindow):
         self._rebuild_recent_menu()
         self.update_folder_buttons()
         self._render_empty_or_current_stage()
+        if self.hud_overlay is not None:
+            self.hud_overlay.apply_tokens(t)
+            self.hud_overlay.refresh_labels(paused=self._main_paused, muted=self.video_muted)
 
     def update_folder_buttons(self) -> None:
         """Render 3..9 visible quick-sort folder buttons with semantic Studio accent tinting."""
@@ -781,25 +841,26 @@ class ImageSorterApp(QMainWindow):
             if not visible:
                 continue
             accent = SLOT_ACCENTS[i % len(SLOT_ACCENTS)]
+            fg_accent = slot_text_color(accent, t["is_dark"])
             label = (self.folder_names[i] if i < len(self.folder_names) else DEFAULT_FOLDER_NAMES[i]) or DEFAULT_FOLDER_NAMES[i]
             btn.setText(f"[{i + 1}] {label}")
             btn.setToolTip(f"Move to '{label}'\nDestination: {self.folder_paths[i]}")
-            btn.setIcon(make_vector_icon("folder", accent, 14 if compact else 15))
+            btn.setIcon(make_vector_icon("folder", fg_accent, 14 if compact else 15))
             btn.setIconSize(QSize(14 if compact else 15, 14 if compact else 15))
             btn.setStyleSheet(
                 f"QPushButton#folderSlotBtn {{"
-                f" background-color: {hex_rgba(accent, 34 if t['is_dark'] else 20)};"
+                f" background-color: {hex_rgba(accent, 36 if t['is_dark'] else 26)};"
                 f" color: {t['text']};"
-                f" border: 1px solid {hex_rgba(accent, 115 if t['is_dark'] else 140)};"
+                f" border: 1px solid {hex_rgba(fg_accent, 120 if t['is_dark'] else 135)};"
                 f" border-radius: 10px;"
                 f" font-size: {font_px}px; font-weight: 700; padding: 6px 8px;"
                 f"}}"
                 f"QPushButton#folderSlotBtn:hover {{"
-                f" background-color: {hex_rgba(accent, 58 if t['is_dark'] else 38)};"
-                f" border-color: {accent};"
+                f" background-color: {hex_rgba(accent, 64 if t['is_dark'] else 48)};"
+                f" border-color: {fg_accent};"
                 f"}}"
                 f"QPushButton#folderSlotBtn:pressed {{"
-                f" background-color: {hex_rgba(accent, 88 if t['is_dark'] else 55)};"
+                f" background-color: {hex_rgba(accent, 92 if t['is_dark'] else 68)};"
                 f"}}"
             )
 
@@ -992,7 +1053,7 @@ class ImageSorterApp(QMainWindow):
         self.next_image_label.setFixedSize(nw, nh)
         self.next_stage_viewport.center_child()
 
-        self.moved_badge.setText("Empty Queue" if self.image_files else "No media loaded")
+        self._set_status_badge("Empty Queue" if self.image_files else "No media loaded", kind="empty")
         self.file_info_label.setText("Drop a folder or press Ctrl+O to start sorting" if not self.image_files else "No items match the active filter")
         self.counter_label.setText(f"0 / {len(self.image_files)}" if self.image_files else "0 / 0")
 
@@ -1014,9 +1075,9 @@ class ImageSorterApp(QMainWindow):
         self.counter_label.setText(f"{self.current_index + 1} / {len(queue)}")
         moved_folder = self.history_store.get_folder_name(src_path, self.folder_names, self.folder_paths)
         if moved_folder:
-            self.moved_badge.setText(f"Moved → {moved_folder}")
+            self._set_status_badge(f"Moved → {moved_folder}", kind="moved")
         else:
-            self.moved_badge.setText("Unsorted")
+            self._set_status_badge("Unsorted", kind="unsorted")
 
         mw, mh, nw, nh = self._stage_budgets()
         if not os.path.exists(actual_path):
@@ -1058,7 +1119,13 @@ class ImageSorterApp(QMainWindow):
         self._prefetch_neighbor_images()
 
     def _create_main_hud(self, target_size: QSize, is_video: bool, duration_s: float = 0.0) -> None:
-        self.hud_overlay = MediaHudOverlay(self.main_image_label, target_size, is_video=is_video, duration_s=duration_s)
+        self.hud_overlay = MediaHudOverlay(
+            self.main_image_label,
+            target_size,
+            is_video=is_video,
+            duration_s=duration_s,
+            tokens=resolve_studio_tokens(self),
+        )
         self.hud_overlay.play_pause_clicked.connect(self.toggle_main_playback)
         self.hud_overlay.mute_clicked.connect(self.toggle_main_mute)
         self.hud_overlay.seek_pressed.connect(lambda: setattr(self, "_main_seeking", True))

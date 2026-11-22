@@ -36,7 +36,8 @@ from core.config import (
     save_settings,
 )
 from ui.dialogs.info_dialogs import apply_studio_dialog_style
-from ui.theme import SLOT_ACCENTS, hex_rgba, make_vector_icon
+from ui.theme import SLOT_ACCENTS, hex_rgba, make_vector_icon, slot_text_color
+from ui.widgets import StudioSpinBox
 
 _THEME_COLOR_FIELDS = (
     ("bg_color", "Window Background", "Main Studio backdrop fill"),
@@ -63,7 +64,8 @@ class CustomThemeDialog(QDialog):
 
         settings = load_settings()
         self.custom_theme = copy.deepcopy(DEFAULT_CUSTOM_THEME)
-        self.custom_theme.update(settings.get("custom_theme", {}))
+        parent_ct = getattr(parent, "custom_theme", None)
+        self.custom_theme.update(parent_ct if isinstance(parent_ct, dict) else settings.get("custom_theme", {}))
         self._swatch_buttons = {}
         self._hex_labels = {}
 
@@ -85,8 +87,10 @@ class CustomThemeDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.viewport().setStyleSheet("background-color: transparent;")
 
         body = QWidget()
+        body.setObjectName("scrollBody")
         body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(0, 2, 6, 2)
         body_lay.setSpacing(8)
@@ -257,10 +261,10 @@ class FolderSettingsDialog(QDialog):
             self._count_buttons[n] = btn
             count_lay.addWidget(btn)
 
-        self.slot_spin = QSpinBox()
+        self.slot_spin = StudioSpinBox()
         self.slot_spin.setRange(MIN_FOLDER_SLOTS, MAX_FOLDER_SLOTS)
         self.slot_spin.setValue(self._slot_count)
-        self.slot_spin.setFixedWidth(54)
+        self.slot_spin.setFixedWidth(58)
         self.slot_spin.valueChanged.connect(self._set_slot_count)
         count_lay.addWidget(self.slot_spin)
         root.addWidget(count_card)
@@ -269,14 +273,17 @@ class FolderSettingsDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.viewport().setStyleSheet("background-color: transparent;")
 
         body = QWidget()
+        body.setObjectName("scrollBody")
         body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(0, 2, 6, 2)
         body_lay.setSpacing(8)
 
         for i in range(MAX_FOLDER_SLOTS):
             accent = SLOT_ACCENTS[i % len(SLOT_ACCENTS)]
+            fg_accent = slot_text_color(accent, self._tokens["is_dark"])
             card = QFrame()
             card.setObjectName("studioCard")
             row = QHBoxLayout(card)
@@ -285,10 +292,11 @@ class FolderSettingsDialog(QDialog):
 
             badge = QLabel(f"[{i + 1}] {ALL_SLOT_LETTERS[i]}")
             badge.setAlignment(Qt.AlignCenter)
-            badge.setFixedWidth(52)
+            badge.setFixedWidth(54)
             badge.setStyleSheet(
-                f"font-family: Consolas, monospace; font-size: 12px; font-weight: 700; color: {accent}; "
-                f"background-color: {hex_rgba(accent, 34)}; border: 1px solid {hex_rgba(accent, 110)}; "
+                f"font-family: Consolas, monospace; font-size: 12px; font-weight: 700; color: {fg_accent}; "
+                f"background-color: {hex_rgba(accent, 34 if self._tokens['is_dark'] else 26)}; "
+                f"border: 1px solid {hex_rgba(fg_accent, 115)}; "
                 f"border-radius: 6px; padding: 5px 4px;"
             )
             row.addWidget(badge)
@@ -448,10 +456,11 @@ class RapidMoveSettingsDialog(QDialog):
         top_row = QHBoxLayout()
         lbl = QLabel("Interval (ms)")
         lbl.setStyleSheet(f"font-size: 12.5px; font-weight: 600; color: {tokens['text']};")
-        self.spin = QSpinBox()
+        self.spin = StudioSpinBox()
         self.spin.setRange(RAPID_MOVE_MIN_MS, RAPID_MOVE_MAX_MS)
         self.spin.setSingleStep(25)
         self.spin.setSuffix(" ms")
+        self.spin.setMinimumWidth(96)
         self.spin.setValue(current_ms)
         top_row.addWidget(lbl)
         top_row.addStretch()

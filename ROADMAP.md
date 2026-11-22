@@ -128,6 +128,11 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
+## ✅ v2.1.21-Stable (Selesai)
+- [x] **Konsistensi Kontras Tema Gelap & Terang (`apply_studio_palette`, `slot_text_color`, `StudioComboBox`, `StudioSpinBox`, `MediaHudOverlay`):** Sinkronisasi penuh `QPalette` global dengan token Studio Slate di seluruh dialog dan `QScrollArea`, perbaikan warna *fill* transparan pada ikon vektor (`_qcolor_alpha`), peningkatan kontras teks/badge di *Light Mode* & *Dark Mode*, kontrol `StudioComboBox` dan `StudioSpinBox` berikon chevron vektor, serta kapsul `MediaHudOverlay` yang adaptif terhadap tema aktif.
+
+---
+
 ## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
 - [ ] **Pengurutan Antrean Fleksibel (*Sort By*: Tanggal, Ukuran, Resolusi)**
 - [ ] **Batch Rename & Tagging:** Mengganti nama file berdasarkan pola tanggal/urutan saat disortir.
