@@ -750,21 +750,24 @@ class FilmstripBar(QFrame):
         self.show()
 
         total = len(files)
+        # Media after UP NEXT starts at current_idx + 2
+        # (current_idx is in Main Stage, current_idx + 1 is in UP NEXT Stage)
+        start_idx = current_idx + 2
+        if start_idx >= total:
+            self.hide()
+            return
+
+        self.show()
+
         # Determine number of slots based on widget width
         w = self.width() if self.width() > 100 else 240
         slots = max(3, min(5, (w - 12) // 50))
-
-        if current_idx + slots <= total:
-            start_idx = current_idx
-            end_idx = start_idx + slots
-        else:
-            end_idx = total
-            start_idx = max(0, end_idx - slots)
+        end_idx = min(total, start_idx + slots)
 
         for idx in range(start_idx, end_idx):
             fpath = files[idx]
             item = FilmstripItem(idx, self)
-            item.is_active = (idx == current_idx)
+            item.is_active = False
             item.is_video = is_video_file(fpath)
             item.is_flagged = bool(is_flagged_cb(fpath)) if is_flagged_cb else False
             item.is_moved = bool(is_moved_cb(fpath)) if is_moved_cb else False
@@ -772,7 +775,8 @@ class FilmstripBar(QFrame):
             name = os.path.basename(fpath)
             status_desc = " (Moved)" if item.is_moved else ""
             flag_desc = " [★ Flagged]" if item.is_flagged else ""
-            item.setToolTip(f"#{idx + 1}: {name}{status_desc}{flag_desc}\nClick to jump")
+            step_ahead = idx - current_idx
+            item.setToolTip(f"+{step_ahead} (#{idx + 1}): {name}{status_desc}{flag_desc}\nClick to jump")
 
             pix = None
             if lru_cache:

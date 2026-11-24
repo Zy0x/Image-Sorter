@@ -247,15 +247,12 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
 
             win.filter_combo.setCurrentText("All Files")
             win.apply_filter()
+            win.jump_to_index(0)
 
             # 3. Test Filmstrip Bar docked inside UP NEXT panel
             self.assertEqual(win.filmstrip_bar.parentWidget(), win.next_panel)
             self.assertFalse(win.filmstrip_bar.isHidden())
-            self.assertGreaterEqual(len(win.filmstrip_bar._items), 2)
-            # Jump via filmstrip item
-            target_idx = min(2, len(win.filtered_files) - 1)
-            win.filmstrip_bar.item_selected.emit(target_idx)
-            self.assertEqual(win.current_index, target_idx)
+            self.assertEqual(len(win.filmstrip_bar._items), 2)
 
             # Toggle filmstrip
             win.show_filmstrip_action.setChecked(False)
@@ -264,6 +261,11 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             win.show_filmstrip_action.setChecked(True)
             win.toggle_filmstrip()
             self.assertFalse(win.filmstrip_bar.isHidden())
+
+            # Jump via filmstrip item
+            target_idx = min(2, len(win.filtered_files) - 1)
+            win.filmstrip_bar.item_selected.emit(target_idx)
+            self.assertEqual(win.current_index, target_idx)
 
             # 4. Test Auto-Rename on Move & Safe Undo
             from ui.dialogs import AutoRenameSettingsDialog, SessionSummaryDialog
@@ -382,7 +384,14 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             self.assertEqual(card.height(), 64)
             self.assertGreater(card.height(), card.width())
 
-            # 2. Toggle filmstrip hides and restores properly
+            # 2. Filmstrip shows media AFTER UP NEXT (starts at current_idx + 2)
+            dummy_files = [f"file_{i}.jpg" for i in range(10)]
+            win.filtered_files = dummy_files
+            win.current_index = 0
+            win.filmstrip_bar.update_strip(dummy_files, 0, win.pixmap_cache)
+            self.assertEqual([it.index for it in win.filmstrip_bar._items], [2, 3, 4, 5])
+
+            # 3. Toggle filmstrip hides and restores properly
             win.settings["show_filmstrip"] = True
             win.toggle_filmstrip()
             self.assertFalse(win.filmstrip_bar.isVisible())
