@@ -1,6 +1,7 @@
 """Full-resolution Studio Slate media preview dialog with GPU zoom/pan and synced video+audio."""
 
 import os
+import time
 from PySide6.QtCore import QPoint, QSize, QTimer, Qt
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
@@ -47,6 +48,7 @@ class ImagePreviewDialog(QDialog):
         self._anim_playing = False
         self._frame_step_mode = False
         self._is_seeking = False
+        self._last_seek_time = 0.0
         self._duration_ms = 0
         self._position_ms = 0
 
@@ -72,15 +74,25 @@ class ImagePreviewDialog(QDialog):
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(10)
 
+        is_dark = self._tokens.get("is_dark", True)
+        accent = self._tokens.get("accent", "#3b82f6")
+        bar_bg = "rgba(15, 18, 26, 230)" if is_dark else "rgba(255, 255, 255, 240)"
+        bar_border = "rgba(255, 255, 255, 35)" if is_dark else "rgba(0, 0, 0, 30)"
+        btn_bg = "rgba(255, 255, 255, 18)" if is_dark else "rgba(0, 0, 0, 15)"
+        btn_border = "rgba(255, 255, 255, 30)" if is_dark else "rgba(0, 0, 0, 26)"
+        btn_hover = "rgba(255, 255, 255, 42)" if is_dark else "rgba(0, 0, 0, 32)"
+        btn_hover_border = "rgba(255, 255, 255, 75)" if is_dark else "rgba(0, 0, 0, 60)"
+        btn_pressed = "rgba(255, 255, 255, 65)" if is_dark else "rgba(0, 0, 0, 48)"
+
         # Top toolbar: info readout + zoom controls + close
         top_bar = QFrame()
-        top_bar.setObjectName("studioCard")
+        top_bar.setObjectName("previewTopBar")
         top_lay = QHBoxLayout(top_bar)
-        top_lay.setContentsMargins(12, 8, 12, 8)
-        top_lay.setSpacing(8)
+        top_lay.setContentsMargins(10, 4, 10, 4)
+        top_lay.setSpacing(6)
 
         self.info_label = QLabel("")
-        self.info_label.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {self._tokens['text']};")
+        self.info_label.setStyleSheet(f"font-size: 11.5px; font-weight: 600; color: {self._tokens['text']};")
         top_lay.addWidget(self.info_label, stretch=1)
 
         for label, handler in (
@@ -92,7 +104,6 @@ class ImagePreviewDialog(QDialog):
             btn = QPushButton(label)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFocusPolicy(Qt.NoFocus)
-            btn.setMinimumWidth(40)
             btn.clicked.connect(handler)
             top_lay.addWidget(btn)
 
@@ -101,6 +112,41 @@ class ImagePreviewDialog(QDialog):
         close_btn.setFocusPolicy(Qt.NoFocus)
         close_btn.clicked.connect(self.accept)
         top_lay.addWidget(close_btn)
+
+        top_bar.setStyleSheet(f"""
+            QFrame#previewTopBar {{
+                background-color: {bar_bg};
+                border: 1px solid {bar_border};
+                border-radius: 10px;
+                min-height: 30px;
+                max-height: 30px;
+            }}
+            QFrame#previewTopBar QPushButton {{
+                background-color: {btn_bg};
+                color: {self._tokens['text']};
+                border: 1px solid {btn_border};
+                border-radius: 6px;
+                min-height: 22px;
+                max-height: 22px;
+                padding: 0px 8px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QFrame#previewTopBar QPushButton:hover {{
+                background-color: {btn_hover};
+                border-color: {btn_hover_border};
+            }}
+            QFrame#previewTopBar QPushButton:pressed {{
+                background-color: {btn_pressed};
+            }}
+            QFrame#previewTopBar QLabel {{
+                color: {self._tokens['text']};
+                background: transparent;
+                border: none;
+                font-size: 11.5px;
+                font-weight: 600;
+            }}
+        """)
         root.addWidget(top_bar)
 
         # Scrollable canvas area
@@ -173,24 +219,37 @@ class ImagePreviewDialog(QDialog):
 
     def _build_media_bar(self, root_layout: QVBoxLayout) -> None:
         self.media_bar = QFrame()
-        self.media_bar.setObjectName("studioCard")
+        self.media_bar.setObjectName("previewMediaBar")
         bar = QHBoxLayout(self.media_bar)
-        bar.setContentsMargins(12, 8, 12, 8)
-        bar.setSpacing(8)
+        bar.setContentsMargins(10, 4, 10, 4)
+        bar.setSpacing(6)
+
+        is_dark = self._tokens.get("is_dark", True)
+        accent = self._tokens.get("accent", "#3b82f6")
+        bar_bg = "rgba(15, 18, 26, 230)" if is_dark else "rgba(255, 255, 255, 240)"
+        bar_border = "rgba(255, 255, 255, 35)" if is_dark else "rgba(0, 0, 0, 30)"
+        btn_bg = "rgba(255, 255, 255, 18)" if is_dark else "rgba(0, 0, 0, 15)"
+        btn_border = "rgba(255, 255, 255, 30)" if is_dark else "rgba(0, 0, 0, 26)"
+        btn_hover = "rgba(255, 255, 255, 42)" if is_dark else "rgba(0, 0, 0, 32)"
+        btn_hover_border = "rgba(255, 255, 255, 75)" if is_dark else "rgba(0, 0, 0, 60)"
+        btn_pressed = "rgba(255, 255, 255, 65)" if is_dark else "rgba(0, 0, 0, 48)"
+        groove_bg = "rgba(255, 255, 255, 45)" if is_dark else "rgba(0, 0, 0, 35)"
+        lbl_col = "#e2e8f0" if is_dark else "#1e293b"
+        icon_col = "#f1f3f9" if is_dark else "#1e293b"
 
         prev_f = QPushButton()
         prev_f.setToolTip("Previous Frame (,)")
         prev_f.setCursor(Qt.PointingHandCursor)
         prev_f.setFocusPolicy(Qt.NoFocus)
-        prev_f.setIcon(make_vector_icon("step_prev", self._tokens["text"], 14))
-        prev_f.setIconSize(QSize(14, 14))
+        prev_f.setIcon(make_vector_icon("step_prev", icon_col, 12))
+        prev_f.setIconSize(QSize(12, 12))
         prev_f.clicked.connect(lambda: self.step_frame(-1))
         bar.addWidget(prev_f)
 
-        self.play_pause_btn = QPushButton("Pause")
+        self.play_pause_btn = QPushButton()
         self.play_pause_btn.setCursor(Qt.PointingHandCursor)
         self.play_pause_btn.setFocusPolicy(Qt.NoFocus)
-        self.play_pause_btn.setToolTip("Play / Pause (P / Space)")
+        self.play_pause_btn.setToolTip("Play / Pause (Space / P)")
         self.play_pause_btn.clicked.connect(self.toggle_animation)
         bar.addWidget(self.play_pause_btn)
 
@@ -198,34 +257,32 @@ class ImagePreviewDialog(QDialog):
         next_f.setToolTip("Next Frame (.)")
         next_f.setCursor(Qt.PointingHandCursor)
         next_f.setFocusPolicy(Qt.NoFocus)
-        next_f.setIcon(make_vector_icon("step_next", self._tokens["text"], 14))
-        next_f.setIconSize(QSize(14, 14))
+        next_f.setIcon(make_vector_icon("step_next", icon_col, 12))
+        next_f.setIconSize(QSize(12, 12))
         next_f.clicked.connect(lambda: self.step_frame(1))
         bar.addWidget(next_f)
 
         if self.is_video:
             self.cur_time_lbl = QLabel("0:00")
-            self.cur_time_lbl.setFixedWidth(40)
-            self.cur_time_lbl.setStyleSheet(
-                f"font-family: Consolas, monospace; font-size: 11.5px; font-weight: 600; color: {self._tokens['text']};"
-            )
+            self.cur_time_lbl.setFixedWidth(36)
+            self.cur_time_lbl.setAlignment(Qt.AlignCenter)
+
             self.seek_slider = ClickSeekSlider(Qt.Horizontal)
             self.seek_slider.setRange(0, 100)
             self.seek_slider.setFocusPolicy(Qt.NoFocus)
             self.seek_slider.sliderPressed.connect(lambda: setattr(self, "_is_seeking", True))
             self.seek_slider.sliderReleased.connect(self._on_seek_released)
             self.seek_slider.seek_clicked.connect(self._on_seek_clicked)
+
             self.tot_time_lbl = QLabel("0:00")
-            self.tot_time_lbl.setFixedWidth(40)
-            self.tot_time_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.tot_time_lbl.setStyleSheet(
-                f"font-family: Consolas, monospace; font-size: 11.5px; font-weight: 600; color: {self._tokens['text']};"
-            )
+            self.tot_time_lbl.setFixedWidth(36)
+            self.tot_time_lbl.setAlignment(Qt.AlignCenter)
+
             bar.addWidget(self.cur_time_lbl)
             bar.addWidget(self.seek_slider, stretch=1)
             bar.addWidget(self.tot_time_lbl)
 
-            self.mute_btn = QPushButton("Muted" if self._audio_muted else "Sound")
+            self.mute_btn = QPushButton()
             self.mute_btn.setCursor(Qt.PointingHandCursor)
             self.mute_btn.setFocusPolicy(Qt.NoFocus)
             self.mute_btn.setToolTip("Mute / Unmute Sound (M)")
@@ -235,8 +292,8 @@ class ImagePreviewDialog(QDialog):
             self.vol_slider = ClickSeekSlider(Qt.Horizontal)
             self.vol_slider.setObjectName("previewVolSlider")
             self.vol_slider.setRange(0, 100)
-            self.vol_slider.setFixedWidth(56)
-            self.vol_slider.setFixedHeight(20)
+            self.vol_slider.setFixedWidth(46)
+            self.vol_slider.setFixedHeight(16)
             self.vol_slider.setFocusPolicy(Qt.NoFocus)
             vol_val = int(getattr(self, "_audio_volume", 0.85) * 100)
             self.vol_slider.setValue(vol_val)
@@ -246,6 +303,58 @@ class ImagePreviewDialog(QDialog):
         else:
             bar.addStretch()
 
+        self.media_bar.setStyleSheet(f"""
+            QFrame#previewMediaBar {{
+                background-color: {bar_bg};
+                border: 1px solid {bar_border};
+                border-radius: 17px;
+                min-height: 34px;
+                max-height: 34px;
+            }}
+            QFrame#previewMediaBar QPushButton {{
+                background-color: {btn_bg};
+                border: 1px solid {btn_border};
+                border-radius: 13px;
+                min-width: 26px;
+                max-width: 26px;
+                min-height: 26px;
+                max-height: 26px;
+                padding: 0px;
+            }}
+            QFrame#previewMediaBar QPushButton:hover {{
+                background-color: {btn_hover};
+                border-color: {btn_hover_border};
+            }}
+            QFrame#previewMediaBar QPushButton:pressed {{
+                background-color: {btn_pressed};
+            }}
+            QFrame#previewMediaBar QLabel {{
+                color: {lbl_col};
+                background: transparent;
+                border: none;
+                font-family: Consolas, monospace;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QFrame#previewMediaBar QSlider::groove:horizontal {{
+                background: {groove_bg};
+                height: 3px;
+                border-radius: 1.5px;
+            }}
+            QFrame#previewMediaBar QSlider::sub-page:horizontal {{
+                background: {accent};
+                height: 3px;
+                border-radius: 1.5px;
+            }}
+            QFrame#previewMediaBar QSlider::handle:horizontal {{
+                background: #ffffff;
+                border: 2px solid {accent};
+                width: 8px;
+                height: 8px;
+                margin: -3px 0;
+                border-radius: 5px;
+            }}
+        """)
         root_layout.addWidget(self.media_bar)
 
     def _bind_shortcuts(self) -> None:
@@ -287,10 +396,16 @@ class ImagePreviewDialog(QDialog):
 
     def _on_qtmm_position(self, pos_ms: int) -> None:
         self._position_ms = int(pos_ms)
-        if not self._is_seeking and self.seek_slider is not None:
+        if self._is_seeking or (time.time() - getattr(self, "_last_seek_time", 0.0) < 0.4):
+            return
+        if self.seek_slider is not None and self.seek_slider.isSliderDown():
+            return
+        if self.seek_slider is not None:
+            self.seek_slider.blockSignals(True)
             self.seek_slider.setValue(int(pos_ms))
-            if self.cur_time_lbl is not None:
-                self.cur_time_lbl.setText(format_duration(pos_ms / 1000.0))
+            self.seek_slider.blockSignals(False)
+        if self.cur_time_lbl is not None:
+            self.cur_time_lbl.setText(format_duration(pos_ms / 1000.0))
 
     def _on_qtmm_duration(self, dur_ms: int) -> None:
         self._duration_ms = int(dur_ms)
@@ -305,12 +420,18 @@ class ImagePreviewDialog(QDialog):
 
     def _on_seek_released(self) -> None:
         self._is_seeking = False
+        self._last_seek_time = time.time()
         if self.seek_slider is not None:
             self._on_seek_clicked(int(self.seek_slider.value()))
 
     def _on_seek_clicked(self, pos_ms: int) -> None:
+        self._last_seek_time = time.time()
         if self.video_controller.player is not None:
             self.video_controller.seek(pos_ms)
+        if self.seek_slider is not None:
+            self.seek_slider.blockSignals(True)
+            self.seek_slider.setValue(int(pos_ms))
+            self.seek_slider.blockSignals(False)
         if self.cur_time_lbl is not None:
             self.cur_time_lbl.setText(format_duration(pos_ms / 1000.0))
 
@@ -388,18 +509,21 @@ class ImagePreviewDialog(QDialog):
             save_settings(settings)
 
     def _refresh_media_buttons(self) -> None:
+        ic = "#f1f3f9" if self._tokens.get("is_dark", True) else "#1e293b"
         if self.play_pause_btn is not None:
-            self.play_pause_btn.setText("Pause" if self._anim_playing else "Play")
+            self.play_pause_btn.setText("")
             self.play_pause_btn.setIcon(
-                make_vector_icon("pause" if self._anim_playing else "play", self._tokens["text"], 13)
+                make_vector_icon("pause" if self._anim_playing else "play", ic, 13)
             )
             self.play_pause_btn.setIconSize(QSize(13, 13))
+            self.play_pause_btn.setToolTip("Pause (Space / P)" if self._anim_playing else "Play (Space / P)")
         if self.mute_btn is not None:
-            self.mute_btn.setText("Muted" if self._audio_muted else "Sound")
+            self.mute_btn.setText("")
             self.mute_btn.setIcon(
-                make_vector_icon("sound_off" if self._audio_muted else "sound_on", self._tokens["text"], 13)
+                make_vector_icon("sound_off" if self._audio_muted else "sound_on", ic, 13)
             )
             self.mute_btn.setIconSize(QSize(13, 13))
+            self.mute_btn.setToolTip("Unmute Sound (M)" if self._audio_muted else "Mute Sound (M)")
 
     def _render_pixmap(self) -> None:
         if self.base_pixmap.isNull():

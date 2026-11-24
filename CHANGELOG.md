@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.24 — 2026-11-25
+
+### Refined & Compacted — Full-Size Preview Dialog Media Controls & Top Bar
+- **Ultra-Compact, Elegant Preview Media Bar (`previewMediaBar`):** Redesigned the video and animation control bar in `ImagePreviewDialog` into an ultra-compact, frosted pill container (height 34px). Replaced bulky rectangular buttons and text labels ("Play", "Pause", "Sound", "Muted") with sleek 28px circular vector icon buttons and informative hover tooltips.
+- **Compact Top Toolbar & Zoom Controls (`previewTopBar`):** Modernized the preview window's top bar with a sleek 30px height, refined typography, and compact 22px zoom and close buttons with smooth hover feedback.
+- **Hardware Seeking Lock in Preview Dialog:** Applied a 400ms seek-tick grace period and slider drag lock to `ImagePreviewDialog`, eliminating playback snap-backs and ensuring smooth, responsive scrubbing.
+
 ## 2.1.23 — 2026-11-25
 
 ### Fixed & Improved — Video Player HUD Auto-Hide, Hover-Hold & Seeking Synchronization

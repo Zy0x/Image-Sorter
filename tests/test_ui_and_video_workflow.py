@@ -605,6 +605,22 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             # Hover check timer polling
             win._check_video_hover_state()
             self.assertIsNotNone(win.hud_overlay)
+
+            # Full Preview Dialog compact, icon-only elegant controls
+            dlg = app_main.ImagePreviewDialog(mp4_1, win)
+            try:
+                dlg.show()
+                self.app.processEvents()
+                self.assertIsNotNone(dlg.media_bar)
+                self.assertEqual(dlg.media_bar.objectName(), "previewMediaBar")
+                self.assertEqual(dlg.play_pause_btn.text(), "")
+                self.assertEqual(dlg.mute_btn.text(), "")
+                self.assertIsNotNone(dlg.play_pause_btn.icon())
+                self.assertIsNotNone(dlg.mute_btn.icon())
+                self.assertEqual(dlg.play_pause_btn.width(), 28)
+                self.assertEqual(dlg.mute_btn.width(), 28)
+            finally:
+                dlg.close()
         finally:
             win.close()
 
