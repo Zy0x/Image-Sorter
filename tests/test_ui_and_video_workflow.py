@@ -8,7 +8,7 @@ import unittest
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QImage, QKeyEvent, QMouseEvent, QPixmap
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -527,6 +527,47 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
                 dlg.close()
         finally:
             win.close()
+
+    def test_compact_media_hud_overlay_and_autohide(self):
+        """Verify MediaHudOverlay is an ultra-compact (32px) single-row capsule with 3s auto-hide and hover wake."""
+        from ui.widgets import MediaHudOverlay
+        parent = QLabel()
+        parent.resize(480, 360)
+        hud = MediaHudOverlay(parent, parent.size(), is_video=True, duration_s=14.0, volume=0.75)
+        try:
+            self.assertEqual(hud.height(), 32)
+            self.assertEqual(hud.play_pause_btn.width(), 24)
+            self.assertEqual(hud.play_pause_btn.height(), 24)
+            self.assertIsNotNone(hud.seek_slider)
+            self.assertIsNotNone(hud.volume_slider)
+            self.assertIsNotNone(hud.cur_time_lbl)
+            self.assertIsNotNone(hud.tot_time_lbl)
+
+            # Auto-hide timer should be configured for 3000ms and active
+            self.assertTrue(hud._auto_hide_timer.isActive())
+            self.assertEqual(hud._auto_hide_timer.interval(), 3000)
+
+            # Pausing should stop auto-hide timer and wake HUD
+            hud.refresh_labels(paused=True, muted=False)
+            self.assertFalse(hud._auto_hide_timer.isActive())
+            self.assertTrue(hud._is_paused)
+
+            # Playing resumes auto-hide countdown
+            hud.refresh_labels(paused=False, muted=False)
+            self.assertTrue(hud._auto_hide_timer.isActive())
+            self.assertFalse(hud._is_paused)
+
+            # wake_hud maintains opacity and restarts timer
+            hud.wake_hud()
+            self.assertEqual(hud._opacity_effect.opacity(), 1.0)
+            self.assertTrue(hud._auto_hide_timer.isActive())
+
+            # reposition keeps height 32
+            hud.reposition(QSize(300, 200), paused=False, muted=False)
+            self.assertEqual(hud.height(), 32)
+        finally:
+            hud.close()
+            parent.close()
 
 
 if __name__ == "__main__":

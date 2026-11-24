@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -325,7 +326,7 @@ class ToastNotification(QLabel):
 
 
 class MediaHudOverlay(QFrame):
-    """Frosted-glass media HUD capsule floating at the bottom of the main media preview."""
+    """Sleek ultra-compact floating media HUD capsule with auto-hide timer and hover reveal."""
 
     play_pause_clicked = Signal()
     mute_clicked = Signal()
@@ -346,7 +347,7 @@ class MediaHudOverlay(QFrame):
         super().__init__(parent_label)
         self.setObjectName("mainMediaHud")
         self.is_video = bool(is_video)
-        self.compact_labels = False
+        self.compact_labels = True
         self.seek_slider = None
         self.cur_time_lbl = None
         self.tot_time_lbl = None
@@ -355,91 +356,161 @@ class MediaHudOverlay(QFrame):
         self._tokens = tokens or resolve_studio_tokens(parent_label.window() if parent_label else None)
         self._icon_color = self._tokens["text"]
 
-        self.play_pause_btn = QPushButton("Pause")
+        self._is_paused = False
+        self._is_hovered = False
+        self._is_seeking = False
+
+        self.play_pause_btn = QPushButton(self)
         self.play_pause_btn.setCursor(Qt.PointingHandCursor)
         self.play_pause_btn.setFocusPolicy(Qt.NoFocus)
         self.play_pause_btn.setToolTip("Play / Pause (P)")
-        self.play_pause_btn.setFixedHeight(24)
+        self.play_pause_btn.setFixedSize(24, 24)
         self.play_pause_btn.clicked.connect(self.play_pause_clicked.emit)
 
         w_lbl = max(120, int(target_size.width()))
         h_lbl = max(60, int(target_size.height()))
 
+        row_lay = QHBoxLayout(self)
+        row_lay.setContentsMargins(8, 3, 8, 3)
+        row_lay.setSpacing(6)
+        row_lay.addWidget(self.play_pause_btn)
+
         if self.is_video:
-            hud_w = min(370, max(92, w_lbl - 12))
-            self.compact_labels = hud_w < 196
-            use_two_rows = hud_w >= 180 and h_lbl >= 120
-            hud_h = 58 if use_two_rows else 36
-            self.setGeometry(max(4, (w_lbl - hud_w) // 2), max(4, h_lbl - hud_h - 8), hud_w, hud_h)
-
-            outer = QVBoxLayout(self)
-            outer.setContentsMargins(10, 5 if use_two_rows else 4, 10, 5 if use_two_rows else 4)
-            outer.setSpacing(4)
-
             dur_ms = int(round(duration_s * 1000)) if duration_s > 0 else 0
-            if use_two_rows:
-                seek_row = QHBoxLayout()
-                seek_row.setContentsMargins(0, 0, 0, 0)
-                seek_row.setSpacing(6)
-                self.cur_time_lbl = QLabel("0:00")
-                self.cur_time_lbl.setFixedWidth(36)
-                self.seek_slider = ClickSeekSlider(Qt.Horizontal)
-                self.seek_slider.setRange(0, max(100, dur_ms))
-                self.seek_slider.setFocusPolicy(Qt.NoFocus)
-                self.seek_slider.sliderPressed.connect(self.seek_pressed.emit)
-                self.seek_slider.sliderMoved.connect(
-                    lambda v: self.cur_time_lbl.setText(format_duration(v / 1000.0)) if self.cur_time_lbl else None
-                )
-                self.seek_slider.sliderReleased.connect(
-                    lambda: self.seek_released.emit(int(self.seek_slider.value())) if self.seek_slider else None
-                )
-                self.seek_slider.seek_clicked.connect(self._handle_seek_click)
-                self.tot_time_lbl = QLabel(format_duration(dur_ms / 1000.0) if dur_ms > 0 else "0:00")
-                self.tot_time_lbl.setFixedWidth(36)
-                self.tot_time_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                seek_row.addWidget(self.cur_time_lbl)
-                seek_row.addWidget(self.seek_slider, stretch=1)
-                seek_row.addWidget(self.tot_time_lbl)
-                outer.addLayout(seek_row)
 
-            btn_row = QHBoxLayout()
-            btn_row.setContentsMargins(0, 0, 0, 0)
-            btn_row.setSpacing(8)
-            btn_row.addStretch()
-            btn_row.addWidget(self.play_pause_btn)
+            self.cur_time_lbl = QLabel("0:00", self)
+            self.cur_time_lbl.setFixedWidth(28)
+            self.cur_time_lbl.setAlignment(Qt.AlignCenter)
+            row_lay.addWidget(self.cur_time_lbl)
 
-            self.mute_btn = QPushButton("Sound")
+            self.seek_slider = ClickSeekSlider(Qt.Horizontal, self)
+            self.seek_slider.setRange(0, max(100, dur_ms))
+            self.seek_slider.setFixedHeight(16)
+            self.seek_slider.setFocusPolicy(Qt.NoFocus)
+            self.seek_slider.sliderPressed.connect(self._on_seek_pressed)
+            self.seek_slider.sliderMoved.connect(
+                lambda v: self.cur_time_lbl.setText(format_duration(v / 1000.0)) if self.cur_time_lbl else None
+            )
+            self.seek_slider.sliderReleased.connect(self._on_seek_released)
+            self.seek_slider.seek_clicked.connect(self._handle_seek_click)
+            row_lay.addWidget(self.seek_slider, stretch=1)
+
+            self.tot_time_lbl = QLabel(format_duration(dur_ms / 1000.0) if dur_ms > 0 else "0:00", self)
+            self.tot_time_lbl.setFixedWidth(28)
+            self.tot_time_lbl.setAlignment(Qt.AlignCenter)
+            row_lay.addWidget(self.tot_time_lbl)
+
+            self.mute_btn = QPushButton(self)
             self.mute_btn.setCursor(Qt.PointingHandCursor)
             self.mute_btn.setFocusPolicy(Qt.NoFocus)
             self.mute_btn.setToolTip("Mute / Unmute (M)")
-            self.mute_btn.setFixedHeight(24)
+            self.mute_btn.setFixedSize(24, 24)
             self.mute_btn.clicked.connect(self.mute_clicked.emit)
-            btn_row.addWidget(self.mute_btn)
+            row_lay.addWidget(self.mute_btn)
 
-            self.volume_slider = ClickSeekSlider(Qt.Horizontal)
+            self.volume_slider = ClickSeekSlider(Qt.Horizontal, self)
             self.volume_slider.setObjectName("hudVolumeSlider")
             self.volume_slider.setRange(0, 100)
             self.volume_slider.setValue(max(0, min(100, int(volume * 100))))
-            self.volume_slider.setFixedWidth(54)
-            self.volume_slider.setFixedHeight(20)
+            self.volume_slider.setFixedWidth(44)
+            self.volume_slider.setFixedHeight(16)
             self.volume_slider.setFocusPolicy(Qt.NoFocus)
             self.volume_slider.setToolTip(f"Volume: {int(volume * 100)}%")
             self.volume_slider.valueChanged.connect(self._handle_volume_slider)
-            btn_row.addWidget(self.volume_slider)
+            row_lay.addWidget(self.volume_slider)
 
-            btn_row.addStretch()
-            outer.addLayout(btn_row)
+            hud_w = min(420, max(92, w_lbl - 16))
+            hud_h = 32
         else:
-            self.compact_labels = w_lbl < 140
-            hud_w = min(118, max(64, w_lbl - 12))
-            self.setGeometry(max(4, (w_lbl - hud_w) // 2), max(4, h_lbl - 34 - 8), hud_w, 34)
-            lay = QHBoxLayout(self)
-            lay.setContentsMargins(8, 4, 8, 4)
-            lay.addWidget(self.play_pause_btn)
+            hud_w = min(118, max(54, w_lbl - 16))
+            hud_h = 32
+
+        self.setGeometry(max(4, (w_lbl - hud_w) // 2), max(4, h_lbl - hud_h - 8), hud_w, hud_h)
+
+        self._opacity_effect = QGraphicsOpacityEffect(self)
+        self._opacity_effect.setOpacity(1.0)
+        self.setGraphicsEffect(self._opacity_effect)
+
+        self._fade_anim = QPropertyAnimation(self._opacity_effect, b"opacity", self)
+        self._fade_anim.setDuration(240)
+
+        self._auto_hide_timer = QTimer(self)
+        self._auto_hide_timer.setSingleShot(True)
+        self._auto_hide_timer.setInterval(3000)
+        self._auto_hide_timer.timeout.connect(self._on_auto_hide_timeout)
 
         self.apply_tokens(self._tokens)
         self.show()
         self.raise_()
+
+        if self.is_video:
+            self._auto_hide_timer.start(3000)
+
+    def _on_seek_pressed(self):
+        self._is_seeking = True
+        self._auto_hide_timer.stop()
+        self.wake_hud()
+        self.seek_pressed.emit()
+
+    def _on_seek_released(self):
+        self._is_seeking = False
+        val = int(self.seek_slider.value()) if self.seek_slider else 0
+        self.seek_released.emit(val)
+        if not self._is_paused and not self._is_hovered and self.is_video:
+            self._auto_hide_timer.start(3000)
+
+    def _handle_seek_click(self, pos_ms: int):
+        if self.cur_time_lbl is not None:
+            self.cur_time_lbl.setText(format_duration(pos_ms / 1000.0))
+        self.seek_clicked.emit(int(pos_ms))
+        self.wake_hud()
+
+    def _handle_volume_slider(self, val: int):
+        if self.volume_slider is not None:
+            self.volume_slider.setToolTip(f"Volume: {val}%")
+        self.volume_changed.emit(val / 100.0)
+        self.wake_hud()
+
+    def _on_auto_hide_timeout(self):
+        if self._is_paused or self._is_seeking or self._is_hovered:
+            return
+        self._fade_anim.stop()
+        self._fade_anim.setStartValue(self._opacity_effect.opacity())
+        self._fade_anim.setEndValue(0.0)
+        self._fade_anim.start()
+
+    def wake_hud(self):
+        """Bring HUD to full opacity and restart 3s auto-hide countdown if playing."""
+        if not self.isVisible():
+            self.show()
+        self.raise_()
+        if self._fade_anim.state() == QPropertyAnimation.Running:
+            self._fade_anim.stop()
+        if self._opacity_effect.opacity() < 1.0:
+            self._fade_anim.setStartValue(self._opacity_effect.opacity())
+            self._fade_anim.setEndValue(1.0)
+            self._fade_anim.start()
+        if self.is_video and not self._is_paused and not self._is_seeking and not self._is_hovered:
+            self._auto_hide_timer.start(3000)
+        elif self._is_paused or self._is_seeking or self._is_hovered:
+            self._auto_hide_timer.stop()
+
+    def enterEvent(self, event):
+        self._is_hovered = True
+        self._auto_hide_timer.stop()
+        self.wake_hud()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._is_hovered = False
+        if self.is_video and not self._is_paused and not self._is_seeking:
+            self._auto_hide_timer.start(3000)
+        super().leaveEvent(event)
+
+    def on_parent_leave(self):
+        """Called when mouse leaves the parent preview container."""
+        if not self._is_hovered and self.is_video and not self._is_paused and not self._is_seeking:
+            self._auto_hide_timer.start(3000)
 
     def apply_tokens(self, tokens: dict = None) -> None:
         """Style HUD surface, time labels, slider, and buttons cleanly for Dark or Light theme."""
@@ -448,39 +519,42 @@ class MediaHudOverlay(QFrame):
         t = self._tokens
         is_dark = t.get("is_dark", True)
         self._icon_color = "#f1f3f9" if is_dark else "#11141c"
-        hud_bg = "rgba(15, 18, 26, 232)" if is_dark else "rgba(255, 255, 255, 242)"
-        hud_border = "rgba(255, 255, 255, 48)" if is_dark else "#adb7c9"
+        hud_bg = "rgba(15, 18, 26, 220)" if is_dark else "rgba(255, 255, 255, 235)"
+        hud_border = "rgba(255, 255, 255, 40)" if is_dark else "rgba(0, 0, 0, 30)"
         lbl_col = "#e6e9f2" if is_dark else "#11141c"
-        btn_bg = "rgba(255, 255, 255, 24)" if is_dark else "#f4f6fa"
-        btn_border = "rgba(255, 255, 255, 42)" if is_dark else "#cfd6e3"
-        btn_hover = "rgba(255, 255, 255, 48)" if is_dark else "#e4e9f2"
-        btn_hover_border = "rgba(255, 255, 255, 84)" if is_dark else "#94a3b8"
-        groove_bg = "rgba(255, 255, 255, 52)" if is_dark else "#cfd6e3"
+        btn_bg = "rgba(255, 255, 255, 20)" if is_dark else "rgba(0, 0, 0, 15)"
+        btn_border = "rgba(255, 255, 255, 35)" if is_dark else "rgba(0, 0, 0, 30)"
+        btn_hover = "rgba(255, 255, 255, 45)" if is_dark else "rgba(0, 0, 0, 35)"
+        btn_hover_border = "rgba(255, 255, 255, 80)" if is_dark else "rgba(0, 0, 0, 60)"
+        groove_bg = "rgba(255, 255, 255, 45)" if is_dark else "rgba(0, 0, 0, 35)"
         accent = t.get("accent", "#3b82f6")
 
         self.setStyleSheet(f"""
             QFrame#mainMediaHud {{
                 background-color: {hud_bg};
                 border: 1px solid {hud_border};
-                border-radius: 12px;
+                border-radius: 16px;
+                min-height: 30px;
+                max-height: 30px;
             }}
             QLabel {{
                 color: {lbl_col};
                 background: transparent;
                 border: none;
                 font-family: Consolas, monospace;
-                font-size: 10.5px;
+                font-size: 10px;
                 font-weight: 600;
             }}
             QPushButton {{
                 background-color: {btn_bg};
                 color: {self._icon_color};
                 border: 1px solid {btn_border};
-                border-radius: 7px;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0px 9px;
+                border-radius: 12px;
+                min-width: 22px;
+                max-width: 22px;
                 min-height: 22px;
+                max-height: 22px;
+                padding: 0px;
             }}
             QPushButton:hover {{
                 background-color: {btn_hover};
@@ -488,33 +562,23 @@ class MediaHudOverlay(QFrame):
             }}
             QSlider::groove:horizontal {{
                 background: {groove_bg};
-                height: 4px;
-                border-radius: 2px;
+                height: 3px;
+                border-radius: 1.5px;
             }}
             QSlider::sub-page:horizontal {{
                 background: {accent};
-                height: 4px;
-                border-radius: 2px;
+                height: 3px;
+                border-radius: 1.5px;
             }}
             QSlider::handle:horizontal {{
                 background: #ffffff;
                 border: 2px solid {accent};
-                width: 10px;
-                height: 10px;
-                margin: -4px 0;
-                border-radius: 6px;
+                width: 8px;
+                height: 8px;
+                margin: -3px 0;
+                border-radius: 5px;
             }}
         """)
-
-    def _handle_seek_click(self, pos_ms: int):
-        if self.cur_time_lbl is not None:
-            self.cur_time_lbl.setText(format_duration(pos_ms / 1000.0))
-        self.seek_clicked.emit(int(pos_ms))
-
-    def _handle_volume_slider(self, val: int):
-        if self.volume_slider is not None:
-            self.volume_slider.setToolTip(f"Volume: {val}%")
-        self.volume_changed.emit(val / 100.0)
 
     def set_volume(self, volume: float):
         if self.volume_slider is not None:
@@ -541,39 +605,48 @@ class MediaHudOverlay(QFrame):
     def reposition(self, target_size: QSize, paused: bool, muted: bool):
         w_lbl = max(90, int(target_size.width()))
         h_lbl = max(60, int(target_size.height()))
+        hud_h = 32
+
         if self.is_video:
-            hud_w = min(370, max(92, w_lbl - 12))
-            self.compact_labels = hud_w < 196
-            if self.seek_slider is not None:
-                show_seek = hud_w >= 180
-                self.seek_slider.setVisible(show_seek)
-                if self.cur_time_lbl is not None:
-                    self.cur_time_lbl.setVisible(show_seek)
-                if self.tot_time_lbl is not None:
-                    self.tot_time_lbl.setVisible(show_seek)
-                hud_h = 58 if show_seek else 36
-            else:
-                hud_h = self.height() or 36
+            hud_w = min(420, max(92, w_lbl - 16))
             if self.volume_slider is not None:
-                self.volume_slider.setVisible(hud_w >= 220)
+                self.volume_slider.setVisible(hud_w >= 300)
+            show_time = hud_w >= 220
+            if self.cur_time_lbl is not None:
+                self.cur_time_lbl.setVisible(show_time)
+            if self.tot_time_lbl is not None:
+                self.tot_time_lbl.setVisible(show_time)
+            if self.seek_slider is not None:
+                self.seek_slider.setVisible(hud_w >= 140)
+            if self.mute_btn is not None:
+                self.mute_btn.setVisible(hud_w >= 140)
         else:
-            self.compact_labels = w_lbl < 140
-            hud_w = min(118, max(64, w_lbl - 12))
-            hud_h = 34
+            hud_w = min(118, max(54, w_lbl - 16))
+
         self.setGeometry(max(4, (w_lbl - hud_w) // 2), max(4, h_lbl - hud_h - 8), hud_w, hud_h)
         self.refresh_labels(paused=paused, muted=muted)
-        self.raise_()
+        self.wake_hud()
 
     def refresh_labels(self, paused: bool, muted: bool):
-        compact = self.compact_labels
+        self._is_paused = bool(paused)
         ic = getattr(self, "_icon_color", "#f1f3f9")
-        self.play_pause_btn.setText("" if compact else ("Play" if paused else "Pause"))
+        self.play_pause_btn.setText("")
         self.play_pause_btn.setIcon(make_vector_icon("play" if paused else "pause", ic, 12))
         self.play_pause_btn.setIconSize(QSize(12, 12))
+        self.play_pause_btn.setToolTip("Play (P)" if paused else "Pause (P)")
+
         if self.mute_btn is not None:
-            self.mute_btn.setText("" if compact else ("Muted" if muted else "Sound"))
+            self.mute_btn.setText("")
             self.mute_btn.setIcon(make_vector_icon("sound_off" if muted else "sound_on", ic, 12))
             self.mute_btn.setIconSize(QSize(12, 12))
+            self.mute_btn.setToolTip("Unmute (M)" if muted else "Mute (M)")
+
+        if self._is_paused:
+            self._auto_hide_timer.stop()
+            self.wake_hud()
+        else:
+            if not self._is_hovered and not self._is_seeking and self.is_video:
+                self._auto_hide_timer.start(3000)
 
 
 _ClickSeekSlider = ClickSeekSlider

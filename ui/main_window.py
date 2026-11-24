@@ -426,11 +426,14 @@ class ImageSorterApp(QMainWindow):
         self.main_image_label.setObjectName("mainMediaSurface")
         self.main_image_label.setAlignment(Qt.AlignCenter)
         self.main_image_label.setCursor(Qt.PointingHandCursor)
+        self.main_image_label.setMouseTracking(True)
         self.main_image_label.installEventFilter(self)
 
         self.main_stage_viewport = StageViewport(self.main_image_label, min_w=320, min_h=220)
+        self.main_stage_viewport.setMouseTracking(True)
         self.main_stage_viewport.resized.connect(self._relayout_stage_previews)
         self.main_stage_viewport.installEventFilter(self)
+        self.main_card.setMouseTracking(True)
         self.main_card.installEventFilter(self)
         main_card_lay.addWidget(self.main_stage_viewport, stretch=1)
         stage_row.addWidget(self.main_card, stretch=74)
@@ -2142,6 +2145,13 @@ class ImageSorterApp(QMainWindow):
         etype = event.type()
         targets = [w for w in (self.main_image_label, self.main_stage_viewport, self.main_card) if w is not None]
         if obj in targets:
+            if etype in (event.Type.MouseMove, event.Type.Enter, event.Type.HoverMove):
+                if self.hud_overlay is not None and getattr(self.hud_overlay, "is_video", False):
+                    self.hud_overlay.wake_hud()
+            elif etype == event.Type.Leave:
+                if self.hud_overlay is not None and getattr(self.hud_overlay, "is_video", False):
+                    self.hud_overlay.on_parent_leave()
+
             if etype == event.Type.MouseButtonPress and event.button() == Qt.LeftButton:
                 if not self.filtered_files:
                     self.import_folder_dialog()
