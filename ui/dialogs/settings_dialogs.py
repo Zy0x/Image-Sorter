@@ -38,7 +38,7 @@ from core.config import (
 )
 from ui.dialogs.info_dialogs import apply_studio_dialog_style
 from ui.theme import SLOT_ACCENTS, hex_rgba, make_vector_icon, slot_text_color
-from ui.widgets import StudioSpinBox
+from ui.widgets import StudioCheckBox, StudioSpinBox
 
 _THEME_COLOR_FIELDS = (
     ("bg_color", "Window Background", "Main Studio backdrop fill"),
@@ -292,11 +292,13 @@ class FolderSettingsDialog(QDialog):
             row.setContentsMargins(12, 10, 12, 10)
             row.setSpacing(8)
 
-            badge = QLabel(f"[{i + 1}] {ALL_SLOT_LETTERS[i]}")
+            badge = QLabel(f"[{i + 1}]")
             badge.setAlignment(Qt.AlignCenter)
-            badge.setFixedWidth(54)
+            badge.setFixedWidth(44)
+            badge.setToolTip(f"Pintasan Keyboard: Tekan tombol [{i + 1}] untuk memindahkan media ke folder ini (Folder {ALL_SLOT_LETTERS[i]})")
+            badge.setCursor(Qt.PointingHandCursor)
             badge.setStyleSheet(
-                f"font-family: Consolas, monospace; font-size: 12px; font-weight: 700; color: {fg_accent}; "
+                f"font-family: Consolas, monospace; font-size: 13px; font-weight: 700; color: {fg_accent}; "
                 f"background-color: {hex_rgba(accent, 34 if self._tokens['is_dark'] else 26)}; "
                 f"border: 1px solid {hex_rgba(fg_accent, 115)}; "
                 f"border-radius: 6px; padding: 5px 4px;"
@@ -567,10 +569,9 @@ class AutoRenameSettingsDialog(QDialog):
         card_lay.setContentsMargins(16, 14, 16, 14)
         card_lay.setSpacing(12)
 
-        self.enable_check = QCheckBox("Enable automatic renaming when moving files")
+        self.enable_check = StudioCheckBox("Enable automatic renaming when moving files")
         self.enable_check.setChecked(self.enabled)
-        self.enable_check.setCursor(Qt.PointingHandCursor)
-        self.enable_check.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {tokens['text']};")
+        self.enable_check.setMinimumHeight(28)
         self.enable_check.toggled.connect(self._update_preview)
         card_lay.addWidget(self.enable_check)
 

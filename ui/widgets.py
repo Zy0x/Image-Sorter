@@ -2,9 +2,10 @@
 
 import os
 from PySide6.QtCore import QPointF, QPropertyAnimation, QRect, QRectF, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPolygonF
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
@@ -65,6 +66,71 @@ class StudioComboBox(QComboBox):
         x = self.width() - 22
         y = (self.height() - 14) // 2
         p.drawPixmap(QRect(x, y, 14, 14), pm)
+        p.end()
+
+
+class StudioCheckBox(QCheckBox):
+    """Studio Slate QCheckBox with custom anti-aliased vector check box and checkmark."""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self._hovered = False
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        tokens = resolve_studio_tokens(self.window())
+
+        h = self.height()
+        box_sz = 18.0
+        box_y = (h - 18) // 2
+        box_rect = QRectF(1.0, float(box_y), box_sz, box_sz)
+
+        is_chk = self.isChecked()
+        if is_chk:
+            bg_col = QColor(tokens.get("accent", "#3b82f6"))
+            border_col = bg_col
+        elif self._hovered:
+            bg_col = QColor(tokens.get("surface_hover", "#242b3a"))
+            border_col = QColor(tokens.get("accent", "#3b82f6"))
+        else:
+            bg_col = QColor(tokens.get("surface", "#1b202b"))
+            border_col = QColor(tokens.get("border_strong", "#3b4358"))
+
+        p.setPen(QPen(border_col, 1.5))
+        p.setBrush(bg_col)
+        p.drawRoundedRect(box_rect, 4.5, 4.5)
+
+        if is_chk:
+            pen = QPen(QColor("#ffffff"), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            pts = [
+                QPointF(box_rect.left() + 4.2, box_rect.top() + 9.0),
+                QPointF(box_rect.left() + 7.2, box_rect.top() + 12.8),
+                QPointF(box_rect.left() + 13.8, box_rect.top() + 5.2),
+            ]
+            p.drawPolyline(QPolygonF(pts))
+
+        txt = self.text()
+        if txt:
+            text_rect = QRect(int(box_sz + 10), 0, int(self.width() - box_sz - 10), h)
+            p.setPen(QColor(tokens.get("text", "#f1f3f9")))
+            font = self.font()
+            p.setFont(font)
+            p.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, txt)
+
         p.end()
 
 

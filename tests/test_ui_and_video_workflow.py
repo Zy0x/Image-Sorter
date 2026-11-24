@@ -8,9 +8,9 @@ import unittest
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
-from PySide6.QtCore import QEvent, QPoint, Qt
-from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QPixmap
+from PySide6.QtWidgets import QApplication, QLabel
 
 import core.config as cfg
 import main as app_main
@@ -308,6 +308,55 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             self.assertIn("Session Summary Report", rep_text)
             self.assertIn("Total Media: 4", rep_text)
             sum_dlg.close()
+        finally:
+            win.close()
+
+    def test_ux_enhancements_and_dialog_polish(self):
+        """Test non-redundant flag button text, empty stage click-to-import, slot badges, right-click menu, and StudioCheckBox."""
+        win = app_main.ImageSorterApp()
+        try:
+            # 1. Non-redundant flag button text
+            self.assertEqual(win.flag_btn.text(), "Flag")
+            self.assertNotIn("☆", win.flag_btn.text())
+            self.assertNotIn("★", win.flag_btn.text())
+
+            # 2. Empty stage click-to-import
+            imported = []
+            win.import_folder = lambda: imported.append(True)
+            press_evt = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(50.0, 50.0), QPointF(50.0, 50.0), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+            handled = win.eventFilter(win.main_image_label, press_evt)
+            self.assertTrue(handled)
+            self.assertEqual(len(imported), 1)
+
+            # 3. FolderSettingsDialog badges
+            from ui.dialogs.settings_dialogs import FolderSettingsDialog
+            dlg = FolderSettingsDialog(win)
+            for i, card in enumerate(dlg._slot_cards):
+                # badge is the first label in the card's row
+                badge = card.findChild(QLabel)
+                self.assertEqual(badge.text(), f"[{i + 1}]")
+                self.assertNotIn("A", badge.text())
+                self.assertIn(f"Pintasan Keyboard: Tekan tombol [{i + 1}]", badge.toolTip())
+            dlg.close()
+
+            # 4. Folder buttons right-click context menu & quick rename
+            win.folder_names[0] = "Old Name"
+            win.folder_paths[0] = self.dest_dir
+            # Verify tooltip contains right-click hint
+            win.update_folder_buttons()
+            self.assertIn("Klik kanan untuk opsi folder", win.folder_buttons[0].toolTip())
+
+            # 5. StudioCheckBox custom control
+            from ui.widgets import StudioCheckBox
+            chk = StudioCheckBox("Test Checkbox")
+            self.assertFalse(chk.isChecked())
+            chk.setChecked(True)
+            self.assertTrue(chk.isChecked())
+            # Test paint event rendering
+            pm = QPixmap(200, 30)
+            chk.resize(200, 30)
+            chk.render(pm)
+            self.assertFalse(pm.isNull())
         finally:
             win.close()
 

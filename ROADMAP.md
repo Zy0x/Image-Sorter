@@ -141,6 +141,7 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 - [x] **Media Bookmark & Quick Flagging (`*` / `Alt+F`):** Menandai file favorit atau penting dengan tombol bintang di info bar atau pintasan `*` / `Alt+F`, dilengkapi filter eksklusif **`Flagged Only`** dan penyimpanan status flag persisten di konfigurasi.
 - [x] **Interactive HUD Video Volume Slider (0–100%):** Slider volume audio pada kapsul `MediaHudOverlay` dan `ImagePreviewDialog` dengan tooltip persentase, auto-unmute saat digeser, dan sinkronisasi preferensi volume antar sesi.
 - [x] **Laporan Ringkasan Sesi Sortir (`SessionSummaryDialog` / `Ctrl+Shift+R`):** Dialog statistik komprehensif bergaya Studio Slate yang merangkum total file, jumlah terpindah per slot, sisa file, dan media bertanda bookmark, lengkap dengan fitur salin ke clipboard dan ekspor ke file teks.
+- [x] **Penyempurnaan Ergonomi & Interaksi UX (Redundan Ikon, Smart Import, Badge Slot, Context Menu, & Checkbox):** Menghapus duplikasi bintang tombol flag, klik stage kosong langsung memicu impor folder, penyederhanaan badge keycap `[1]`–`[9]` di pengaturan folder dengan tooltip interaktif, context menu klik kanan pada tombol folder (pilih folder cepat, buka di File Explorer, ubah nama), serta implementasi kontrol `StudioCheckBox` dengan kotak centang bergaris tegas dan tanda centang vektor yang jelas.
 
 ---
 

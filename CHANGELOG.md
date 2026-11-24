@@ -11,6 +11,12 @@ All notable changes to Image Sorter are listed here.
 - **Media Bookmarking & Quick Flagging:** Toggle flags instantly with `*` or `Alt+F`, or click the dedicated bookmark button in the info header. Integrated with the media filter dropdown (`Flagged Only`) and persisted reliably in `settings.json`.
 - **HUD Video Volume Slider & Tooltips:** Added an interactive 0–100% volume slider to both `MediaHudOverlay` and `ImagePreviewDialog` with percentage tooltips, auto-unmute when adjusted, and synchronized cross-session persistence (`video_volume`).
 - **Session Summary Report (`SessionSummaryDialog` / `Ctrl+Shift+R`):** Accessible via `File → Session Summary Report...` (`Ctrl+Shift+R`), providing a Studio Slate breakdown of total media, files moved per slot, remaining unmoved, and flagged items, with one-click clipboard copying and file export.
+- **Polish & Ergonomic UX Refinements:**
+  - **Non-Redundant Flag Icon:** Cleaned button label (`Flag` / `Flagged`) pairing exclusively with the vector star icon without duplicate text stars.
+  - **Smart Click-to-Import on Empty Stage:** Clicking anywhere on the empty preview stage directly triggers folder import with pointing hand cursor and updated guidance banner.
+  - **Clear Shortcut Keycap Badges:** Refined `FolderSettingsDialog` badges to clean keyboard hotkeys (`[1]`–`[9]`) with informative tooltips.
+  - **Folder Slot Right-Click Context Menu:** Right-clicking any slot button provides instant actions to pick/change folder, open in File Explorer, or rename the slot.
+  - **Visible Studio Slate Checkbox (`StudioCheckBox`):** Introduced crisp, theme-aware custom checkboxes with rounded borders and vector checkmarks ensuring 100% visibility.
 
 ### Fixed & Improved — synchronized settings persistence, recent folders history & cross-session activity trail
 - **Lockstep Settings Synchronization (`_sync_and_save_settings` & `normalize_settings`):** Eliminated the stale in-memory `self.settings` overwrite race where changing `Recent Folders`, `Hide Moved Images`, `Include Subfolders`, or `Video Mute` after closing `FolderSettingsDialog`, `RapidMoveSettingsDialog`, or `CustomThemeDialog` could overwrite newly saved dialog configurations. All settings changes now merge, normalize, pad all 9 folder slot arrays, and persist atomically.

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -160,6 +161,9 @@ class ImageSorterApp(QMainWindow):
         self.sort_order = str(self.settings.get("sort_order", "asc"))
         self.filmstrip_bar = None
         self.flag_btn = None
+        self.main_image_label = None
+        self.main_stage_viewport = None
+        self.main_card = None
         self.sort_actions = {}
         self.media_queue.load_flagged(self.settings.get("flagged_files", []))
         self.current_folder = None
@@ -389,7 +393,7 @@ class ImageSorterApp(QMainWindow):
         self.moved_badge.setObjectName("statusBadge")
         info_lay.addWidget(self.moved_badge)
 
-        self.flag_btn = QPushButton("☆ Flag")
+        self.flag_btn = QPushButton("Flag")
         self.flag_btn.setObjectName("flagBtn")
         self.flag_btn.setCursor(Qt.PointingHandCursor)
         self.flag_btn.setFocusPolicy(Qt.NoFocus)
@@ -424,6 +428,8 @@ class ImageSorterApp(QMainWindow):
 
         self.main_stage_viewport = StageViewport(self.main_image_label, min_w=320, min_h=220)
         self.main_stage_viewport.resized.connect(self._relayout_stage_previews)
+        self.main_stage_viewport.installEventFilter(self)
+        self.main_card.installEventFilter(self)
         main_card_lay.addWidget(self.main_stage_viewport, stretch=1)
         stage_row.addWidget(self.main_card, stretch=74)
 
@@ -485,6 +491,8 @@ class ImageSorterApp(QMainWindow):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFocusPolicy(Qt.NoFocus)
             btn.setMinimumHeight(44)
+            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.customContextMenuRequested.connect(lambda pos, idx=i: self._show_folder_btn_context_menu(idx, pos))
             btn.pressed.connect(lambda idx=i: self._on_folder_btn_pressed(idx))
             btn.released.connect(self._on_folder_btn_released)
             self.folder_buttons.append(btn)
@@ -979,7 +987,7 @@ class ImageSorterApp(QMainWindow):
             fg_accent = slot_text_color(accent, t["is_dark"])
             label = (self.folder_names[i] if i < len(self.folder_names) else DEFAULT_FOLDER_NAMES[i]) or DEFAULT_FOLDER_NAMES[i]
             btn.setText(f"[{i + 1}] {label}")
-            btn.setToolTip(f"Move to '{label}'\nDestination: {self.folder_paths[i]}")
+            btn.setToolTip(f"Move to '{label}'\nDestination: {self.folder_paths[i]}\n(Klik kanan untuk opsi folder)")
             btn.setIcon(make_vector_icon("folder", fg_accent, 14 if compact else 15))
             btn.setIconSize(QSize(14 if compact else 15, 14 if compact else 15))
             btn.setStyleSheet(
@@ -1194,6 +1202,10 @@ class ImageSorterApp(QMainWindow):
         self.main_image_label.setPixmap(QPixmap())
         self.main_image_label.setText(build_empty_state_html(t, self.folder_slot_count, compact=(mw < 420)))
         self.main_image_label.setFixedSize(mw, mh)
+        self.main_image_label.setToolTip("Click to import folder (Ctrl+O) or drop a folder here")
+        self.main_stage_viewport.setToolTip("Click to import folder (Ctrl+O) or drop a folder here")
+        self.main_image_label.setCursor(Qt.PointingHandCursor)
+        self.main_stage_viewport.setCursor(Qt.PointingHandCursor)
         self.main_stage_viewport.center_child()
 
         self.next_image_label.setPixmap(QPixmap())
@@ -1221,6 +1233,11 @@ class ImageSorterApp(QMainWindow):
         src_path = queue[self.current_index]
         actual_path = self.history_store.resolve_actual_path(src_path)
         self._active_media_path = actual_path
+
+        self.main_image_label.setToolTip("Double-click to open Full-Size Zoom Preview (F)")
+        self.main_stage_viewport.setToolTip("")
+        self.main_image_label.setCursor(Qt.PointingHandCursor)
+        self.main_stage_viewport.setCursor(Qt.ArrowCursor)
 
         self.counter_label.setText(f"{self.current_index + 1} / {len(queue)}")
         moved_folder = self.history_store.get_folder_name(src_path, self.folder_names, self.folder_paths)
@@ -1306,7 +1323,7 @@ class ImageSorterApp(QMainWindow):
             src_path = self.filtered_files[self.current_index]
         is_fl = self.media_queue.is_flagged(src_path) if src_path else False
         if is_fl:
-            self.flag_btn.setText("★ Flagged")
+            self.flag_btn.setText("Flagged")
             self.flag_btn.setIcon(make_vector_icon("star_filled", "#f59e0b", 13))
             self.flag_btn.setStyleSheet(
                 "QPushButton#flagBtn {"
@@ -1318,7 +1335,7 @@ class ImageSorterApp(QMainWindow):
                 "}"
             )
         else:
-            self.flag_btn.setText("☆ Flag")
+            self.flag_btn.setText("Flag")
             self.flag_btn.setIcon(make_vector_icon("star", t["text_muted"], 13))
             self.flag_btn.setStyleSheet(
                 f"QPushButton#flagBtn {{"
@@ -1946,11 +1963,97 @@ class ImageSorterApp(QMainWindow):
         self._rapid_move_timer.stop()
         self._active_rapid_slot = None
 
+    def _show_folder_btn_context_menu(self, slot_idx: int, pos) -> None:
+        """Present a context menu for folder slot buttons allowing instant folder picking, explorer opening, and renaming."""
+        if slot_idx < 0 or slot_idx >= self.folder_slot_count:
+            return
+        btn = self.folder_buttons[slot_idx]
+        cur_name = (self.folder_names[slot_idx] if slot_idx < len(self.folder_names) else DEFAULT_FOLDER_NAMES[slot_idx]) or DEFAULT_FOLDER_NAMES[slot_idx]
+        cur_path = self.folder_paths[slot_idx] if slot_idx < len(self.folder_paths) else ""
+        t = resolve_studio_tokens(self)
+
+        menu = QMenu(self)
+        menu.setStyleSheet(build_studio_dialog_qss(t))
+
+        header_action = QAction(f"Folder Slot [{slot_idx + 1}] — {cur_name}", self)
+        header_action.setEnabled(False)
+        menu.addAction(header_action)
+        menu.addSeparator()
+
+        change_act = QAction("Pilih / Ganti Folder...", self)
+        change_act.setIcon(make_vector_icon("folder", t["accent"], 14))
+        change_act.triggered.connect(lambda: self._quick_pick_slot_folder(slot_idx))
+        menu.addAction(change_act)
+
+        open_act = QAction("Buka di File Explorer", self)
+        open_act.setIcon(make_vector_icon("folder_tree", t["text"], 14))
+        path_exists = bool(cur_path and os.path.exists(cur_path))
+        open_act.setEnabled(path_exists)
+        if path_exists:
+            open_act.triggered.connect(lambda: reveal_in_file_explorer(cur_path))
+        menu.addAction(open_act)
+
+        rename_act = QAction("Ubah Nama Slot...", self)
+        rename_act.setIcon(make_vector_icon("rename", t["text"], 14))
+        rename_act.triggered.connect(lambda: self._quick_rename_slot(slot_idx))
+        menu.addAction(rename_act)
+
+        menu.addSeparator()
+        full_settings_act = QAction("Pengaturan Folder Lengkap...", self)
+        full_settings_act.setIcon(make_vector_icon("sliders", t["text"], 14))
+        full_settings_act.triggered.connect(self.open_folder_settings)
+        menu.addAction(full_settings_act)
+
+        menu.exec(btn.mapToGlobal(pos))
+
+    def _quick_pick_slot_folder(self, slot_idx: int) -> None:
+        """Quick directory picker for an individual folder slot."""
+        if slot_idx < 0 or slot_idx >= self.folder_slot_count:
+            return
+        cur_path = self.folder_paths[slot_idx] if slot_idx < len(self.folder_paths) else ""
+        start_dir = cur_path if cur_path and os.path.exists(cur_path) else os.getcwd()
+        new_dir = QFileDialog.getExistingDirectory(
+            self,
+            f"Pilih Folder Tujuan untuk Slot [{slot_idx + 1}]",
+            start_dir,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks,
+        )
+        if new_dir:
+            self.folder_paths[slot_idx] = new_dir
+            self._sync_and_save_settings()
+            self.update_folder_buttons()
+            leaf = os.path.basename(os.path.normpath(new_dir))
+            self._show_toast(f"Slot [{slot_idx + 1}] diarahkan ke: {leaf}")
+
+    def _quick_rename_slot(self, slot_idx: int) -> None:
+        """Quick dialog to rename an individual folder slot."""
+        if slot_idx < 0 or slot_idx >= self.folder_slot_count:
+            return
+        cur_name = (self.folder_names[slot_idx] if slot_idx < len(self.folder_names) else DEFAULT_FOLDER_NAMES[slot_idx]) or DEFAULT_FOLDER_NAMES[slot_idx]
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Ubah Nama Slot",
+            f"Nama baru untuk Slot [{slot_idx + 1}]:",
+            text=cur_name,
+        )
+        if ok and new_name.strip():
+            self.folder_names[slot_idx] = new_name.strip()
+            self._sync_and_save_settings()
+            self.update_folder_buttons()
+            self._show_toast(f"Slot [{slot_idx + 1}] dinamai: {new_name.strip()}")
+
     def eventFilter(self, obj, event):
         etype = event.type()
-        if obj is self.main_image_label and etype == event.Type.MouseButtonDblClick and event.button() == Qt.LeftButton:
-            self.open_full_preview()
-            return True
+        targets = [w for w in (self.main_image_label, self.main_stage_viewport, self.main_card) if w is not None]
+        if obj in targets:
+            if etype == event.Type.MouseButtonPress and event.button() == Qt.LeftButton:
+                if not self.filtered_files:
+                    self.import_folder()
+                    return True
+            elif etype == event.Type.MouseButtonDblClick and event.button() == Qt.LeftButton:
+                if self.filtered_files:
+                    self.open_full_preview()
+                    return True
 
         if etype in (event.Type.KeyPress, event.Type.KeyRelease):
             if QApplication.activeModalWidget() is not None:

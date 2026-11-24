@@ -250,6 +250,27 @@ def build_studio_dialog_qss(t: dict) -> str:
         QLineEdit:focus, QSpinBox:focus, QTextEdit:focus {{
             border-color: {t["accent"]};
         }}
+        QCheckBox {{
+            color: {t["text"]};
+            spacing: 8px;
+            font-size: 12.5px;
+            font-weight: 600;
+        }}
+        QCheckBox::indicator {{
+            width: 18px;
+            height: 18px;
+            border-radius: 5px;
+            border: 1.5px solid {t["border_strong"]};
+            background-color: {t["surface"]};
+        }}
+        QCheckBox::indicator:hover {{
+            border-color: {t["accent"]};
+            background-color: {t["surface_hover"]};
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {t["accent"]};
+            border-color: {t["accent"]};
+        }}
         QTextBrowser#releaseNotesView {{
             background-color: {t["stage_bg"]};
             color: {t["text"]};
@@ -871,7 +892,7 @@ def build_empty_state_html(t: dict, slot_count: int = 5, compact: bool = False) 
         f"<div align='center'>"
         f"<p style='font-size:{title_sz}px; font-weight:700; color:{desc_col}; margin-bottom:4px;'>No Media Loaded</p>"
         f"<p style='font-size:{font_sz}px; color:{sub_col}; margin-top:0px; margin-bottom:{8 if compact else 14}px;'>"
-        f"Drop a folder or press <font face='Consolas' color='{key_col}'><b>Ctrl+O</b></font>"
+        f"Click here to import folder, drop or press <font face='Consolas' color='{key_col}'><b>Ctrl+O</b></font>"
         f"</p>"
         f"<table align='center' width='{tbl_w}' cellspacing='3' cellpadding='{cell_pad}' style='font-size:{font_sz}px;'>"
         f"<tr bgcolor='{row_bg}'>"
