@@ -1,7 +1,7 @@
 """Reusable Studio Slate UI widgets: ClickSeekSlider, StageViewport, MediaHudOverlay, LoadingOverlay, ToastNotification."""
 
 import os
-from PySide6.QtCore import QPointF, QPropertyAnimation, QRect, QRectF, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
@@ -235,6 +235,18 @@ class ToastNotification(QLabel):
         self.fade_out.finished.connect(self.hide)
         self.hide()
 
+    def mousePressEvent(self, event):
+        event.ignore()
+
+    def mouseReleaseEvent(self, event):
+        event.ignore()
+
+    def mouseDoubleClickEvent(self, event):
+        event.ignore()
+
+    def mouseMoveEvent(self, event):
+        event.ignore()
+
     def show_message(self, text: str, tokens: dict) -> None:
         if self.fade_in.state() == QPropertyAnimation.Running:
             self.fade_in.stop()
@@ -246,11 +258,10 @@ class ToastNotification(QLabel):
         border_col = tokens["border_strong"]
         self.setText(text)
         self.setStyleSheet(
-            f"font-size: 12.5px; font-weight: 600; padding: 8px 18px; border-radius: 10px; "
+            f"font-size: 12px; font-weight: 600; padding: 9px 18px; border-radius: 10px; "
             f"color: {tokens['text']}; background-color: {bg_rgba}; "
             f"border: 1px solid {border_col}; text-align: center;"
         )
-        self._text_width = self.fontMetrics().horizontalAdvance(text) + 48
         self.reposition()
 
         self.setWindowOpacity(0.0)
@@ -269,11 +280,48 @@ class ToastNotification(QLabel):
         parent = self.parentWidget()
         if parent is None:
             return
-        available = max(140, parent.width() - 40)
-        label_width = min(available, max(260, min(680, self._text_width)))
+
+        fm = self.fontMetrics()
+        pad_h = 36  # 18px left + 18px right padding
+        pad_v = 18  # 9px top + 9px bottom padding
+        raw_text = self.text() or ""
+
+        # Measure text width (handling multiple lines if newlines are present)
+        lines = raw_text.split("\n")
+        max_line_adv = max((fm.horizontalAdvance(line) for line in lines), default=0)
+        desired_w = max_line_adv + pad_h + 16
+        available_w = max(160, parent.width() - 48)
+        label_width = min(available_w, max(260, min(740, desired_w)))
+
+        # Accurately compute the wrapped text bounding box height
+        inner_w = max(80, label_width - pad_h)
+        text_rect = fm.boundingRect(
+            QRect(0, 0, inner_w, 2000),
+            Qt.TextWordWrap | Qt.TextWrapAnywhere | Qt.AlignCenter,
+            raw_text,
+        )
+        label_height = max(38, text_rect.height() + pad_v + 8)
+
         x = max(20, (parent.width() - label_width) // 2)
-        y = max(56, parent.height() - 220)
-        self.setGeometry(x, y, label_width, 42)
+
+        # Position cleanly above all bottom navigation buttons
+        win = self.window()
+        btn_top = None
+        if win is not None and hasattr(win, "prev_button") and win.prev_button is not None:
+            try:
+                btn_pos = win.prev_button.mapTo(parent, QPoint(0, 0))
+                if btn_pos.y() > 40:
+                    btn_top = btn_pos.y()
+            except Exception:
+                btn_top = None
+
+        if btn_top is not None:
+            y = max(24, btn_top - label_height - 10)
+        else:
+            y = max(40, parent.height() - label_height - 180)
+
+        self.setGeometry(x, y, label_width, label_height)
+        self.raise_()
 
 
 class MediaHudOverlay(QFrame):
@@ -540,11 +588,11 @@ class FilmstripItem(QFrame):
     def __init__(self, index: int, parent=None):
         super().__init__(parent)
         self.index = index
-        self.setFixedSize(54, 54)
+        self.setFixedSize(40, 40)
         self.setCursor(Qt.PointingHandCursor)
         self.thumb_label = QLabel(self)
         self.thumb_label.setAlignment(Qt.AlignCenter)
-        self.thumb_label.setGeometry(2, 2, 50, 50)
+        self.thumb_label.setGeometry(2, 2, 36, 36)
         self.thumb_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.is_active = False
         self.is_flagged = False
@@ -568,16 +616,16 @@ class FilmstripItem(QFrame):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor("#f59e0b"))
             star_pts = QPolygonF([
-                QPointF(self.width() - 8, 3),
-                QPointF(self.width() - 6.5, 6.5),
-                QPointF(self.width() - 3, 7),
-                QPointF(self.width() - 5.5, 9.5),
-                QPointF(self.width() - 4.5, 13),
-                QPointF(self.width() - 8, 11),
-                QPointF(self.width() - 11.5, 13),
-                QPointF(self.width() - 10.5, 9.5),
-                QPointF(self.width() - 13, 7),
-                QPointF(self.width() - 9.5, 6.5),
+                QPointF(self.width() - 6.5, 2.5),
+                QPointF(self.width() - 5.5, 5.0),
+                QPointF(self.width() - 2.5, 5.5),
+                QPointF(self.width() - 4.5, 7.5),
+                QPointF(self.width() - 3.8, 10.5),
+                QPointF(self.width() - 6.5, 9.0),
+                QPointF(self.width() - 9.2, 10.5),
+                QPointF(self.width() - 8.5, 7.5),
+                QPointF(self.width() - 10.5, 5.5),
+                QPointF(self.width() - 7.5, 5.0),
             ])
             p.drawPolygon(star_pts)
 
@@ -585,30 +633,30 @@ class FilmstripItem(QFrame):
             # Draw mini play badge in bottom-right corner
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(0, 0, 0, 190))
-            p.drawRoundedRect(QRectF(self.width() - 15, self.height() - 13, 12, 10), 2, 2)
+            p.drawRoundedRect(QRectF(self.width() - 13, self.height() - 11, 10, 9), 2, 2)
             p.setBrush(QColor("#ffffff"))
             p.drawPolygon(QPolygonF([
-                QPointF(self.width() - 12, self.height() - 11),
-                QPointF(self.width() - 6, self.height() - 8),
-                QPointF(self.width() - 12, self.height() - 5),
+                QPointF(self.width() - 11, self.height() - 9.5),
+                QPointF(self.width() - 5.5, self.height() - 6.5),
+                QPointF(self.width() - 11, self.height() - 3.5),
             ]))
         p.end()
 
 
 class FilmstripBar(QFrame):
-    """Horizontal mini thumbnail preview dock centered around active queue index."""
+    """Horizontal mini thumbnail preview dock docked inside UP NEXT panel."""
 
     item_selected = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("filmstripBar")
-        self.setFixedHeight(72)
+        self.setFixedHeight(50)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(10, 6, 10, 6)
-        self._layout.setSpacing(8)
+        self._layout.setContentsMargins(4, 3, 4, 3)
+        self._layout.setSpacing(5)
         self._layout.setAlignment(Qt.AlignCenter)
 
         self._items = []
@@ -625,13 +673,13 @@ class FilmstripBar(QFrame):
             self._tokens = tokens
         t = self._tokens
         is_dark = t.get("is_dark", True)
-        bg = "rgba(18, 22, 31, 220)" if is_dark else "rgba(240, 244, 250, 240)"
+        bg = "rgba(18, 22, 31, 200)" if is_dark else "rgba(240, 244, 250, 220)"
         border = t.get("border", "#282e3d")
         self.setStyleSheet(f"""
             QFrame#filmstripBar {{
                 background-color: {bg};
                 border: 1px solid {border};
-                border-radius: 10px;
+                border-radius: 8px;
             }}
         """)
         self._refresh_items_style()
@@ -648,7 +696,7 @@ class FilmstripBar(QFrame):
                     QFrame {{
                         background-color: {surface};
                         border: 2px solid {accent};
-                        border-radius: 8px;
+                        border-radius: 6px;
                     }}
                 """)
             else:
@@ -657,7 +705,7 @@ class FilmstripBar(QFrame):
                     QFrame {{
                         background-color: {surface};
                         border: 1px solid {border};
-                        border-radius: 8px;
+                        border-radius: 6px;
                         {dim}
                     }}
                     QFrame:hover {{
@@ -690,19 +738,23 @@ class FilmstripBar(QFrame):
             self.hide()
             return
 
+        p_win = self.window()
+        if p_win is not None and hasattr(p_win, "settings") and not p_win.settings.get("show_filmstrip", True):
+            self.hide()
+            return
+
         self.show()
 
         total = len(files)
         # Determine number of slots based on widget width
-        w = self.width() if self.width() > 100 else 760
-        slots = max(5, min(9, (w - 30) // 62))
-        if slots % 2 == 0:
-            slots -= 1
-        half = slots // 2
+        w = self.width() if self.width() > 100 else 240
+        slots = max(3, min(5, (w - 8) // 46))
 
-        start_idx = max(0, current_idx - half)
-        end_idx = min(total, start_idx + slots)
-        if end_idx - start_idx < slots and start_idx > 0:
+        if current_idx + slots <= total:
+            start_idx = current_idx
+            end_idx = start_idx + slots
+        else:
+            end_idx = total
             start_idx = max(0, end_idx - slots)
 
         for idx in range(start_idx, end_idx):
@@ -723,16 +775,16 @@ class FilmstripBar(QFrame):
                 pix = lru_cache.get(fpath)
             if pix is None and os.path.exists(fpath) and lru_cache:
                 try:
-                    pix = lru_cache.get_or_load(fpath, max_width=50, max_height=50)
+                    pix = lru_cache.get_or_load(fpath, max_width=40, max_height=40)
                 except Exception:
                     pix = None
 
             if pix and not pix.isNull():
-                scaled = pix.scaled(QSize(48, 48), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                scaled = pix.scaled(QSize(36, 36), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 item.thumb_label.setPixmap(scaled)
             else:
                 item.thumb_label.setText("VID" if item.is_video else "IMG")
-                item.thumb_label.setStyleSheet("font-size: 10px; font-weight: 700; color: #949cb0;")
+                item.thumb_label.setStyleSheet("font-size: 9px; font-weight: 700; color: #949cb0;")
 
             item.clicked.connect(self.item_selected.emit)
             self._items.append(item)

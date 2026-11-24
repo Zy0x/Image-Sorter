@@ -454,15 +454,15 @@ class ImageSorterApp(QMainWindow):
         self.next_stage_viewport = StageViewport(self.next_image_label, min_w=130, min_h=160)
         self.next_stage_viewport.resized.connect(self._relayout_stage_previews)
         next_lay.addWidget(self.next_stage_viewport, stretch=1)
-        stage_row.addWidget(self.next_panel, stretch=26)
 
-        root.addLayout(stage_row, stretch=1)
-
-        # Filmstrip preview dock
+        # Filmstrip preview dock placed cleanly inside UP NEXT card beneath preview
         self.filmstrip_bar = FilmstripBar(parent=self)
         self.filmstrip_bar.item_selected.connect(self.jump_to_index)
         self.filmstrip_bar.setVisible(self.settings.get("show_filmstrip", True))
-        root.addWidget(self.filmstrip_bar)
+        next_lay.addWidget(self.filmstrip_bar)
+
+        stage_row.addWidget(self.next_panel, stretch=26)
+        root.addLayout(stage_row, stretch=1)
 
         # 3. Previous / Next navigation strip
         nav_row = QHBoxLayout()
@@ -1381,15 +1381,21 @@ class ImageSorterApp(QMainWindow):
             is_moved_cb=self.history_store.is_moved,
         )
 
-    def toggle_filmstrip(self) -> None:
+    def toggle_filmstrip(self, checked: bool = None) -> None:
         """Toggle filmstrip preview bar visibility and persist setting."""
-        show = self.show_filmstrip_action.isChecked()
+        if checked is not None:
+            show = bool(checked)
+        else:
+            show = not self.settings.get("show_filmstrip", True)
         self.settings["show_filmstrip"] = show
+        if hasattr(self, "show_filmstrip_action") and self.show_filmstrip_action is not None:
+            self.show_filmstrip_action.setChecked(show)
         self._sync_and_save_settings()
         if hasattr(self, "filmstrip_bar"):
             self.filmstrip_bar.setVisible(show)
             if show:
                 self._update_filmstrip()
+            self._relayout_stage_previews()
 
     def set_sort_order(self, sort_by: str, sort_order: str) -> None:
         """Re-sort media queue by selected criteria (name, date, size, ext) and preserve active anchor."""

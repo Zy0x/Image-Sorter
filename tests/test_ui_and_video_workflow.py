@@ -248,7 +248,8 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             win.filter_combo.setCurrentText("All Files")
             win.apply_filter()
 
-            # 3. Test Filmstrip Bar
+            # 3. Test Filmstrip Bar docked inside UP NEXT panel
+            self.assertEqual(win.filmstrip_bar.parentWidget(), win.next_panel)
             self.assertFalse(win.filmstrip_bar.isHidden())
             self.assertGreaterEqual(len(win.filmstrip_bar._items), 2)
             # Jump via filmstrip item
@@ -361,6 +362,45 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             chk.resize(200, 30)
             chk.render(pm)
             self.assertFalse(pm.isNull())
+        finally:
+            win.close()
+
+    def test_filmstrip_in_next_panel_and_toast_overlay(self):
+        """Test mini filmstrip placement inside UP NEXT card, view toggle, and unclipped click-through toast overlay."""
+        win = app_main.ImageSorterApp()
+        try:
+            win.resize(1000, 700)
+            win.show()
+            QApplication.processEvents()
+
+            # 1. FilmstripBar is inside next_panel, not floating as full-width row
+            self.assertEqual(win.filmstrip_bar.parentWidget(), win.next_panel)
+            self.assertEqual(win.filmstrip_bar.height(), 50)
+
+            # 2. Toggle filmstrip hides and restores properly
+            win.settings["show_filmstrip"] = True
+            win.toggle_filmstrip()
+            self.assertFalse(win.filmstrip_bar.isVisible())
+            win.toggle_filmstrip()
+            self.assertTrue(win.filmstrip_bar.isVisible())
+
+            # 3. Toast overlay dynamic height with multi-line text (no clipping)
+            long_msg = "Undo → Restored\nwFAD7xT7Vavhh7NrOOEoh1TazpnLLvOvrnKljroy08VApnS0br2ka0xWrhshTROhzmtSLk4OFePMantUMclw"
+            from ui.theme import resolve_studio_tokens
+            win.toast.show_message(long_msg, resolve_studio_tokens(win))
+            QApplication.processEvents()
+
+            # Verify toast is visible, has height >= 50px (multi-line) and not clipped at 42px
+            self.assertTrue(win.toast.isVisible())
+            self.assertGreaterEqual(win.toast.height(), 50)
+
+            # 4. Toast overlay positioned above bottom buttons
+            prev_top = win.prev_button.mapTo(win.centralWidget(), QPoint(0, 0)).y()
+            toast_bottom = win.toast.geometry().bottom()
+            self.assertLess(toast_bottom, prev_top)
+
+            # 5. Toast overlay is click-through (WA_TransparentForMouseEvents)
+            self.assertTrue(win.toast.testAttribute(Qt.WA_TransparentForMouseEvents))
         finally:
             win.close()
 
