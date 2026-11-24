@@ -373,9 +373,14 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             win.show()
             QApplication.processEvents()
 
-            # 1. FilmstripBar is inside next_panel, not floating as full-width row
+            # 1. FilmstripBar is inside next_panel with portrait aspect cards
             self.assertEqual(win.filmstrip_bar.parentWidget(), win.next_panel)
-            self.assertEqual(win.filmstrip_bar.height(), 50)
+            self.assertEqual(win.filmstrip_bar.height(), 74)
+            from ui.widgets import FilmstripItem
+            card = FilmstripItem(0)
+            self.assertEqual(card.width(), 44)
+            self.assertEqual(card.height(), 64)
+            self.assertGreater(card.height(), card.width())
 
             # 2. Toggle filmstrip hides and restores properly
             win.settings["show_filmstrip"] = True

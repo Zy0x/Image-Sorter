@@ -126,6 +126,10 @@ class PixmapLRUCache:
             return False
         return (tok, int(max_width), int(max_height)) in self._pix_cache
 
+    def get_or_load(self, path: str, max_width: int = 0, max_height: int = 0) -> QPixmap:
+        """Alias for get_pixmap for flexible LRU retrieval."""
+        return self.get_pixmap(path, max_width, max_height)
+
     def get(self, path: str, max_width: int = 0, max_height: int = 0):
         tok = self._file_token(path)
         if tok is None:

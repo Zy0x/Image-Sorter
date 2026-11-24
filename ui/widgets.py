@@ -581,19 +581,20 @@ _StageViewport = StageViewport
 
 
 class FilmstripItem(QFrame):
-    """Clickable thumbnail item inside FilmstripBar."""
+    """Clickable portrait thumbnail item inside FilmstripBar."""
 
     clicked = Signal(int)
 
     def __init__(self, index: int, parent=None):
         super().__init__(parent)
         self.index = index
-        self.setFixedSize(40, 40)
+        self.setFixedSize(44, 64)
         self.setCursor(Qt.PointingHandCursor)
         self.thumb_label = QLabel(self)
         self.thumb_label.setAlignment(Qt.AlignCenter)
-        self.thumb_label.setGeometry(2, 2, 36, 36)
+        self.thumb_label.setGeometry(2, 2, 40, 60)
         self.thumb_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.thumb_label.setStyleSheet("border-radius: 5px; background: transparent;")
         self.is_active = False
         self.is_flagged = False
         self.is_video = False
@@ -616,47 +617,50 @@ class FilmstripItem(QFrame):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor("#f59e0b"))
             star_pts = QPolygonF([
-                QPointF(self.width() - 6.5, 2.5),
-                QPointF(self.width() - 5.5, 5.0),
-                QPointF(self.width() - 2.5, 5.5),
-                QPointF(self.width() - 4.5, 7.5),
-                QPointF(self.width() - 3.8, 10.5),
-                QPointF(self.width() - 6.5, 9.0),
-                QPointF(self.width() - 9.2, 10.5),
-                QPointF(self.width() - 8.5, 7.5),
-                QPointF(self.width() - 10.5, 5.5),
-                QPointF(self.width() - 7.5, 5.0),
+                QPointF(self.width() - 7.0, 3.0),
+                QPointF(self.width() - 5.8, 5.8),
+                QPointF(self.width() - 2.5, 6.2),
+                QPointF(self.width() - 4.8, 8.5),
+                QPointF(self.width() - 4.0, 11.8),
+                QPointF(self.width() - 7.0, 10.0),
+                QPointF(self.width() - 10.0, 11.8),
+                QPointF(self.width() - 9.2, 8.5),
+                QPointF(self.width() - 11.5, 6.2),
+                QPointF(self.width() - 8.2, 5.8),
             ])
             p.drawPolygon(star_pts)
 
         if self.is_video:
-            # Draw mini play badge in bottom-right corner
+            # Draw mini play badge in bottom-center
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor(0, 0, 0, 190))
-            p.drawRoundedRect(QRectF(self.width() - 13, self.height() - 11, 10, 9), 2, 2)
+            p.setBrush(QColor(0, 0, 0, 175))
+            badge_w, badge_h = 18, 13
+            bx = (self.width() - badge_w) / 2
+            by = self.height() - badge_h - 4
+            p.drawRoundedRect(QRectF(bx, by, badge_w, badge_h), 3, 3)
             p.setBrush(QColor("#ffffff"))
             p.drawPolygon(QPolygonF([
-                QPointF(self.width() - 11, self.height() - 9.5),
-                QPointF(self.width() - 5.5, self.height() - 6.5),
-                QPointF(self.width() - 11, self.height() - 3.5),
+                QPointF(bx + 6.5, by + 3.5),
+                QPointF(bx + 12.5, by + badge_h / 2),
+                QPointF(bx + 6.5, by + badge_h - 3.5),
             ]))
         p.end()
 
 
 class FilmstripBar(QFrame):
-    """Horizontal mini thumbnail preview dock docked inside UP NEXT panel."""
+    """Horizontal portrait thumbnail preview dock docked inside UP NEXT panel."""
 
     item_selected = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("filmstripBar")
-        self.setFixedHeight(50)
+        self.setFixedHeight(74)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(4, 3, 4, 3)
-        self._layout.setSpacing(5)
+        self._layout.setContentsMargins(6, 4, 6, 4)
+        self._layout.setSpacing(6)
         self._layout.setAlignment(Qt.AlignCenter)
 
         self._items = []
@@ -673,13 +677,13 @@ class FilmstripBar(QFrame):
             self._tokens = tokens
         t = self._tokens
         is_dark = t.get("is_dark", True)
-        bg = "rgba(18, 22, 31, 200)" if is_dark else "rgba(240, 244, 250, 220)"
+        bg = "rgba(18, 22, 31, 210)" if is_dark else "rgba(240, 244, 250, 230)"
         border = t.get("border", "#282e3d")
         self.setStyleSheet(f"""
             QFrame#filmstripBar {{
                 background-color: {bg};
                 border: 1px solid {border};
-                border-radius: 8px;
+                border-radius: 9px;
             }}
         """)
         self._refresh_items_style()
@@ -696,7 +700,7 @@ class FilmstripBar(QFrame):
                     QFrame {{
                         background-color: {surface};
                         border: 2px solid {accent};
-                        border-radius: 6px;
+                        border-radius: 7px;
                     }}
                 """)
             else:
@@ -705,7 +709,7 @@ class FilmstripBar(QFrame):
                     QFrame {{
                         background-color: {surface};
                         border: 1px solid {border};
-                        border-radius: 6px;
+                        border-radius: 7px;
                         {dim}
                     }}
                     QFrame:hover {{
@@ -748,7 +752,7 @@ class FilmstripBar(QFrame):
         total = len(files)
         # Determine number of slots based on widget width
         w = self.width() if self.width() > 100 else 240
-        slots = max(3, min(5, (w - 8) // 46))
+        slots = max(3, min(5, (w - 12) // 50))
 
         if current_idx + slots <= total:
             start_idx = current_idx
@@ -772,19 +776,27 @@ class FilmstripBar(QFrame):
 
             pix = None
             if lru_cache:
-                pix = lru_cache.get(fpath)
-            if pix is None and os.path.exists(fpath) and lru_cache:
                 try:
-                    pix = lru_cache.get_or_load(fpath, max_width=40, max_height=40)
+                    if hasattr(lru_cache, "get_pixmap"):
+                        pix = lru_cache.get_pixmap(fpath, 100, 150)
+                    elif hasattr(lru_cache, "get_or_load"):
+                        pix = lru_cache.get_or_load(fpath, 100, 150)
+                    elif hasattr(lru_cache, "get"):
+                        pix = lru_cache.get(fpath, 100, 150)
                 except Exception:
                     pix = None
 
             if pix and not pix.isNull():
-                scaled = pix.scaled(QSize(36, 36), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                # Center crop into portrait card (40x60)
+                scaled = pix.scaled(QSize(40, 60), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                if scaled.width() > 40 or scaled.height() > 60:
+                    cx = max(0, (scaled.width() - 40) // 2)
+                    cy = max(0, (scaled.height() - 60) // 2)
+                    scaled = scaled.copy(cx, cy, 40, 60)
                 item.thumb_label.setPixmap(scaled)
             else:
                 item.thumb_label.setText("VID" if item.is_video else "IMG")
-                item.thumb_label.setStyleSheet("font-size: 9px; font-weight: 700; color: #949cb0;")
+                item.thumb_label.setStyleSheet("font-size: 9.5px; font-weight: 700; color: #949cb0;")
 
             item.clicked.connect(self.item_selected.emit)
             self._items.append(item)
