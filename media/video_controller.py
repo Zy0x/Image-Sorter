@@ -45,18 +45,9 @@ def dispose_qtmm_video_session(player, output, sink, buf):
 
 
 def create_qtmm_video_session(owner, video_path: str, muted: bool, volume: float, on_frame, on_error=None):
-    """Create in-memory QBuffer-backed QtMultimedia video+audio session (<=120 MB) to avoid Windows locks."""
+    """Create QtMultimedia video+audio session with hardware seeking support."""
     if not HAS_QTMULTIMEDIA or not video_path or not os.path.exists(video_path):
         return None
-    fsize = os.path.getsize(video_path)
-    if fsize <= 0 or fsize > 120 * 1024 * 1024:
-        return None
-    with open(video_path, "rb") as f:
-        raw = f.read()
-    qbytes = QByteArray(raw)
-    qbuf = QBuffer(owner)
-    qbuf.setData(qbytes)
-    qbuf.open(QIODevice.ReadOnly)
     output = QAudioOutput(owner)
     output.setVolume(max(0.0, min(1.0, float(volume))))
     output.setMuted(bool(muted))
@@ -69,8 +60,8 @@ def create_qtmm_video_session(owner, video_path: str, muted: bool, volume: float
     player.setLoops(QMediaPlayer.Infinite)
     if on_error is not None:
         player.errorOccurred.connect(on_error)
-    player.setSourceDevice(qbuf, QUrl.fromLocalFile(video_path))
-    return player, output, sink, qbuf, qbytes
+    player.setSource(QUrl.fromLocalFile(video_path))
+    return player, output, sink, None, None
 
 
 class VideoDecodeThread(QThread):

@@ -2,7 +2,7 @@
 
 import os
 from PySide6.QtCore import QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QCursor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -136,7 +136,7 @@ class StudioCheckBox(QCheckBox):
 
 
 class ClickSeekSlider(QSlider):
-    """Horizontal slider supporting instant jump-on-click timeline seeking."""
+    """Horizontal slider supporting instant jump-on-click and continuous drag timeline seeking."""
 
     seek_clicked = Signal(int)
 
@@ -147,9 +147,20 @@ class ClickSeekSlider(QSlider):
             val = self.minimum() + int(round(ratio * span))
             self.setValue(val)
             self.seek_clicked.emit(val)
-            event.accept()
+            super().mousePressEvent(event)
             return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (event.buttons() & Qt.LeftButton) and self.width() > 0:
+            span = max(1, self.maximum() - self.minimum())
+            ratio = max(0.0, min(1.0, event.position().x() / float(self.width())))
+            val = self.minimum() + int(round(ratio * span))
+            self.setValue(val)
+            self.seek_clicked.emit(val)
+            super().mouseMoveEvent(event)
+            return
+        super().mouseMoveEvent(event)
 
 
 class StageViewport(QWidget):
@@ -388,9 +399,7 @@ class MediaHudOverlay(QFrame):
             self.seek_slider.setFixedHeight(16)
             self.seek_slider.setFocusPolicy(Qt.NoFocus)
             self.seek_slider.sliderPressed.connect(self._on_seek_pressed)
-            self.seek_slider.sliderMoved.connect(
-                lambda v: self.cur_time_lbl.setText(format_duration(v / 1000.0)) if self.cur_time_lbl else None
-            )
+            self.seek_slider.sliderMoved.connect(self._handle_seek_click)
             self.seek_slider.sliderReleased.connect(self._on_seek_released)
             self.seek_slider.seek_clicked.connect(self._handle_seek_click)
             row_lay.addWidget(self.seek_slider, stretch=1)
@@ -432,23 +441,24 @@ class MediaHudOverlay(QFrame):
         self.setGraphicsEffect(self._opacity_effect)
 
         self._fade_anim = QPropertyAnimation(self._opacity_effect, b"opacity", self)
-        self._fade_anim.setDuration(240)
+        self._fade_anim.setDuration(160)
 
-        self._auto_hide_timer = QTimer(self)
-        self._auto_hide_timer.setSingleShot(True)
-        self._auto_hide_timer.setInterval(3000)
-        self._auto_hide_timer.timeout.connect(self._on_auto_hide_timeout)
+        self._initial_timer = QTimer(self)
+        self._initial_timer.setSingleShot(True)
+        self._initial_timer.setInterval(3000)
+        self._initial_timer.timeout.connect(self._on_initial_timeout)
+        self._auto_hide_timer = self._initial_timer
 
         self.apply_tokens(self._tokens)
         self.show()
         self.raise_()
 
         if self.is_video:
-            self._auto_hide_timer.start(3000)
+            self._initial_timer.start(3000)
 
     def _on_seek_pressed(self):
         self._is_seeking = True
-        self._auto_hide_timer.stop()
+        self._initial_timer.stop()
         self.wake_hud()
         self.seek_pressed.emit()
 
@@ -456,8 +466,16 @@ class MediaHudOverlay(QFrame):
         self._is_seeking = False
         val = int(self.seek_slider.value()) if self.seek_slider else 0
         self.seek_released.emit(val)
-        if not self._is_paused and not self._is_hovered and self.is_video:
-            self._auto_hide_timer.start(3000)
+        card = self.window().findChild(QWidget, "mainStageCard") if self.window() else None
+        if card is None:
+            card = self.parentWidget()
+        is_over = False
+        if card is not None and card.isVisible():
+            card_rect = QRect(card.mapToGlobal(QPoint(0, 0)), card.size())
+            is_over = card_rect.contains(QCursor.pos())
+        self._is_hovered = is_over
+        if not is_over:
+            self.hide_hud(fast=True)
 
     def _handle_seek_click(self, pos_ms: int):
         if self.cur_time_lbl is not None:
@@ -471,46 +489,75 @@ class MediaHudOverlay(QFrame):
         self.volume_changed.emit(val / 100.0)
         self.wake_hud()
 
+    def _on_initial_timeout(self):
+        """Initial 3-second display on video load elapsed; hide if user is not hovering."""
+        if not self._is_hovered and not self._is_seeking:
+            self.hide_hud(fast=False)
+
     def _on_auto_hide_timeout(self):
-        if self._is_paused or self._is_seeking or self._is_hovered:
-            return
-        self._fade_anim.stop()
-        self._fade_anim.setStartValue(self._opacity_effect.opacity())
-        self._fade_anim.setEndValue(0.0)
-        self._fade_anim.start()
+        self._on_initial_timeout()
 
     def wake_hud(self):
-        """Bring HUD to full opacity and restart 3s auto-hide countdown if playing."""
+        """Bring HUD to full opacity immediately when hovered or active."""
+        self._initial_timer.stop()
         if not self.isVisible():
             self.show()
         self.raise_()
         if self._fade_anim.state() == QPropertyAnimation.Running:
             self._fade_anim.stop()
-        if self._opacity_effect.opacity() < 1.0:
+        if self._opacity_effect.opacity() < 1.0 or self._fade_anim.endValue() != 1.0:
+            self._fade_anim.setDuration(120)
             self._fade_anim.setStartValue(self._opacity_effect.opacity())
             self._fade_anim.setEndValue(1.0)
             self._fade_anim.start()
-        if self.is_video and not self._is_paused and not self._is_seeking and not self._is_hovered:
-            self._auto_hide_timer.start(3000)
-        elif self._is_paused or self._is_seeking or self._is_hovered:
-            self._auto_hide_timer.stop()
+
+    def hide_hud(self, fast: bool = True):
+        """Immediately hide HUD when no longer hovered."""
+        self._initial_timer.stop()
+        if self._is_seeking:
+            return
+        if self._fade_anim.state() == QPropertyAnimation.Running:
+            self._fade_anim.stop()
+        dur = 120 if fast else 240
+        self._fade_anim.setDuration(dur)
+        self._fade_anim.setStartValue(self._opacity_effect.opacity())
+        self._fade_anim.setEndValue(0.0)
+        self._fade_anim.start()
 
     def enterEvent(self, event):
         self._is_hovered = True
-        self._auto_hide_timer.stop()
+        self._initial_timer.stop()
         self.wake_hud()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
+        card = self.window().findChild(QWidget, "mainStageCard") if self.window() else None
+        if card is None:
+            card = self.parentWidget()
+        if card is not None and card.isVisible():
+            card_rect = QRect(card.mapToGlobal(QPoint(0, 0)), card.size())
+            if card_rect.contains(QCursor.pos()):
+                self._is_hovered = True
+                super().leaveEvent(event)
+                return
         self._is_hovered = False
-        if self.is_video and not self._is_paused and not self._is_seeking:
-            self._auto_hide_timer.start(3000)
+        if not self._is_seeking:
+            self.hide_hud(fast=True)
         super().leaveEvent(event)
 
     def on_parent_leave(self):
         """Called when mouse leaves the parent preview container."""
-        if not self._is_hovered and self.is_video and not self._is_paused and not self._is_seeking:
-            self._auto_hide_timer.start(3000)
+        card = self.window().findChild(QWidget, "mainStageCard") if self.window() else None
+        if card is None:
+            card = self.parentWidget()
+        if card is not None and card.isVisible():
+            card_rect = QRect(card.mapToGlobal(QPoint(0, 0)), card.size())
+            if card_rect.contains(QCursor.pos()):
+                self._is_hovered = True
+                return
+        self._is_hovered = False
+        if not self._is_seeking:
+            self.hide_hud(fast=True)
 
     def apply_tokens(self, tokens: dict = None) -> None:
         """Style HUD surface, time labels, slider, and buttons cleanly for Dark or Light theme."""
@@ -625,7 +672,8 @@ class MediaHudOverlay(QFrame):
 
         self.setGeometry(max(4, (w_lbl - hud_w) // 2), max(4, h_lbl - hud_h - 8), hud_w, hud_h)
         self.refresh_labels(paused=paused, muted=muted)
-        self.wake_hud()
+        if self._initial_timer.isActive() or self._is_hovered or self._is_seeking:
+            self.wake_hud()
 
     def refresh_labels(self, paused: bool, muted: bool):
         self._is_paused = bool(paused)
@@ -642,11 +690,11 @@ class MediaHudOverlay(QFrame):
             self.mute_btn.setToolTip("Unmute (M)" if muted else "Mute (M)")
 
         if self._is_paused:
-            self._auto_hide_timer.stop()
+            self._initial_timer.stop()
             self.wake_hud()
         else:
-            if not self._is_hovered and not self._is_seeking and self.is_video:
-                self._auto_hide_timer.start(3000)
+            if not self._is_hovered and not self._is_seeking and self.is_video and not self._initial_timer.isActive():
+                self.hide_hud(fast=True)
 
 
 _ClickSeekSlider = ClickSeekSlider

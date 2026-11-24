@@ -529,7 +529,7 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             win.close()
 
     def test_compact_media_hud_overlay_and_autohide(self):
-        """Verify MediaHudOverlay is an ultra-compact (32px) single-row capsule with 3s auto-hide and hover wake."""
+        """Verify MediaHudOverlay has 32px height, 3s initial timer, hover-hold, and immediate leave-hide."""
         from ui.widgets import MediaHudOverlay
         parent = QLabel()
         parent.resize(480, 360)
@@ -543,26 +543,24 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             self.assertIsNotNone(hud.cur_time_lbl)
             self.assertIsNotNone(hud.tot_time_lbl)
 
-            # Auto-hide timer should be configured for 3000ms and active
-            self.assertTrue(hud._auto_hide_timer.isActive())
-            self.assertEqual(hud._auto_hide_timer.interval(), 3000)
+            # Initial 3-second display timer is active
+            self.assertTrue(hud._initial_timer.isActive())
+            self.assertEqual(hud._initial_timer.interval(), 3000)
 
-            # Pausing should stop auto-hide timer and wake HUD
-            hud.refresh_labels(paused=True, muted=False)
-            self.assertFalse(hud._auto_hide_timer.isActive())
-            self.assertTrue(hud._is_paused)
-
-            # Playing resumes auto-hide countdown
-            hud.refresh_labels(paused=False, muted=False)
-            self.assertTrue(hud._auto_hide_timer.isActive())
-            self.assertFalse(hud._is_paused)
-
-            # wake_hud maintains opacity and restarts timer
+            # Hovering cancels initial timer and keeps HUD visible
             hud.wake_hud()
+            self.assertFalse(hud._initial_timer.isActive())
             self.assertEqual(hud._opacity_effect.opacity(), 1.0)
-            self.assertTrue(hud._auto_hide_timer.isActive())
 
-            # reposition keeps height 32
+            # When not hovered, hide_hud hides immediately
+            hud.hide_hud(fast=True)
+            self.assertEqual(hud._fade_anim.endValue(), 0.0)
+
+            # Wake brings opacity back to 1.0
+            hud.wake_hud()
+            self.assertEqual(hud._fade_anim.endValue(), 1.0)
+
+            # Reposition keeps height 32
             hud.reposition(QSize(300, 200), paused=False, muted=False)
             self.assertEqual(hud.height(), 32)
         finally:

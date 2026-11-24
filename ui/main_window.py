@@ -8,7 +8,7 @@ import shutil
 import time
 
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QSize, QTimer, Qt
-from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QImage, QKeySequence, QMovie, QPixmap, QShortcut
+from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QIcon, QImage, QKeySequence, QMovie, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -1725,8 +1725,6 @@ class ImageSorterApp(QMainWindow):
         self._anim_timer.setInterval(max(25, int(delay)))
 
     def _on_main_qtmm_frame(self, qimg: QImage) -> None:
-        if self._main_paused:
-            return
         pix = QPixmap.fromImage(qimg)
         if pix.isNull():
             return
@@ -1755,6 +1753,12 @@ class ImageSorterApp(QMainWindow):
 
     def _on_main_seek_clicked(self, pos_ms: int) -> None:
         self.video_controller.seek(pos_ms)
+        if self._anim_frames and self._total_video_duration_s > 0:
+            target_idx = int((pos_ms / 1000.0) / self._total_video_duration_s * len(self._anim_frames))
+            self._anim_index = max(0, min(len(self._anim_frames) - 1, target_idx))
+            pix, _ = self._anim_frames[self._anim_index]
+            mw, mh, _, _ = self._stage_budgets()
+            self._paint_fitted_pixmap(self.main_image_label, self.main_stage_viewport, pix, mw, mh)
         if self.hud_overlay is not None:
             self.hud_overlay.set_position_ms(pos_ms)
 
@@ -2147,10 +2151,16 @@ class ImageSorterApp(QMainWindow):
         if obj in targets:
             if etype in (event.Type.MouseMove, event.Type.Enter, event.Type.HoverMove):
                 if self.hud_overlay is not None and getattr(self.hud_overlay, "is_video", False):
+                    self.hud_overlay._is_hovered = True
                     self.hud_overlay.wake_hud()
             elif etype == event.Type.Leave:
                 if self.hud_overlay is not None and getattr(self.hud_overlay, "is_video", False):
-                    self.hud_overlay.on_parent_leave()
+                    card = self.main_card
+                    if card is not None and card.isVisible():
+                        card_rect = QRect(card.mapToGlobal(QPoint(0, 0)), card.size())
+                        if not card_rect.contains(QCursor.pos()):
+                            self.hud_overlay._is_hovered = False
+                            self.hud_overlay.hide_hud(fast=True)
 
             if etype == event.Type.MouseButtonPress and event.button() == Qt.LeftButton:
                 if not self.filtered_files:
