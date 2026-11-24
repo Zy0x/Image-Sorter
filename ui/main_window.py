@@ -96,6 +96,7 @@ from ui.theme import (
     SLOT_ACCENTS,
     apply_studio_palette,
     build_empty_state_html,
+    build_studio_dialog_qss,
     darken_color,
     hex_rgba,
     make_vector_icon,
@@ -2048,7 +2049,7 @@ class ImageSorterApp(QMainWindow):
         if obj in targets:
             if etype == event.Type.MouseButtonPress and event.button() == Qt.LeftButton:
                 if not self.filtered_files:
-                    self.import_folder()
+                    self.import_folder_dialog()
                     return True
             elif etype == event.Type.MouseButtonDblClick and event.button() == Qt.LeftButton:
                 if self.filtered_files:

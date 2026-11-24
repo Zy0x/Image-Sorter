@@ -322,7 +322,7 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
 
             # 2. Empty stage click-to-import
             imported = []
-            win.import_folder = lambda: imported.append(True)
+            win.import_folder_dialog = lambda: imported.append(True)
             press_evt = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(50.0, 50.0), QPointF(50.0, 50.0), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
             handled = win.eventFilter(win.main_image_label, press_evt)
             self.assertTrue(handled)
@@ -345,6 +345,10 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             # Verify tooltip contains right-click hint
             win.update_folder_buttons()
             self.assertIn("Klik kanan untuk opsi folder", win.folder_buttons[0].toolTip())
+            # Verify context menu shows without error
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(25, lambda: QApplication.activePopupWidget() and QApplication.activePopupWidget().close())
+            win._show_folder_btn_context_menu(0, QPoint(10, 10))
 
             # 5. StudioCheckBox custom control
             from ui.widgets import StudioCheckBox
