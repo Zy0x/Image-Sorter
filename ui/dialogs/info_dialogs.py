@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -25,6 +26,7 @@ from core.config import APP_NAME, APP_VERSION, ALL_SLOT_LETTERS, resource_path
 from core.workers import is_newer_version
 from ui.widgets import StudioSpinBox
 from ui.theme import (
+    SLOT_ACCENTS,
     apply_studio_palette,
     build_studio_dialog_qss,
     hex_rgba,
@@ -508,46 +510,109 @@ class SessionSummaryDialog(QDialog):
     def __init__(self, summary: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Session Summary Report")
-        self.resize(520, 520)
-        self.setMinimumSize(460, 420)
+        self.resize(540, 540)
+        self.setMinimumSize(480, 440)
         tokens = apply_studio_dialog_style(self, parent)
 
         self.summary = summary or {}
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 18)
+        root.setContentsMargins(22, 20, 22, 20)
         root.setSpacing(14)
 
+        # Header with report icon, title and source folder chip
         header = QVBoxLayout()
-        header.setSpacing(4)
+        header.setSpacing(6)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(10)
+        rep_icon_lbl = QLabel()
+        rep_icon_lbl.setPixmap(make_vector_icon("report", color=tokens["accent"], size=22).pixmap(22, 22))
+        title_row.addWidget(rep_icon_lbl)
+
         title = QLabel("Session Summary Report")
         title.setStyleSheet(f"font-size: 17px; font-weight: 700; color: {tokens['text']};")
-        src_lbl = QLabel(f"Folder: {self.summary.get('source_folder', '-')}")
-        src_lbl.setStyleSheet(f"font-size: 12px; color: {tokens['text_muted']};")
-        header.addWidget(title)
-        header.addWidget(src_lbl)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        header.addLayout(title_row)
+
+        src_folder = str(self.summary.get("source_folder") or "-")
+        src_chip = QFrame()
+        src_chip.setStyleSheet(f"""
+            QFrame {{
+                background-color: {tokens['surface']};
+                border: 1px solid {tokens['border']};
+                border-radius: 6px;
+            }}
+        """)
+        src_lay = QHBoxLayout(src_chip)
+        src_lay.setContentsMargins(8, 4, 8, 4)
+        src_lay.setSpacing(6)
+
+        f_icon = QLabel()
+        f_icon.setPixmap(make_vector_icon("folder", color=tokens["text_muted"], size=13).pixmap(13, 13))
+        src_lay.addWidget(f_icon)
+
+        display_src = src_folder if len(src_folder) <= 60 else (src_folder[:28] + "..." + src_folder[-28:])
+        src_lbl = QLabel(f"Source: {display_src}")
+        src_lbl.setToolTip(src_folder)
+        src_lbl.setStyleSheet(f"font-size: 11.5px; color: {tokens['text_muted']}; border: none; background: transparent;")
+        src_lay.addWidget(src_lbl)
+        src_lay.addStretch()
+        header.addWidget(src_chip)
         root.addLayout(header)
 
+        # 2x2 Metric Cards Grid
         stat_grid = QGridLayout()
         stat_grid.setSpacing(10)
 
-        def make_stat_card(label: str, value: str, col: str):
+        total_files = int(self.summary.get("total_files", 0))
+        total_moved = int(self.summary.get("total_moved", 0))
+        remaining = int(self.summary.get("remaining_unmoved", 0))
+        flagged = int(self.summary.get("flagged_count", 0))
+
+        def make_stat_card(label: str, value_num: int, col: str, icon_kind: str, subtext: str = None):
             card = QFrame()
             card.setObjectName("studioCard")
+            card.setStyleSheet(f"""
+                QFrame#studioCard {{
+                    background-color: {tokens['stage_bg']};
+                    border: 1px solid {tokens['border']};
+                    border-radius: 10px;
+                }}
+            """)
             lay = QVBoxLayout(card)
-            lay.setContentsMargins(12, 10, 12, 10)
-            lay.setSpacing(2)
-            v_lbl = QLabel(value)
-            v_lbl.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {col};")
+            lay.setContentsMargins(14, 11, 14, 11)
+            lay.setSpacing(3)
+
+            top_row = QHBoxLayout()
+            top_row.setSpacing(6)
             l_lbl = QLabel(label)
-            l_lbl.setStyleSheet(f"font-size: 11px; color: {tokens['text_muted']};")
+            l_lbl.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {tokens['text_muted']};")
+            top_row.addWidget(l_lbl)
+            top_row.addStretch()
+
+            ic_lbl = QLabel()
+            ic_lbl.setPixmap(make_vector_icon(icon_kind, color=col, size=14).pixmap(14, 14))
+            top_row.addWidget(ic_lbl)
+            lay.addLayout(top_row)
+
+            val_str = f"{value_num:,}"
+            v_lbl = QLabel(val_str)
+            v_lbl.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {col};")
             lay.addWidget(v_lbl)
-            lay.addWidget(l_lbl)
+
+            if subtext:
+                s_lbl = QLabel(subtext)
+                s_lbl.setStyleSheet(f"font-size: 10px; color: {tokens['text_muted']};")
+                lay.addWidget(s_lbl)
+
             return card
 
-        c_total = make_stat_card("Total Media", str(self.summary.get("total_files", 0)), tokens["text"])
-        c_moved = make_stat_card("Moved", str(self.summary.get("total_moved", 0)), tokens["accent"])
-        c_remain = make_stat_card("Remaining", str(self.summary.get("remaining_unmoved", 0)), tokens["text_muted"])
-        c_flag = make_stat_card("★ Flagged", str(self.summary.get("flagged_count", 0)), "#f59e0b")
+        pct_moved = (total_moved / total_files * 100.0) if total_files > 0 else 0.0
+        c_total = make_stat_card("Total Media", total_files, tokens["text"], "file_text")
+        c_moved = make_stat_card("Moved", total_moved, tokens["accent"], "check", f"{pct_moved:.1f}% sorted" if total_files > 0 else None)
+        c_remain = make_stat_card("Remaining", remaining, tokens["text_muted"], "clock")
+        c_flag = make_stat_card("★ Flagged", flagged, "#f59e0b", "star_filled")
 
         stat_grid.addWidget(c_total, 0, 0)
         stat_grid.addWidget(c_moved, 0, 1)
@@ -555,70 +620,256 @@ class SessionSummaryDialog(QDialog):
         stat_grid.addWidget(c_flag, 1, 1)
         root.addLayout(stat_grid)
 
+        # Destination Breakdown Card
         breakdown_card = QFrame()
         breakdown_card.setObjectName("studioCard")
+        breakdown_card.setStyleSheet(f"""
+            QFrame#studioCard {{
+                background-color: {tokens['stage_bg']};
+                border: 1px solid {tokens['border']};
+                border-radius: 10px;
+            }}
+        """)
         b_lay = QVBoxLayout(breakdown_card)
         b_lay.setContentsMargins(14, 12, 14, 12)
-        b_lay.setSpacing(8)
+        b_lay.setSpacing(9)
 
+        # Card Header: Title & Progress Label
+        b_hdr = QHBoxLayout()
         b_title = QLabel("Destination Breakdown")
         b_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {tokens['text']};")
-        b_lay.addWidget(b_title)
+        b_hdr.addWidget(b_title)
+        b_hdr.addStretch()
 
+        status_text = f"{total_moved:,} of {total_files:,} sorted ({pct_moved:.1f}%)" if total_files > 0 else "0 sorted"
+        b_status = QLabel(status_text)
+        b_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {tokens['accent']};")
+        b_hdr.addWidget(b_status)
+        b_lay.addLayout(b_hdr)
+
+        # Progress bar
+        prog_bar = QProgressBar()
+        prog_bar.setFixedHeight(5)
+        prog_bar.setTextVisible(False)
+        prog_bar.setRange(0, max(1, total_files))
+        prog_bar.setValue(total_moved)
+        prog_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: {tokens['surface']};
+                border: 1px solid {tokens['border']};
+                border-radius: 2.5px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {tokens['accent']};
+                border-radius: 2px;
+            }}
+        """)
+        b_lay.addWidget(prog_bar)
+
+        # Scroll area with styled destination row cards
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollArea > QWidget > QWidget {{
+                background: transparent;
+            }}
+        """)
         scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
         scroll_lay = QVBoxLayout(scroll_content)
-        scroll_lay.setContentsMargins(0, 0, 0, 0)
+        scroll_lay.setContentsMargins(0, 2, 0, 2)
         scroll_lay.setSpacing(6)
 
-        folder_counts = self.summary.get("folder_counts", {})
-        for name, cnt in folder_counts.items():
-            row = QHBoxLayout()
-            n_lbl = QLabel(name)
-            n_lbl.setStyleSheet(f"font-size: 12px; color: {tokens['text']};")
-            c_lbl = QLabel(f"{cnt} files")
-            c_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {tokens['accent'] if cnt > 0 else tokens['text_muted']};")
-            row.addWidget(n_lbl)
-            row.addStretch()
-            row.addWidget(c_lbl)
-            scroll_lay.addLayout(row)
+        # Extract slots info
+        slots = self.summary.get("slots")
+        if not slots:
+            folder_counts = self.summary.get("folder_counts", {})
+            slots = [
+                {
+                    "index": i + 1,
+                    "letter": ALL_SLOT_LETTERS[i] if i < len(ALL_SLOT_LETTERS) else str(i + 1),
+                    "name": name,
+                    "path": "",
+                    "count": cnt,
+                }
+                for i, (name, cnt) in enumerate(folder_counts.items())
+            ]
 
-        other_cnt = self.summary.get("other_moved_count", 0)
+        for s_info in slots:
+            slot_idx = s_info.get("index", 1)
+            slot_letter = s_info.get("letter", "")
+            slot_name = s_info.get("name", f"Slot {slot_idx}")
+            slot_path = s_info.get("path", "")
+            slot_cnt = int(s_info.get("count", 0))
+            slot_col = SLOT_ACCENTS[(slot_idx - 1) % len(SLOT_ACCENTS)]
+
+            row_card = QFrame()
+            row_card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {tokens['surface']};
+                    border: 1px solid {tokens['border']};
+                    border-radius: 7px;
+                }}
+            """)
+            r_lay = QHBoxLayout(row_card)
+            r_lay.setContentsMargins(10, 6, 10, 6)
+            r_lay.setSpacing(10)
+
+            # Slot badge pill [1] A
+            badge_text = f"[{slot_idx}] {slot_letter}".strip() if slot_letter else f"[{slot_idx}]"
+            badge_lbl = QLabel(badge_text)
+            badge_lbl.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {hex_rgba(slot_col, 28)};
+                    color: {slot_col};
+                    border: 1px solid {hex_rgba(slot_col, 85)};
+                    border-radius: 5px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    padding: 2px 6px;
+                }}
+            """)
+            r_lay.addWidget(badge_lbl)
+
+            f_ic = QLabel()
+            f_ic.setPixmap(make_vector_icon("folder", color=slot_col, size=15).pixmap(15, 15))
+            r_lay.addWidget(f_ic)
+
+            info_lay = QVBoxLayout()
+            info_lay.setSpacing(1)
+            n_lbl = QLabel(slot_name)
+            n_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {tokens['text']}; border: none; background: transparent;")
+            info_lay.addWidget(n_lbl)
+
+            if slot_path:
+                short_p = slot_path if len(slot_path) <= 45 else (slot_path[:20] + "..." + slot_path[-22:])
+                p_lbl = QLabel(short_p)
+                p_lbl.setToolTip(slot_path)
+                p_lbl.setStyleSheet(f"font-size: 10px; color: {tokens['text_muted']}; border: none; background: transparent;")
+                info_lay.addWidget(p_lbl)
+
+            r_lay.addLayout(info_lay)
+            r_lay.addStretch()
+
+            cnt_lbl = QLabel(f"{slot_cnt:,} files")
+            if slot_cnt > 0:
+                cnt_lbl.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {hex_rgba(slot_col, 25)};
+                        color: {slot_col};
+                        border: 1px solid {hex_rgba(slot_col, 80)};
+                        border-radius: 10px;
+                        font-size: 11.5px;
+                        font-weight: 700;
+                        padding: 3px 9px;
+                    }}
+                """)
+            else:
+                cnt_lbl.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {hex_rgba(tokens['border'], 40)};
+                        color: {tokens['text_muted']};
+                        border: 1px solid {hex_rgba(tokens['border'], 70)};
+                        border-radius: 10px;
+                        font-size: 11.5px;
+                        font-weight: 500;
+                        padding: 3px 9px;
+                    }}
+                """)
+            r_lay.addWidget(cnt_lbl)
+            scroll_lay.addWidget(row_card)
+
+        # Other Destinations row if > 0
+        other_cnt = int(self.summary.get("other_moved_count", 0))
         if other_cnt > 0:
-            row = QHBoxLayout()
+            row_card = QFrame()
+            row_card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {tokens['surface']};
+                    border: 1px solid {tokens['border']};
+                    border-radius: 7px;
+                }}
+            """)
+            r_lay = QHBoxLayout(row_card)
+            r_lay.setContentsMargins(10, 6, 10, 6)
+            r_lay.setSpacing(10)
+
+            badge_lbl = QLabel("[Other]")
+            badge_lbl.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {hex_rgba(tokens['text_muted'], 25)};
+                    color: {tokens['text_muted']};
+                    border: 1px solid {hex_rgba(tokens['text_muted'], 70)};
+                    border-radius: 5px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    padding: 2px 6px;
+                }}
+            """)
+            r_lay.addWidget(badge_lbl)
+
+            f_ic = QLabel()
+            f_ic.setPixmap(make_vector_icon("folder", color=tokens["text_muted"], size=15).pixmap(15, 15))
+            r_lay.addWidget(f_ic)
+
             n_lbl = QLabel("Other Destinations")
-            n_lbl.setStyleSheet(f"font-size: 12px; color: {tokens['text']};")
-            c_lbl = QLabel(f"{other_cnt} files")
-            c_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {tokens['accent']};")
-            row.addWidget(n_lbl)
-            row.addStretch()
-            row.addWidget(c_lbl)
-            scroll_lay.addLayout(row)
+            n_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {tokens['text']}; border: none; background: transparent;")
+            r_lay.addWidget(n_lbl)
+            r_lay.addStretch()
+
+            cnt_lbl = QLabel(f"{other_cnt:,} files")
+            cnt_lbl.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {hex_rgba(tokens['accent'], 25)};
+                    color: {tokens['accent']};
+                    border: 1px solid {hex_rgba(tokens['accent'], 80)};
+                    border-radius: 10px;
+                    font-size: 11.5px;
+                    font-weight: 700;
+                    padding: 3px 9px;
+                }}
+            """)
+            r_lay.addWidget(cnt_lbl)
+            scroll_lay.addWidget(row_card)
 
         scroll_lay.addStretch()
         scroll.setWidget(scroll_content)
         b_lay.addWidget(scroll)
         root.addWidget(breakdown_card, stretch=1)
 
+        # Footer Buttons with vector icons
         footer = QHBoxLayout()
+        footer.setSpacing(8)
+
         copy_btn = QPushButton("Copy Report")
+        copy_btn.setIcon(make_vector_icon("copy", color=tokens["text"], size=14))
         copy_btn.setCursor(Qt.PointingHandCursor)
+        copy_btn.setToolTip("Copy formatted summary report to clipboard")
         copy_btn.clicked.connect(self._copy_to_clipboard)
         footer.addWidget(copy_btn)
 
         export_btn = QPushButton("Export to File...")
+        export_btn.setIcon(make_vector_icon("download", color=tokens["text"], size=14))
         export_btn.setCursor(Qt.PointingHandCursor)
+        export_btn.setToolTip("Export summary report as a text file")
         export_btn.clicked.connect(self._export_to_file)
         footer.addWidget(export_btn)
 
         footer.addStretch()
+
         close_btn = QPushButton("Close")
         close_btn.setObjectName("primaryBtn")
+        close_btn.setIcon(make_vector_icon("check", color="#ffffff", size=14))
         close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setDefault(True)
         close_btn.clicked.connect(self.accept)
         footer.addWidget(close_btn)
+
         root.addLayout(footer)
 
     def _generate_report_text(self) -> str:

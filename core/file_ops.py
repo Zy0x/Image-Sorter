@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 
+from core.config import ALL_SLOT_LETTERS
 from media.formats import readable_image_extensions
 
 _NATURAL_SPLIT = re.compile(r"(\d+)")
@@ -144,6 +145,18 @@ def generate_session_summary(
     total_moved = sum(folder_counts.values()) + other_moved_count
     remaining = max(0, total_files - total_moved)
 
+    slots = []
+    for i, (name, p) in enumerate(zip(slot_names or [], slot_paths or [])):
+        cnt = folder_counts.get(name, 0)
+        letter = ALL_SLOT_LETTERS[i] if i < len(ALL_SLOT_LETTERS) else str(i + 1)
+        slots.append({
+            "index": i + 1,
+            "letter": letter,
+            "name": name,
+            "path": p or "",
+            "count": cnt,
+        })
+
     return {
         "source_folder": source_folder or "No folder loaded",
         "total_files": total_files,
@@ -152,6 +165,7 @@ def generate_session_summary(
         "other_moved_count": other_moved_count,
         "flagged_count": flagged_count,
         "remaining_unmoved": remaining,
+        "slots": slots,
     }
 
 

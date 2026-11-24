@@ -693,6 +693,15 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         p.drawRect(QRectF(s * 0.28, s * 0.56, s * 0.10, s * 0.20))
         p.drawRect(QRectF(s * 0.45, s * 0.42, s * 0.10, s * 0.34))
         p.drawRect(QRectF(s * 0.62, s * 0.30, s * 0.10, s * 0.46))
+    elif kind == "copy":
+        p.drawRoundedRect(QRectF(s * 0.32, s * 0.16, s * 0.50, s * 0.56), 2.0, 2.0)
+        p.drawPolyline(QPolygonF([
+            QPointF(s * 0.22, s * 0.34),
+            QPointF(s * 0.18, s * 0.34),
+            QPointF(s * 0.18, s * 0.84),
+            QPointF(s * 0.68, s * 0.84),
+            QPointF(s * 0.68, s * 0.78),
+        ]))
 
     p.end()
     icon = QIcon(pix)

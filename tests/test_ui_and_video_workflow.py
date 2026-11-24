@@ -310,6 +310,11 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             rep_text = sum_dlg._generate_report_text()
             self.assertIn("Session Summary Report", rep_text)
             self.assertIn("Total Media: 4", rep_text)
+            self.assertTrue(summ.get("slots"))
+            self.assertEqual(len(summ["slots"]), win.folder_slot_count)
+            from ui.theme import make_vector_icon
+            copy_ic = make_vector_icon("copy", "#ffffff", 14)
+            self.assertFalse(copy_ic.isNull())
             sum_dlg.close()
         finally:
             win.close()
