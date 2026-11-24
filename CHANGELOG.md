@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.23 — 2026-11-25
+
+### Fixed & Improved — Video Player HUD Auto-Hide, Hover-Hold & Seeking Synchronization
+- **Preserved Initial 3-Second Display:** Fixed a race condition where video preview layout and repositioning immediately stopped the 3-second display timer at video launch. The HUD now reliably remains visible for the first 3 seconds when video starts, smoothly fading out if mouse hover is absent.
+- **Active 80ms Hover-Hold Tracking (`_hover_check_timer`):** Added high-frequency boundary polling across the video stage (`main_card`), ensuring the HUD player stays visible without interruption while the mouse hovers over the preview area, and immediately hides when the cursor leaves the stage.
+- **Hardware Seeking Position Lock & Stale Tick Grace Period:** Resolved timeline slider jump and snap-back during scrubbing by introducing a 400ms post-seek grace period in `_on_main_qtmm_position` and blocking re-entrant position updates while the slider is actively dragged (`isSliderDown`). Seeking now responds instantly and accurately in both playing and paused states.
+
 ## 2.1.22 — 2026-11-22
 
 ### Added & Improved — queue sorting, interactive filmstrip dock, auto-rename on move, media flagging, HUD volume & session summary report

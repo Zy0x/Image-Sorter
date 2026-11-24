@@ -567,6 +567,47 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             hud.close()
             parent.close()
 
+    def test_video_seek_and_hover_hold_integration(self):
+        """Verify video seek position lock, stale tick rejection, and hover polling integration."""
+        _png, _dup, _gif, mp4_1 = self._create_sample_media()
+        win = app_main.ImageSorterApp()
+        try:
+            win.show()
+            self.app.processEvents()
+
+            files = app_main.scan_image_files(self.src_dir)
+            win.load_file_list(self.src_dir, files)
+            win.filter_combo.setCurrentText("All Videos")
+            self.app.processEvents()
+
+            hud = win.hud_overlay
+            self.assertIsNotNone(hud)
+            self.assertTrue(hud.is_video)
+            self.assertTrue(win._hover_check_timer.isActive())
+            # Initial 3-second display timer is still active after creation and initial reposition
+            self.assertTrue(hud._initial_timer.isActive())
+
+            # Perform seek to 4000ms
+            hud.set_duration_ms(10000)
+            win._on_main_seek_clicked(4000)
+            self.assertEqual(hud.seek_slider.value(), 4000)
+
+            # Stale position tick right after seek should be ignored
+            win._on_main_qtmm_position(500)
+            self.assertEqual(hud.seek_slider.value(), 4000)
+
+            # Slider down prevents position update during drag
+            hud.seek_slider.setSliderDown(True)
+            hud.set_position_ms(200, force=False)
+            self.assertEqual(hud.seek_slider.value(), 4000)
+            hud.seek_slider.setSliderDown(False)
+
+            # Hover check timer polling
+            win._check_video_hover_state()
+            self.assertIsNotNone(win.hud_overlay)
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

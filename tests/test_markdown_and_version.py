@@ -29,12 +29,12 @@ class MarkdownVersionDialogTests(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_version_comparison_and_app_version(self):
-        self.assertEqual(app_main.APP_VERSION, "2.1.22-Stable")
-        self.assertEqual(app_main.AboutDialog.VERSION, "2.1.22-Stable")
-        self.assertTrue(is_newer_version("2.1.21-Stable", "2.1.22-Stable"))
-        self.assertTrue(is_newer_version("2.1.22-Beta", "2.1.22-Stable"))
-        self.assertFalse(is_newer_version("2.1.22-Stable", "2.1.21-Stable"))
-        self.assertFalse(is_newer_version("2.1.22-Stable", "1.0-Stable"))
+        self.assertEqual(app_main.APP_VERSION, "2.1.23-Stable")
+        self.assertEqual(app_main.AboutDialog.VERSION, "2.1.23-Stable")
+        self.assertTrue(is_newer_version("2.1.22-Stable", "2.1.23-Stable"))
+        self.assertTrue(is_newer_version("2.1.23-Beta", "2.1.23-Stable"))
+        self.assertFalse(is_newer_version("2.1.23-Stable", "2.1.22-Stable"))
+        self.assertFalse(is_newer_version("2.1.23-Stable", "1.0-Stable"))
 
     def test_github_markdown_html_renderer(self):
         t = resolve_studio_tokens()

@@ -7,7 +7,7 @@ import os
 import shutil
 import time
 
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QSize, QTimer, Qt
+from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QRect, QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QIcon, QImage, QKeySequence, QMovie, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -191,6 +191,10 @@ class ImageSorterApp(QMainWindow):
         self._video_decode_thread = None
 
         self.hud_overlay = None
+        self._last_seek_time = 0.0
+        self._hover_check_timer = QTimer(self)
+        self._hover_check_timer.setInterval(80)
+        self._hover_check_timer.timeout.connect(self._check_video_hover_state)
         self.video_controller = VideoMediaController(self)
         self.video_controller.frame_image_ready.connect(self._on_main_qtmm_frame)
         self.video_controller.position_changed.connect(self._on_main_qtmm_position)
@@ -1226,6 +1230,7 @@ class ImageSorterApp(QMainWindow):
     # Media Display, Pre-Fetch Cache & Zero-Lock Playback
     # ------------------------------------------------------------------
     def _stop_all_media_playback(self) -> None:
+        self._hover_check_timer.stop()
         self._deferred_anim_timer.stop()
         self._anim_timer.stop()
         if self._video_decode_thread is not None and self._video_decode_thread.isRunning():
@@ -1395,6 +1400,31 @@ class ImageSorterApp(QMainWindow):
         self.hud_overlay.seek_released.connect(self._on_main_seek_released)
         self.hud_overlay.seek_clicked.connect(self._on_main_seek_clicked)
         self.hud_overlay.reposition(self.main_image_label.size(), paused=self._main_paused, muted=self.video_muted)
+        if is_video:
+            self._hover_check_timer.start(80)
+        else:
+            self._hover_check_timer.stop()
+
+    def _check_video_hover_state(self) -> None:
+        """Poll hover state over main_card / HUD to guarantee immediate show on hover and hide on leave."""
+        if self.hud_overlay is None or not getattr(self.hud_overlay, "is_video", False):
+            return
+        card = getattr(self, "main_card", None)
+        if card is None or not card.isVisible():
+            return
+        card_rect = QRect(card.mapToGlobal(QPoint(0, 0)), card.size())
+        is_over = self.isActiveWindow() and card_rect.contains(QCursor.pos())
+        if is_over:
+            if not self.hud_overlay._is_hovered:
+                self.hud_overlay._is_hovered = True
+                self.hud_overlay.wake_hud(from_hover=True)
+            elif not self.hud_overlay.isVisible() or self.hud_overlay._fade_anim.state() == QPropertyAnimation.Running:
+                self.hud_overlay.wake_hud(from_hover=False)
+        else:
+            if self.hud_overlay._is_hovered:
+                self.hud_overlay._is_hovered = False
+                if not self.hud_overlay._initial_timer.isActive() and not self.hud_overlay._is_seeking:
+                    self.hud_overlay.hide_hud(fast=True)
 
     def set_video_volume(self, volume: float) -> None:
         """Update live audio volume and persist setting."""
@@ -1732,7 +1762,11 @@ class ImageSorterApp(QMainWindow):
         self._paint_fitted_pixmap(self.main_image_label, self.main_stage_viewport, pix, mw, mh)
 
     def _on_main_qtmm_position(self, pos_ms: int) -> None:
-        if not self._main_seeking and self.hud_overlay is not None:
+        if self._main_seeking or (time.time() - getattr(self, "_last_seek_time", 0.0) < 0.4):
+            return
+        if self.hud_overlay is not None and not self.hud_overlay._is_seeking:
+            if self.hud_overlay.seek_slider is not None and self.hud_overlay.seek_slider.isSliderDown():
+                return
             self.hud_overlay.set_position_ms(pos_ms)
 
     def _on_main_qtmm_duration(self, dur_ms: int) -> None:
@@ -1746,12 +1780,22 @@ class ImageSorterApp(QMainWindow):
             self._video_decode_thread.chunk_ready.connect(self._on_video_decode_chunk)
             self._video_decode_thread.start()
 
-    def _on_main_seek_released(self) -> None:
+    def _on_main_seek_released(self, pos_ms: int = None) -> None:
         self._main_seeking = False
-        if self.hud_overlay is not None and self.hud_overlay.seek_slider is not None:
+        self._last_seek_time = time.time()
+        if self.hud_overlay is not None:
+            self.hud_overlay._is_seeking = False
+            self.hud_overlay._last_seek_time = time.time()
+        if pos_ms is not None:
+            self._on_main_seek_clicked(int(pos_ms))
+        elif self.hud_overlay is not None and self.hud_overlay.seek_slider is not None:
             self._on_main_seek_clicked(int(self.hud_overlay.seek_slider.value()))
 
     def _on_main_seek_clicked(self, pos_ms: int) -> None:
+        self._last_seek_time = time.time()
+        if self.hud_overlay is not None:
+            self.hud_overlay._last_seek_time = time.time()
+            self.hud_overlay.set_position_ms(pos_ms, force=True)
         self.video_controller.seek(pos_ms)
         if self._anim_frames and self._total_video_duration_s > 0:
             target_idx = int((pos_ms / 1000.0) / self._total_video_duration_s * len(self._anim_frames))
@@ -1759,8 +1803,6 @@ class ImageSorterApp(QMainWindow):
             pix, _ = self._anim_frames[self._anim_index]
             mw, mh, _, _ = self._stage_budgets()
             self._paint_fitted_pixmap(self.main_image_label, self.main_stage_viewport, pix, mw, mh)
-        if self.hud_overlay is not None:
-            self.hud_overlay.set_position_ms(pos_ms)
 
     def toggle_main_playback(self) -> None:
         """Toggle main preview playback between Playing and Paused."""
@@ -2152,7 +2194,7 @@ class ImageSorterApp(QMainWindow):
             if etype in (event.Type.MouseMove, event.Type.Enter, event.Type.HoverMove):
                 if self.hud_overlay is not None and getattr(self.hud_overlay, "is_video", False):
                     self.hud_overlay._is_hovered = True
-                    self.hud_overlay.wake_hud()
+                    self.hud_overlay.wake_hud(from_hover=True)
             elif etype == event.Type.Leave:
                 if self.hud_overlay is not None and getattr(self.hud_overlay, "is_video", False):
                     card = self.main_card
@@ -2160,7 +2202,8 @@ class ImageSorterApp(QMainWindow):
                         card_rect = QRect(card.mapToGlobal(QPoint(0, 0)), card.size())
                         if not card_rect.contains(QCursor.pos()):
                             self.hud_overlay._is_hovered = False
-                            self.hud_overlay.hide_hud(fast=True)
+                            if not self.hud_overlay._initial_timer.isActive() and not self.hud_overlay._is_seeking:
+                                self.hud_overlay.hide_hud(fast=True)
 
             if etype == event.Type.MouseButtonPress and event.button() == Qt.LeftButton:
                 if not self.filtered_files:
