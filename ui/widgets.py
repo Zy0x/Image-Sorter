@@ -186,7 +186,7 @@ class LoadingOverlay(QDialog):
     """Frameless Studio Slate modal status pill centered over the parent window."""
 
     def __init__(self, parent):
-        super().__init__(parent, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        super().__init__(parent, Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.label = QLabel("Loading folder...", self)
         self.label.setAlignment(Qt.AlignCenter)

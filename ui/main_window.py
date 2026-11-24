@@ -83,6 +83,7 @@ from ui.dialogs import (
     AboutDialog,
     AutoRenameSettingsDialog,
     CustomThemeDialog,
+    DuplicateFinderDialog,
     FolderSettingsDialog,
     ImagePreviewDialog,
     JumpToMediaDialog,
@@ -638,7 +639,7 @@ class ImageSorterApp(QMainWindow):
             view_menu, "Include Subfolders", "folder_tree", self.toggle_include_subfolders, "Ctrl+Shift+S",
             checkable=True, checked=self.include_subfolders,
         )
-        self._add_menu_action(view_menu, "Find Duplicate / Similar Images", "duplicates", lambda: self.scan_duplicates(), "Ctrl+D")
+        self._add_menu_action(view_menu, "Find Duplicate / Similar Images", "duplicates", lambda: self.open_duplicate_finder(), "Ctrl+D")
         self._add_menu_action(view_menu, "Jump to Image...", "jump", self.jump_to_image_dialog, "Ctrl+G")
         self._add_menu_action(view_menu, "Full-Size Preview", "expand", self.open_full_preview, "F")
 
@@ -2176,8 +2177,16 @@ class ImageSorterApp(QMainWindow):
     # ------------------------------------------------------------------
     # Duplicate Scanner
     # ------------------------------------------------------------------
-    def scan_duplicates(self, max_distance: int = 6, synchronous: bool = False) -> int:
-        """Scan loaded media with perceptual dHash and filter queue to detected duplicate clusters."""
+    def open_duplicate_finder(self) -> None:
+        """Open the Duplicate & Similarity Finder configuration and scanner dialog."""
+        if not self.image_files:
+            self._show_toast("Load a folder before scanning for duplicates.")
+            return
+        dlg = DuplicateFinderDialog(self)
+        dlg.exec()
+
+    def scan_duplicates(self, max_distance: int = 6, synchronous: bool = False, engine: str = "dhash") -> int:
+        """Scan loaded media with perceptual dHash or exact hash and filter queue to detected duplicate clusters."""
         if not self.image_files:
             self._show_toast("Load a folder before scanning for duplicates.")
             return 0
@@ -2198,11 +2207,11 @@ class ImageSorterApp(QMainWindow):
             return 0
 
         if synchronous:
-            _dup_norms, groups, _hash_map = find_duplicate_groups(actual_paths, max_distance=max_distance)
+            _dup_norms, groups, _hash_map = find_duplicate_groups(actual_paths, max_distance=max_distance, engine=engine)
             return self._on_duplicate_scan_done(groups, actual_to_srcs, show_toast=False)
 
-        self.show_loading("Scanning perceptual dHash signatures...")
-        t = DuplicateScanThread(actual_paths, max_distance=max_distance, parent=self)
+        self.show_loading("Scanning media signatures...")
+        t = DuplicateScanThread(actual_paths, max_distance=max_distance, engine=engine, parent=self)
         t.progress_updated.connect(lambda done, total: self.loading_overlay.set_text(f"Analyzing {done} / {total} files..."))
         t.finished.connect(lambda th=t, m=actual_to_srcs: self._on_dup_thread_finished(th, m))
         self._pending_dup_thread = t

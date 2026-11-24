@@ -1,6 +1,7 @@
 """Background worker QThreads and semantic version comparison utility."""
 
 import re
+import threading
 import requests
 from PySide6.QtCore import QThread, Signal
 
@@ -105,32 +106,68 @@ class FolderScanThread(QThread):
 
 
 class DuplicateScanThread(QThread):
-    """Compute perceptual 64-bit dHash clusters asynchronously across active media paths."""
+    """Compute duplicate and visually similar clusters asynchronously with pause/resume/cancel."""
 
     progress_updated = Signal(int, int)
+    status_updated = Signal(str)
 
-    def __init__(self, paths, max_distance: int = 6, parent=None):
+    def __init__(self, paths, max_distance: int = 6, engine: str = "dhash", parent=None):
         super().__init__(parent)
         self.paths = list(paths)
         self.max_distance = int(max_distance)
+        self.engine = str(engine or "dhash")
         self.duplicate_norms = set()
         self.groups = []
         self.hash_map = {}
+        self.error = None
         self._cancelled = False
+        self._paused = False
+        self._pause_cond = threading.Condition()
+
+    def pause(self):
+        with self._pause_cond:
+            self._paused = True
+            self.status_updated.emit("paused")
+
+    def resume(self):
+        with self._pause_cond:
+            self._paused = False
+            self._pause_cond.notify_all()
+            self.status_updated.emit("running")
+
+    def is_paused(self) -> bool:
+        with self._pause_cond:
+            return self._paused
 
     def cancel(self):
         self._cancelled = True
+        self.resume()
+        self.status_updated.emit("cancelled")
 
-    def is_cancelled(self):
+    def is_cancelled(self) -> bool:
+        return self._cancelled
+
+    def check_pause(self) -> bool:
+        with self._pause_cond:
+            while self._paused and not self._cancelled:
+                self._pause_cond.wait(0.2)
         return self._cancelled
 
     def run(self):
-        dup_norms, groups, hmap = find_duplicate_groups(
-            self.paths,
-            max_distance=self.max_distance,
-            should_cancel=self.is_cancelled,
-            on_progress=self.progress_updated.emit,
-        )
-        self.duplicate_norms = dup_norms
-        self.groups = groups
-        self.hash_map = hmap
+        try:
+            dup_norms, groups, hmap = find_duplicate_groups(
+                self.paths,
+                max_distance=self.max_distance,
+                engine=self.engine,
+                should_cancel=self.is_cancelled,
+                should_pause=self.check_pause,
+                on_progress=self.progress_updated.emit,
+            )
+            self.duplicate_norms = dup_norms or set()
+            self.groups = groups or []
+            self.hash_map = hmap or {}
+        except Exception as e:
+            self.error = str(e)
+            self.duplicate_norms = set()
+            self.groups = []
+            self.hash_map = {}

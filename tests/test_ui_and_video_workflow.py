@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QPixmap
+from PySide6.QtGui import QImage, QKeyEvent, QMouseEvent, QPixmap
 from PySide6.QtWidgets import QApplication, QLabel
 
 import core.config as cfg
@@ -466,6 +466,65 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
             win.set_sort_order("name", "asc")
             self.assertIn("✓", win.sort_actions[("name", "asc")].text())
             self.assertNotIn("✓", win.sort_actions[("name", "desc")].text())
+        finally:
+            win.close()
+
+    def test_duplicate_finder_overlay_and_engines(self):
+        """Test non-floating loading overlay, duplicate finder multi-engine dialog, and pause/resume."""
+        win = app_main.ImageSorterApp()
+        try:
+            # 1. Verify LoadingOverlay does NOT have WindowStaysOnTopHint
+            self.assertEqual(int(win.loading_overlay.windowFlags() & Qt.WindowStaysOnTopHint), 0)
+
+            # 2. Setup mock files for duplicate finder
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                f1 = os.path.join(tmp_dir, "a.jpg")
+                f2 = os.path.join(tmp_dir, "b.jpg")
+                f3 = os.path.join(tmp_dir, "c.jpg")
+                img = QImage(32, 32, QImage.Format_RGB32)
+                img.fill(Qt.red)
+                img.save(f1)
+                img.save(f2)  # identical
+                img.fill(Qt.blue)
+                img.save(f3)
+
+                win.current_folder = tmp_dir
+                win.image_files = [f1, f2, f3]
+                win.queue_model.set_files([f1, f2, f3])
+                win.filtered_files = [f1, f2, f3]
+
+                # 3. Test DuplicateFinderDialog
+                from ui.dialogs import DuplicateFinderDialog
+                dlg = DuplicateFinderDialog(win)
+                self.assertEqual(int(dlg.windowFlags() & Qt.WindowStaysOnTopHint), 0)
+                self.assertTrue(dlg.rb_dhash.isChecked())
+
+                # Test engine switching
+                dlg.rb_exact.setChecked(True)
+                self.assertFalse(dlg.acc_combo.isEnabled())
+                dlg.rb_fast.setChecked(True)
+                self.assertFalse(dlg.acc_combo.isEnabled())
+                dlg.rb_dhash.setChecked(True)
+                self.assertTrue(dlg.acc_combo.isEnabled())
+
+                # 4. Test DuplicateScanThread pause & resume
+                from core.workers import DuplicateScanThread
+                th = DuplicateScanThread([f1, f2, f3], max_distance=6, engine="exact_hash", parent=win)
+                th.pause()
+                self.assertTrue(th.is_paused())
+                th.resume()
+                self.assertFalse(th.is_paused())
+
+                # 5. Test find_duplicate_groups with exact_hash and size_fast
+                from media.duplicates import find_duplicate_groups
+                d_norms, groups, _ = find_duplicate_groups([f1, f2, f3], engine="exact_hash")
+                self.assertEqual(len(groups), 1)
+                self.assertEqual(len(d_norms), 2)
+
+                d_norms_fast, groups_fast, _ = find_duplicate_groups([f1, f2, f3], engine="size_fast")
+                self.assertEqual(len(groups_fast), 1)
+
+                dlg.close()
         finally:
             win.close()
 

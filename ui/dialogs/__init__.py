@@ -1,5 +1,6 @@
 """Studio Slate modal dialogs package."""
 
+from ui.dialogs.duplicate_dialog import DuplicateFinderDialog
 from ui.dialogs.info_dialogs import (
     AboutDialog,
     JumpToMediaDialog,
@@ -21,6 +22,7 @@ __all__ = [
     "AboutDialog",
     "AutoRenameSettingsDialog",
     "CustomThemeDialog",
+    "DuplicateFinderDialog",
     "FolderSettingsDialog",
     "ImagePreviewDialog",
     "JumpToMediaDialog",
