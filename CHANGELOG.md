@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.26 — 2026-11-25
+
+### Fixed & Hardened — Watertight Playback Lifecycle Isolation & Zero Conflict Guarantee
+- **Strict Modal Playback Isolation (`_preview_dialog_active`):** Enforced complete mutual exclusion between MainWindow's stage player and the Full-Size Preview Dialog (`ImagePreviewDialog`). While the preview window is open, background timers (`_deferred_anim_timer`, `_hover_check_timer`), frame render loops (`_on_main_qtmm_frame`), audio sessions, and video decoding in MainWindow are completely suspended.
+- **Guaranteed Preview Playback Teardown (`stop_all_playback`):** Implemented lifecycle hooks across `done()`, `closeEvent()`, and caller `finally:` blocks ensuring that closing the preview window (via `Close`, `Escape`, `F`, window `X`, or navigation) instantaneously releases all media controller handles, pauses active players, disconnects sinks, and stops animation timers with zero lingering audio or video processes.
+- **Clean State Synchronization:** Seamlessly synchronizes play/pause state when transitioning back from the preview dialog to the main stage, guaranteeing zero ghost playback or double-audio overlap.
+
 ## 2.1.25 — 2026-11-25
 
 ### Added & Fixed — Interactive Next/Previous Media Navigation & Dynamic Preview Loading

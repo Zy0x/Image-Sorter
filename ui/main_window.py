@@ -195,6 +195,7 @@ class ImageSorterApp(QMainWindow):
         self._hover_check_timer = QTimer(self)
         self._hover_check_timer.setInterval(80)
         self._hover_check_timer.timeout.connect(self._check_video_hover_state)
+        self._preview_dialog_active = False
         self.video_controller = VideoMediaController(self)
         self.video_controller.frame_image_ready.connect(self._on_main_qtmm_frame)
         self.video_controller.position_changed.connect(self._on_main_qtmm_position)
@@ -1377,10 +1378,11 @@ class ImageSorterApp(QMainWindow):
             fcount = 2 if is_vid else (self.current_meta_cache.get(actual_path, (0, 0, 0, "", 1))[4])
             if is_vid or fcount > 1:
                 self._create_main_hud(target_sz, is_video=is_vid, duration_s=dur_s)
-                if ext == ".gif" and not is_vid:
-                    self._start_gif_movie(actual_path)
-                else:
-                    self._deferred_anim_timer.start(85)
+                if not getattr(self, "_preview_dialog_active", False):
+                    if ext == ".gif" and not is_vid:
+                        self._start_gif_movie(actual_path)
+                    else:
+                        self._deferred_anim_timer.start(85)
 
         self._prefetch_neighbor_images()
 
@@ -1407,6 +1409,8 @@ class ImageSorterApp(QMainWindow):
 
     def _check_video_hover_state(self) -> None:
         """Poll hover state over main_card / HUD to guarantee immediate show on hover and hide on leave."""
+        if getattr(self, "_preview_dialog_active", False):
+            return
         if self.hud_overlay is None or not getattr(self.hud_overlay, "is_video", False):
             return
         card = getattr(self, "main_card", None)
@@ -1675,6 +1679,8 @@ class ImageSorterApp(QMainWindow):
     # ------------------------------------------------------------------
     def _start_gif_movie(self, path: str) -> bool:
         """Load animated GIF via in-memory QBuffer + QMovie so Windows never holds a file handle."""
+        if getattr(self, "_preview_dialog_active", False):
+            return False
         try:
             with open(path, "rb") as f:
                 raw = f.read()
@@ -1698,6 +1704,8 @@ class ImageSorterApp(QMainWindow):
     def _start_deferred_video_anim(self) -> None:
         """Start in-memory QMovie (GIF) or QtMultimedia video+audio (fallback: OpenCV) with zero file lock."""
         self._deferred_anim_timer.stop()
+        if getattr(self, "_preview_dialog_active", False):
+            return
         path = self._active_media_path
         if not path or not os.path.exists(path):
             return
@@ -1746,6 +1754,8 @@ class ImageSorterApp(QMainWindow):
             self._anim_timer.start(max(30, self._anim_frames[0][1]))
 
     def _advance_main_anim_frame(self) -> None:
+        if getattr(self, "_preview_dialog_active", False):
+            return
         if not self._anim_frames or self._main_paused:
             return
         self._anim_index = (self._anim_index + 1) % len(self._anim_frames)
@@ -1755,6 +1765,8 @@ class ImageSorterApp(QMainWindow):
         self._anim_timer.setInterval(max(25, int(delay)))
 
     def _on_main_qtmm_frame(self, qimg: QImage) -> None:
+        if getattr(self, "_preview_dialog_active", False):
+            return
         pix = QPixmap.fromImage(qimg)
         if pix.isNull():
             return
@@ -1762,6 +1774,8 @@ class ImageSorterApp(QMainWindow):
         self._paint_fitted_pixmap(self.main_image_label, self.main_stage_viewport, pix, mw, mh)
 
     def _on_main_qtmm_position(self, pos_ms: int) -> None:
+        if getattr(self, "_preview_dialog_active", False):
+            return
         if self._main_seeking or (time.time() - getattr(self, "_last_seek_time", 0.0) < 0.4):
             return
         if self.hud_overlay is not None and not self.hud_overlay._is_seeking:
@@ -1806,7 +1820,7 @@ class ImageSorterApp(QMainWindow):
 
     def toggle_main_playback(self) -> None:
         """Toggle main preview playback between Playing and Paused."""
-        if self.hud_overlay is None:
+        if self.hud_overlay is None or getattr(self, "_preview_dialog_active", False):
             return
         self._main_paused = not self._main_paused
         if self.video_controller.player is not None:
@@ -1911,10 +1925,19 @@ class ImageSorterApp(QMainWindow):
         if not actual or not os.path.exists(actual):
             return
         was_playing = not self._main_paused
+        self._preview_dialog_active = True
         self._stop_all_media_playback()
         self._main_paused = True
         dlg = ImagePreviewDialog(actual, self)
-        dlg.exec()
+        try:
+            dlg.exec()
+            was_playing = getattr(dlg, "_anim_playing", was_playing)
+        finally:
+            if hasattr(dlg, "stop_all_playback"):
+                dlg.stop_all_playback()
+            self._preview_dialog_active = False
+
+        self._stop_all_media_playback()
         self._main_paused = not was_playing
         self.show_current_image(self.filtered_files)
 

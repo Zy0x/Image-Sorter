@@ -649,6 +649,43 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
         finally:
             win.close()
 
+    def test_preview_dialog_playback_isolation_and_teardown(self):
+        """Verify strict playback isolation: MainWindow stops during modal preview and preview teardown is 100% clean."""
+        _png, _dup, _gif, mp4_1 = self._create_sample_media()
+        win = app_main.ImageSorterApp()
+        try:
+            win.show()
+            self.app.processEvents()
+            files = app_main.scan_image_files(self.src_dir)
+            win.load_file_list(self.src_dir, files)
+            win.filter_combo.setCurrentText("All Files")
+            self.app.processEvents()
+
+            # Launch preview dialog
+            dlg = app_main.ImagePreviewDialog(mp4_1, win)
+            try:
+                dlg.show()
+                self.app.processEvents()
+
+                # Simulate modal preview active state
+                win._preview_dialog_active = True
+                win.show_current_image(win.filtered_files)
+
+                # MainWindow must NOT start deferred timer or video while preview is active
+                self.assertFalse(win._deferred_anim_timer.isActive())
+                self.assertFalse(win._hover_check_timer.isActive())
+
+                # Teardown preview dialog
+                dlg.stop_all_playback()
+                self.assertFalse(dlg._anim_playing)
+                self.assertFalse(dlg._anim_timer.isActive())
+                self.assertIsNone(dlg.video_controller.player)
+            finally:
+                dlg.close()
+                win._preview_dialog_active = False
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

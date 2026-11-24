@@ -452,13 +452,9 @@ class ImagePreviewDialog(QDialog):
         if not new_path or not os.path.exists(new_path):
             return
 
-        self._anim_timer.stop()
-        self.video_controller.stop()
+        self.stop_all_playback()
         self.anim_frames.clear()
         self._anim_index = 0
-        self._anim_playing = False
-        self._frame_step_mode = False
-        self._is_seeking = False
         self._duration_ms = 0
         self._position_ms = 0
 
@@ -785,7 +781,20 @@ class ImagePreviewDialog(QDialog):
             self._render_pixmap()
             self._update_info_text()
 
+    def stop_all_playback(self) -> None:
+        """Completely stop and teardown all video, audio, and frame animation playback."""
+        if hasattr(self, "_anim_timer") and self._anim_timer.isActive():
+            self._anim_timer.stop()
+        if hasattr(self, "video_controller"):
+            self.video_controller.stop()
+        self._anim_playing = False
+        self._frame_step_mode = False
+        self._is_seeking = False
+
+    def done(self, r: int) -> None:
+        self.stop_all_playback()
+        super().done(r)
+
     def closeEvent(self, event):
-        self._anim_timer.stop()
-        self.video_controller.stop()
+        self.stop_all_playback()
         super().closeEvent(event)
