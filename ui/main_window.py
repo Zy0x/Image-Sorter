@@ -660,6 +660,82 @@ class ImageSorterApp(QMainWindow):
         help_menu.addSeparator()
         self._add_menu_action(help_menu, f"About {APP_NAME}", "info", self.show_about_dialog)
 
+        self._update_dynamic_menu_actions()
+
+    def _update_dynamic_menu_actions(self) -> None:
+        """Update toggle menu actions (hide-moved, filmstrip, subfolders, theme, sort) with dynamic smart text, icons, and state."""
+        t = resolve_studio_tokens(self)
+        ic_col = t.get("menu_text", "#e4e6eb")
+
+        # 1. Hide / Show Moved Images
+        if hasattr(self, "hide_moved_action") and self.hide_moved_action is not None:
+            if self.hide_moved:
+                self.hide_moved_action.setText("Show Moved Images")
+                self.hide_moved_action.setIcon(make_vector_icon("eye", ic_col, 15))
+                self.hide_moved_action.setToolTip("Show images that were already moved (Ctrl+H)")
+            else:
+                self.hide_moved_action.setText("Hide Moved Images")
+                self.hide_moved_action.setIcon(make_vector_icon("eye_off", ic_col, 15))
+                self.hide_moved_action.setToolTip("Hide images that were already moved (Ctrl+H)")
+            self.hide_moved_action.setChecked(self.hide_moved)
+
+        # 2. Hide / Show Filmstrip Bar
+        if hasattr(self, "show_filmstrip_action") and self.show_filmstrip_action is not None:
+            is_filmstrip_showing = bool(self.settings.get("show_filmstrip", True))
+            if is_filmstrip_showing:
+                self.show_filmstrip_action.setText("Hide Filmstrip Bar")
+                self.show_filmstrip_action.setIcon(make_vector_icon("filmstrip_off", ic_col, 15))
+                self.show_filmstrip_action.setToolTip("Hide the mini filmstrip bar (Ctrl+B)")
+            else:
+                self.show_filmstrip_action.setText("Show Filmstrip Bar")
+                self.show_filmstrip_action.setIcon(make_vector_icon("filmstrip", ic_col, 15))
+                self.show_filmstrip_action.setToolTip("Show the mini filmstrip bar (Ctrl+B)")
+            self.show_filmstrip_action.setChecked(is_filmstrip_showing)
+
+        # 3. Include / Exclude Subfolders
+        if hasattr(self, "include_subfolders_action") and self.include_subfolders_action is not None:
+            if self.include_subfolders:
+                self.include_subfolders_action.setText("Exclude Subfolders")
+                self.include_subfolders_action.setIcon(make_vector_icon("folder", ic_col, 15))
+                self.include_subfolders_action.setToolTip("Exclude nested subfolders from recursive scan (Ctrl+Shift+S)")
+            else:
+                self.include_subfolders_action.setText("Include Subfolders")
+                self.include_subfolders_action.setIcon(make_vector_icon("folder_tree", ic_col, 15))
+                self.include_subfolders_action.setToolTip("Include nested subfolders when scanning (Ctrl+Shift+S)")
+            self.include_subfolders_action.setChecked(self.include_subfolders)
+
+        # 4. Themes: Show active indicator ✓
+        if hasattr(self, "theme_actions") and self.theme_actions:
+            cur_mode = self.theme_mode or "system"
+            labels = {
+                "custom": "Custom Theme",
+                "light": "Light Mode",
+                "dark": "Dark Mode",
+                "system": "System Default",
+            }
+            for m_id, act in self.theme_actions.items():
+                base = labels.get(m_id, m_id.capitalize())
+                is_cur = (m_id == cur_mode)
+                act.setChecked(is_cur)
+                act.setText(f"{base}   ✓" if is_cur else base)
+
+        # 5. Sort By: Show active indicator ✓
+        if hasattr(self, "sort_actions") and self.sort_actions:
+            labels = {
+                ("name", "asc"): "Name (A – Z)",
+                ("name", "desc"): "Name (Z – A)",
+                ("date", "desc"): "Date Modified (Newest First)",
+                ("date", "asc"): "Date Modified (Oldest First)",
+                ("size", "desc"): "File Size (Largest First)",
+                ("size", "asc"): "File Size (Smallest First)",
+                ("ext", "asc"): "File Type / Extension",
+            }
+            for (sb, so), act in self.sort_actions.items():
+                base = labels.get((sb, so), "Sort")
+                is_active = (self.sort_by == sb and self.sort_order == so)
+                act.setChecked(is_active)
+                act.setText(f"{base}   ✓" if is_active else base)
+
     def _rebuild_recent_menu(self) -> None:
         if not hasattr(self, "recent_menu"):
             return
@@ -973,6 +1049,7 @@ class ImageSorterApp(QMainWindow):
         if self.hud_overlay is not None:
             self.hud_overlay.apply_tokens(t)
             self.hud_overlay.refresh_labels(paused=self._main_paused, muted=self.video_muted)
+        self._update_dynamic_menu_actions()
 
     def update_folder_buttons(self) -> None:
         """Render 3..9 visible quick-sort folder buttons with semantic Studio accent tinting."""
@@ -1120,16 +1197,26 @@ class ImageSorterApp(QMainWindow):
             self.media_queue.current_index = 0
         self.show_current_image(self.filtered_files)
 
-    def toggle_hide_moved(self) -> None:
-        self.hide_moved = self.hide_moved_action.isChecked()
+    def toggle_hide_moved(self, checked: bool = None) -> None:
+        if checked is not None:
+            self.hide_moved = bool(checked)
+        else:
+            self.hide_moved = not self.hide_moved
         self._sync_and_save_settings()
+        self._update_dynamic_menu_actions()
         self.apply_filter()
+        self._show_toast("Hiding moved images" if self.hide_moved else "Showing moved images")
 
-    def toggle_include_subfolders(self) -> None:
-        self.include_subfolders = self.include_subfolders_action.isChecked()
+    def toggle_include_subfolders(self, checked: bool = None) -> None:
+        if checked is not None:
+            self.include_subfolders = bool(checked)
+        else:
+            self.include_subfolders = not self.include_subfolders
         self._sync_and_save_settings()
+        self._update_dynamic_menu_actions()
         if self.current_folder and os.path.isdir(self.current_folder):
             self.import_folder(self.current_folder)
+        self._show_toast("Including subfolders in scan" if self.include_subfolders else "Excluding subfolders from scan")
 
     # ------------------------------------------------------------------
     # Media Display, Pre-Fetch Cache & Zero-Lock Playback
@@ -1388,14 +1475,14 @@ class ImageSorterApp(QMainWindow):
         else:
             show = not self.settings.get("show_filmstrip", True)
         self.settings["show_filmstrip"] = show
-        if hasattr(self, "show_filmstrip_action") and self.show_filmstrip_action is not None:
-            self.show_filmstrip_action.setChecked(show)
         self._sync_and_save_settings()
         if hasattr(self, "filmstrip_bar"):
             self.filmstrip_bar.setVisible(show)
             if show:
                 self._update_filmstrip()
             self._relayout_stage_previews()
+        self._update_dynamic_menu_actions()
+        self._show_toast("Filmstrip visible" if show else "Filmstrip hidden")
 
     def set_sort_order(self, sort_by: str, sort_order: str) -> None:
         """Re-sort media queue by selected criteria (name, date, size, ext) and preserve active anchor."""
@@ -1404,6 +1491,7 @@ class ImageSorterApp(QMainWindow):
         self.settings["sort_by"] = sort_by
         self.settings["sort_order"] = sort_order
         self._sync_and_save_settings()
+        self._update_dynamic_menu_actions()
 
         if hasattr(self, "sort_actions"):
             for (sb, so), act in self.sort_actions.items():

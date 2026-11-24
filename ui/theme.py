@@ -550,14 +550,15 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         p.drawRoundedRect(QRectF(s * 0.16, s * 0.18, s * 0.68, s * 0.48), 2.0, 2.0)
         p.drawLine(QPointF(mid, s * 0.66), QPointF(mid, s * 0.80))
         p.drawLine(QPointF(s * 0.32, s * 0.80), QPointF(s * 0.68, s * 0.80))
-    elif kind == "eye_off":
+    elif kind in ("eye", "eye_off"):
         path = QPainterPath()
         path.moveTo(s * 0.14, mid)
         path.quadTo(mid, s * 0.20, s * 0.86, mid)
         path.quadTo(mid, s * 0.80, s * 0.14, mid)
         p.drawPath(path)
-        p.drawEllipse(QPointF(mid, mid), s * 0.11, s * 0.11)
-        p.drawLine(QPointF(s * 0.20, s * 0.80), QPointF(s * 0.80, s * 0.20))
+        p.drawEllipse(QPointF(mid, mid), s * 0.12, s * 0.12)
+        if kind == "eye_off":
+            p.drawLine(QPointF(s * 0.20, s * 0.80), QPointF(s * 0.80, s * 0.20))
     elif kind == "folder_tree":
         p.drawRoundedRect(QRectF(s * 0.14, s * 0.16, s * 0.30, s * 0.22), 1.5, 1.5)
         p.drawLine(QPointF(s * 0.26, s * 0.38), QPointF(s * 0.26, s * 0.74))
@@ -658,7 +659,7 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         p.drawLine(QPointF(s * 0.16, s * 0.70), QPointF(s * 0.42, s * 0.70))
         p.drawPolyline(QPolygonF([QPointF(s * 0.68, s * 0.58), QPointF(s * 0.78, s * 0.72), QPointF(s * 0.88, s * 0.58)]))
         p.drawLine(QPointF(s * 0.78, s * 0.40), QPointF(s * 0.78, s * 0.72))
-    elif kind == "filmstrip":
+    elif kind in ("filmstrip", "filmstrip_off"):
         p.drawRoundedRect(QRectF(s * 0.14, s * 0.22, s * 0.72, s * 0.56), 2.0, 2.0)
         p.drawLine(QPointF(mid, s * 0.22), QPointF(mid, s * 0.78))
         p.setBrush(qcol)
@@ -666,6 +667,10 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         for xr in (0.22, 0.38, 0.62, 0.78):
             p.drawRect(QRectF(s * xr - 1.0, s * 0.26, 2.0, 2.0))
             p.drawRect(QRectF(s * xr - 1.0, s * 0.70, 2.0, 2.0))
+        if kind == "filmstrip_off":
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(qcol, 1.65, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(s * 0.18, s * 0.82), QPointF(s * 0.82, s * 0.18))
     elif kind == "rename":
         p.drawLine(QPointF(s * 0.22, s * 0.78), QPointF(s * 0.74, s * 0.26))
         p.drawPolyline(QPolygonF([

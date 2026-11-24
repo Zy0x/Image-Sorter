@@ -404,6 +404,52 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
         finally:
             win.close()
 
+    def test_dynamic_smart_menu_actions_and_icons(self):
+        """Test smart dynamic text and icons for Hide/Show Moved, Hide/Show Filmstrip, and Include/Exclude Subfolders."""
+        win = app_main.ImageSorterApp()
+        try:
+            # 1. Hide / Show Moved Images text and icon flipping
+            win.hide_moved = False
+            win._update_dynamic_menu_actions()
+            self.assertEqual(win.hide_moved_action.text(), "Hide Moved Images")
+
+            win.toggle_hide_moved()
+            self.assertTrue(win.hide_moved)
+            self.assertEqual(win.hide_moved_action.text(), "Show Moved Images")
+
+            win.toggle_hide_moved()
+            self.assertFalse(win.hide_moved)
+            self.assertEqual(win.hide_moved_action.text(), "Hide Moved Images")
+
+            # 2. Hide / Show Filmstrip Bar text and icon flipping
+            win.settings["show_filmstrip"] = True
+            win._update_dynamic_menu_actions()
+            self.assertEqual(win.show_filmstrip_action.text(), "Hide Filmstrip Bar")
+
+            win.toggle_filmstrip()
+            self.assertFalse(win.settings["show_filmstrip"])
+            self.assertEqual(win.show_filmstrip_action.text(), "Show Filmstrip Bar")
+
+            # 3. Include / Exclude Subfolders text and icon flipping
+            win.include_subfolders = False
+            win._update_dynamic_menu_actions()
+            self.assertEqual(win.include_subfolders_action.text(), "Include Subfolders")
+
+            win.toggle_include_subfolders()
+            self.assertTrue(win.include_subfolders)
+            self.assertEqual(win.include_subfolders_action.text(), "Exclude Subfolders")
+
+            # 4. Active Theme and Sort indicators
+            win.set_theme_mode("dark")
+            self.assertIn("✓", win.theme_actions["dark"].text())
+            self.assertNotIn("✓", win.theme_actions["light"].text())
+
+            win.set_sort_order("name", "asc")
+            self.assertIn("✓", win.sort_actions[("name", "asc")].text())
+            self.assertNotIn("✓", win.sort_actions[("name", "desc")].text())
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()
