@@ -170,17 +170,16 @@ class ImagePreviewDialog(QDialog):
         self.scroll_area.setWidget(self.image_label)
         root.addWidget(self.scroll_area, stretch=1)
 
-        # Bottom media control bar (for videos or animated multi-frame images)
+        # Bottom media control bar
         self.play_pause_btn = None
         self.mute_btn = None
         self.seek_slider = None
         self.cur_time_lbl = None
         self.tot_time_lbl = None
         self.media_bar = None
-
-        has_anim = self.is_video or len(self.anim_frames) > 1
-        if has_anim:
-            self._build_media_bar(root)
+        self.prev_btn = None
+        self.next_btn = None
+        self._build_media_bar(root)
 
         self._bind_shortcuts()
         self._start_playback_if_applicable()
@@ -238,12 +237,13 @@ class ImagePreviewDialog(QDialog):
         icon_col = "#f1f3f9" if is_dark else "#1e293b"
 
         prev_f = QPushButton()
-        prev_f.setToolTip("Previous Frame (,)")
+        prev_f.setToolTip("Previous Media / Video (Left / A / <)")
         prev_f.setCursor(Qt.PointingHandCursor)
         prev_f.setFocusPolicy(Qt.NoFocus)
         prev_f.setIcon(make_vector_icon("step_prev", icon_col, 12))
         prev_f.setIconSize(QSize(12, 12))
-        prev_f.clicked.connect(lambda: self.step_frame(-1))
+        prev_f.clicked.connect(self.show_previous_media)
+        self.prev_btn = prev_f
         bar.addWidget(prev_f)
 
         self.play_pause_btn = QPushButton()
@@ -254,54 +254,54 @@ class ImagePreviewDialog(QDialog):
         bar.addWidget(self.play_pause_btn)
 
         next_f = QPushButton()
-        next_f.setToolTip("Next Frame (.)")
+        next_f.setToolTip("Next Media / Video (Right / D / >)")
         next_f.setCursor(Qt.PointingHandCursor)
         next_f.setFocusPolicy(Qt.NoFocus)
         next_f.setIcon(make_vector_icon("step_next", icon_col, 12))
         next_f.setIconSize(QSize(12, 12))
-        next_f.clicked.connect(lambda: self.step_frame(1))
+        next_f.clicked.connect(self.show_next_media)
+        self.next_btn = next_f
         bar.addWidget(next_f)
 
-        if self.is_video:
-            self.cur_time_lbl = QLabel("0:00")
-            self.cur_time_lbl.setFixedWidth(36)
-            self.cur_time_lbl.setAlignment(Qt.AlignCenter)
+        self.cur_time_lbl = QLabel("0:00")
+        self.cur_time_lbl.setFixedWidth(36)
+        self.cur_time_lbl.setAlignment(Qt.AlignCenter)
 
-            self.seek_slider = ClickSeekSlider(Qt.Horizontal)
-            self.seek_slider.setRange(0, 100)
-            self.seek_slider.setFocusPolicy(Qt.NoFocus)
-            self.seek_slider.sliderPressed.connect(lambda: setattr(self, "_is_seeking", True))
-            self.seek_slider.sliderReleased.connect(self._on_seek_released)
-            self.seek_slider.seek_clicked.connect(self._on_seek_clicked)
+        self.seek_slider = ClickSeekSlider(Qt.Horizontal)
+        self.seek_slider.setRange(0, 100)
+        self.seek_slider.setFocusPolicy(Qt.NoFocus)
+        self.seek_slider.sliderPressed.connect(lambda: setattr(self, "_is_seeking", True))
+        self.seek_slider.sliderReleased.connect(self._on_seek_released)
+        self.seek_slider.seek_clicked.connect(self._on_seek_clicked)
 
-            self.tot_time_lbl = QLabel("0:00")
-            self.tot_time_lbl.setFixedWidth(36)
-            self.tot_time_lbl.setAlignment(Qt.AlignCenter)
+        self.tot_time_lbl = QLabel("0:00")
+        self.tot_time_lbl.setFixedWidth(36)
+        self.tot_time_lbl.setAlignment(Qt.AlignCenter)
 
-            bar.addWidget(self.cur_time_lbl)
-            bar.addWidget(self.seek_slider, stretch=1)
-            bar.addWidget(self.tot_time_lbl)
+        bar.addWidget(self.cur_time_lbl)
+        bar.addWidget(self.seek_slider, stretch=1)
+        bar.addWidget(self.tot_time_lbl)
 
-            self.mute_btn = QPushButton()
-            self.mute_btn.setCursor(Qt.PointingHandCursor)
-            self.mute_btn.setFocusPolicy(Qt.NoFocus)
-            self.mute_btn.setToolTip("Mute / Unmute Sound (M)")
-            self.mute_btn.clicked.connect(self.toggle_audio_mute)
-            bar.addWidget(self.mute_btn)
+        self.mute_btn = QPushButton()
+        self.mute_btn.setCursor(Qt.PointingHandCursor)
+        self.mute_btn.setFocusPolicy(Qt.NoFocus)
+        self.mute_btn.setToolTip("Mute / Unmute Sound (M)")
+        self.mute_btn.clicked.connect(self.toggle_audio_mute)
+        bar.addWidget(self.mute_btn)
 
-            self.vol_slider = ClickSeekSlider(Qt.Horizontal)
-            self.vol_slider.setObjectName("previewVolSlider")
-            self.vol_slider.setRange(0, 100)
-            self.vol_slider.setFixedWidth(46)
-            self.vol_slider.setFixedHeight(16)
-            self.vol_slider.setFocusPolicy(Qt.NoFocus)
-            vol_val = int(getattr(self, "_audio_volume", 0.85) * 100)
-            self.vol_slider.setValue(vol_val)
-            self.vol_slider.setToolTip(f"Volume: {vol_val}%")
-            self.vol_slider.valueChanged.connect(self._on_vol_slider_changed)
-            bar.addWidget(self.vol_slider)
-        else:
-            bar.addStretch()
+        self.vol_slider = ClickSeekSlider(Qt.Horizontal)
+        self.vol_slider.setObjectName("previewVolSlider")
+        self.vol_slider.setRange(0, 100)
+        self.vol_slider.setFixedWidth(46)
+        self.vol_slider.setFixedHeight(16)
+        self.vol_slider.setFocusPolicy(Qt.NoFocus)
+        vol_val = int(getattr(self, "_audio_volume", 0.85) * 100)
+        self.vol_slider.setValue(vol_val)
+        self.vol_slider.setToolTip(f"Volume: {vol_val}%")
+        self.vol_slider.valueChanged.connect(self._on_vol_slider_changed)
+        bar.addWidget(self.vol_slider)
+
+        self._update_media_bar_visibility()
 
         self.media_bar.setStyleSheet(f"""
             QFrame#previewMediaBar {{
@@ -357,6 +357,129 @@ class ImagePreviewDialog(QDialog):
         """)
         root_layout.addWidget(self.media_bar)
 
+    def _update_media_bar_visibility(self) -> None:
+        """Toggle control visibility between video timeline, frame animation, and static image."""
+        if self.cur_time_lbl is None or self.media_bar is None:
+            return
+        is_vid = self.is_video
+        has_anim = is_vid or len(self.anim_frames) > 1
+
+        self.cur_time_lbl.setVisible(is_vid)
+        self.seek_slider.setVisible(is_vid)
+        self.tot_time_lbl.setVisible(is_vid)
+        self.mute_btn.setVisible(is_vid)
+        self.vol_slider.setVisible(is_vid)
+        self.play_pause_btn.setVisible(has_anim)
+        if self.prev_btn is not None:
+            self.prev_btn.setVisible(True)
+        if self.next_btn is not None:
+            self.next_btn.setVisible(True)
+
+        if is_vid:
+            self.cur_time_lbl.setText("0:00")
+            self.tot_time_lbl.setText("0:00")
+            self.seek_slider.blockSignals(True)
+            self.seek_slider.setRange(0, 100)
+            self.seek_slider.setValue(0)
+            self.seek_slider.blockSignals(False)
+
+    def show_next_media(self) -> None:
+        """Advance to the next media item in the parent queue with wrap-around support."""
+        parent = self.parentWidget()
+        if parent is not None and hasattr(parent, "filtered_files") and hasattr(parent, "current_index"):
+            files = getattr(parent, "filtered_files", [])
+            if not files:
+                return
+            old_idx = parent.current_index
+            if hasattr(parent, "media_queue"):
+                next_idx = parent.media_queue.find_valid_next_index(old_idx, files=files)
+                if next_idx is None and len(files) > 1:
+                    next_idx = parent.media_queue.find_valid_next_index(-1, files=files)
+            else:
+                next_idx = (old_idx + 1) % len(files)
+
+            if next_idx is not None:
+                if hasattr(parent, "_record_nav"):
+                    parent._record_nav()
+                parent.current_index = next_idx
+                if hasattr(parent, "show_current_image"):
+                    parent.show_current_image(files)
+                if hasattr(parent, "_stop_all_media_playback"):
+                    parent._stop_all_media_playback()
+                    parent._main_paused = True
+
+                src_path = files[parent.current_index]
+                if hasattr(parent, "history_store"):
+                    actual = parent.history_store.resolve_actual_path(src_path)
+                else:
+                    actual = src_path
+                self.load_media(actual)
+
+    def show_previous_media(self) -> None:
+        """Navigate to the previous media item in the parent queue with wrap-around support."""
+        parent = self.parentWidget()
+        if parent is not None and hasattr(parent, "filtered_files") and hasattr(parent, "current_index"):
+            files = getattr(parent, "filtered_files", [])
+            if not files:
+                return
+            old_idx = parent.current_index
+            if hasattr(parent, "media_queue"):
+                prev_idx = parent.media_queue.find_valid_previous_index(old_idx, files=files)
+                if prev_idx is None and len(files) > 1:
+                    prev_idx = parent.media_queue.find_valid_previous_index(len(files), files=files)
+            else:
+                prev_idx = (old_idx - 1) % len(files)
+
+            if prev_idx is not None:
+                if hasattr(parent, "_record_nav"):
+                    parent._record_nav()
+                parent.current_index = prev_idx
+                if hasattr(parent, "show_current_image"):
+                    parent.show_current_image(files)
+                if hasattr(parent, "_stop_all_media_playback"):
+                    parent._stop_all_media_playback()
+                    parent._main_paused = True
+
+                src_path = files[parent.current_index]
+                if hasattr(parent, "history_store"):
+                    actual = parent.history_store.resolve_actual_path(src_path)
+                else:
+                    actual = src_path
+                self.load_media(actual)
+
+    def load_media(self, new_path: str) -> None:
+        """Dynamically load and display a new media file in-place within the preview dialog."""
+        if not new_path or not os.path.exists(new_path):
+            return
+
+        self._anim_timer.stop()
+        self.video_controller.stop()
+        self.anim_frames.clear()
+        self._anim_index = 0
+        self._anim_playing = False
+        self._frame_step_mode = False
+        self._is_seeking = False
+        self._duration_ms = 0
+        self._position_ms = 0
+
+        self.image_path = new_path
+        self.is_video = is_video_file(new_path)
+        self.setWindowTitle(f"Preview — {os.path.basename(new_path)}")
+
+        self.base_pixmap = self._load_initial_media()
+        self._update_media_bar_visibility()
+        self._render_pixmap()
+        self._update_info_text()
+        self._start_playback_if_applicable()
+        self._refresh_media_buttons()
+
+    def _adjust_volume(self, delta: float) -> None:
+        """Keyboard helper to raise/lower volume in 5% increments."""
+        if not self.is_video or self.vol_slider is None:
+            return
+        new_val = max(0, min(100, int(self.vol_slider.value() + round(delta * 100))))
+        self.vol_slider.setValue(new_val)
+
     def _bind_shortcuts(self) -> None:
         QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.accept)
         QShortcut(QKeySequence(Qt.Key_F), self, activated=self.accept)
@@ -365,10 +488,23 @@ class ImagePreviewDialog(QDialog):
         QShortcut(QKeySequence(Qt.Key_M), self, activated=self.toggle_audio_mute)
         QShortcut(QKeySequence(Qt.Key_Comma), self, activated=lambda: self.step_frame(-1))
         QShortcut(QKeySequence(Qt.Key_Period), self, activated=lambda: self.step_frame(1))
+        QShortcut(QKeySequence("Shift+Left"), self, activated=lambda: self.step_frame(-1))
+        QShortcut(QKeySequence("Shift+Right"), self, activated=lambda: self.step_frame(1))
         QShortcut(QKeySequence(Qt.Key_Plus), self, activated=lambda: self.adjust_zoom(1.25))
         QShortcut(QKeySequence(Qt.Key_Equal), self, activated=lambda: self.adjust_zoom(1.25))
         QShortcut(QKeySequence(Qt.Key_Minus), self, activated=lambda: self.adjust_zoom(0.8))
         QShortcut(QKeySequence(Qt.Key_0), self, activated=self.fit_to_window)
+
+        # Full navigation across parent queue in preview
+        QShortcut(QKeySequence(Qt.Key_Left), self, activated=self.show_previous_media)
+        QShortcut(QKeySequence(Qt.Key_Right), self, activated=self.show_next_media)
+        QShortcut(QKeySequence(Qt.Key_A), self, activated=self.show_previous_media)
+        QShortcut(QKeySequence(Qt.Key_D), self, activated=self.show_next_media)
+        QShortcut(QKeySequence(Qt.Key_Backspace), self, activated=self.show_previous_media)
+
+        # Volume adjustment shortcuts
+        QShortcut(QKeySequence(Qt.Key_Up), self, activated=lambda: self._adjust_volume(0.05))
+        QShortcut(QKeySequence(Qt.Key_Down), self, activated=lambda: self._adjust_volume(-0.05))
 
     def _start_playback_if_applicable(self) -> None:
         if self.is_video:
@@ -445,7 +581,15 @@ class ImagePreviewDialog(QDialog):
         self._anim_timer.setInterval(max(25, int(delay)))
 
     def step_frame(self, delta: int) -> None:
-        """Pause playback and advance or rewind a single cached frame."""
+        """Pause playback and advance or rewind a single cached frame or video timeline."""
+        if self.is_video:
+            cur_ms = getattr(self, "_position_ms", 0)
+            target_ms = max(0, cur_ms + int(delta * 80))
+            if getattr(self, "_duration_ms", 0) > 0:
+                target_ms = min(target_ms, self._duration_ms)
+            self._on_seek_clicked(target_ms)
+            return
+
         if not self.anim_frames:
             return
         self._anim_playing = False
@@ -559,7 +703,11 @@ class ImagePreviewDialog(QDialog):
         state = ""
         if self.is_video or len(self.anim_frames) > 1:
             state = "  ·  Playing" if self._anim_playing else "  ·  Paused"
-        self.info_label.setText(f"{fname}  ·  {dims}  ·  {sz_str}  ·  {mode}{state}")
+        counter_str = ""
+        parent = self.parentWidget()
+        if parent is not None and hasattr(parent, "filtered_files") and parent.filtered_files:
+            counter_str = f" [{parent.current_index + 1}/{len(parent.filtered_files)}]"
+        self.info_label.setText(f"{fname}{counter_str}  ·  {dims}  ·  {sz_str}  ·  {mode}{state}")
 
     def adjust_zoom(self, scale_multiplier: float) -> None:
         """Scale zoom around current viewport center cleanly within [10%, 800%]."""

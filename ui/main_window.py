@@ -1911,12 +1911,12 @@ class ImageSorterApp(QMainWindow):
         if not actual or not os.path.exists(actual):
             return
         was_playing = not self._main_paused
-        if was_playing and self.hud_overlay is not None:
-            self.toggle_main_playback()
+        self._stop_all_media_playback()
+        self._main_paused = True
         dlg = ImagePreviewDialog(actual, self)
         dlg.exec()
-        if was_playing and self.hud_overlay is not None and self._main_paused:
-            self.toggle_main_playback()
+        self._main_paused = not was_playing
+        self.show_current_image(self.filtered_files)
 
     def move_to_custom_folder(self, dest_folder: str) -> bool:
         """Move current media safely to dest_folder with collision auto-renaming & undo history."""

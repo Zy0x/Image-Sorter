@@ -1,21 +1,44 @@
 {
-    "first_run": true,
+    "first_run": false,
+    "folder_slot_count": 5,
+    "include_subfolders": false,
+    "hide_moved": false,
     "folder_names": [
         "Folder A",
         "Folder B",
         "Folder C",
         "Folder D",
-        "Folder E"
+        "Folder E",
+        "Folder F",
+        "Folder G",
+        "Folder H",
+        "Folder I"
     ],
     "folder_paths": [
         "output/A",
         "output/B",
         "output/C",
         "output/D",
-        "output/E"
+        "output/E",
+        "output/F",
+        "output/G",
+        "output/H",
+        "output/I"
     ],
-    "recent_folders": [],
+    "recent_folders": [
+        "E:\\Data"
+    ],
+    "last_opened_folder": "E:\\Data",
     "theme_mode": "system",
+    "rapid_move_interval": 200,
+    "video_muted": false,
+    "video_volume": 0.85,
+    "sort_by": "name",
+    "sort_order": "asc",
+    "show_filmstrip": true,
+    "auto_rename_enabled": false,
+    "auto_rename_pattern": "{folder}_{index:04d}",
+    "flagged_files": [],
     "custom_theme": {
         "bg_color": "#121212",
         "text_color": "#FFFFFF",
@@ -23,6 +46,10 @@
         "btn_hover": "#444444",
         "label_bg": "#1a1a1a",
         "menu_bg": "#1a1a1a",
-        "menu_text": "#FFFFFF"
+        "menu_text": "#FFFFFF",
+        "main_border_color": "#3b82f6",
+        "next_border_color": "#10b981",
+        "main_shadow": "0 0 10px rgba(59, 130, 246, 0.55)",
+        "next_shadow": "0 0 8px rgba(16, 185, 129, 0.45)"
     }
 }

@@ -2,6 +2,15 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.25 — 2026-11-25
+
+### Added & Fixed — Interactive Next/Previous Media Navigation & Dynamic Preview Loading
+- **True Previous / Next Media Navigation (`|<` & `>|`):** Connected the preview player bar's `|<` and `>|` buttons directly to active queue navigation (`show_previous_media` / `show_next_media`). Clicking them or pressing `Left` / `A` / `Backspace` / `Right` / `D` now immediately navigates to previous and next videos or images in lockstep with the main window queue.
+- **Dynamic In-Place Media Reloading (`load_media`):** Switching files within the full preview dialog smoothly unloads prior playback, updates video/image states, refreshes zoom and dimensions, and starts playback for incoming videos or animations without closing or re-opening the dialog.
+- **Queue Wrap-Around & Position Counter:** Supported continuous looping navigation at queue boundaries and displayed current queue position indicator (e.g. `[1/5]`) in the top preview info header.
+- **Fine-Grained Frame & Timeline Stepping:** Reserved `,` and `.` (plus `Shift+Left` / `Shift+Right`) for +/-80ms precise video scrubbing or individual animated frame steps.
+- **Keyboard Volume Control:** Added `Up` and `Down` arrow shortcuts in the preview dialog to smoothly adjust video playback volume in 5% increments with synchronized tooltips and persistent settings.
+
 ## 2.1.24 — 2026-11-25
 
 ### Refined & Compacted — Full-Size Preview Dialog Media Controls & Top Bar

@@ -619,6 +619,31 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
                 self.assertIsNotNone(dlg.mute_btn.icon())
                 self.assertEqual(dlg.play_pause_btn.width(), 28)
                 self.assertEqual(dlg.mute_btn.width(), 28)
+
+                # Test next/previous media navigation in preview dialog across active queue
+                win.filter_combo.setCurrentText("All Files")
+                self.app.processEvents()
+                initial_idx = win.current_index
+                dlg.show_next_media()
+                self.app.processEvents()
+                self.assertNotEqual(win.current_index, initial_idx)
+                self.assertEqual(dlg.image_path, win.filtered_files[win.current_index])
+                self.assertIn(os.path.basename(dlg.image_path), dlg.info_label.text())
+
+                # Navigate back
+                dlg.show_previous_media()
+                self.app.processEvents()
+                self.assertEqual(win.current_index, initial_idx)
+                self.assertEqual(dlg.image_path, win.filtered_files[initial_idx])
+
+                # Video frame / timeline stepping (+/- 80ms)
+                dlg.step_frame(1)
+                self.assertGreaterEqual(dlg._last_seek_time, 0.0)
+
+                # Keyboard volume adjustment
+                dlg._adjust_volume(-0.10)
+                self.assertLessEqual(dlg.vol_slider.value(), 90)
+                dlg._adjust_volume(0.05)
             finally:
                 dlg.close()
         finally:
