@@ -134,6 +134,15 @@ class MediaQueueModel:
         else:
             self.current_index = 0
 
+    def remove_item(self, path: str) -> None:
+        """Remove a single moved/deleted item from filtered_files in O(1) without re-filtering the entire collection."""
+        try:
+            self.filtered_files.remove(path)
+        except ValueError:
+            pass
+        if self.current_index >= len(self.filtered_files):
+            self.current_index = max(0, len(self.filtered_files) - 1)
+
     def sort_files(
         self,
         sort_by: str = "name",

@@ -336,8 +336,10 @@ def load_pixmap(path: str, max_width: int = 0, max_height: int = 0) -> QPixmap:
     reader.setAutoTransform(True)
     if max_width > 0 and max_height > 0:
         sz = reader.size()
-        if sz.isValid() and (sz.width() > max_width * 2 or sz.height() > max_height * 2):
-            scaled = sz.scaled(QSize(max_width * 2, max_height * 2), Qt.AspectRatioMode.KeepAspectRatio)
+        target_w = max(16, int(round(max_width * 1.25)))
+        target_h = max(16, int(round(max_height * 1.25)))
+        if sz.isValid() and (sz.width() > target_w or sz.height() > target_h):
+            scaled = sz.scaled(QSize(target_w, target_h), Qt.AspectRatioMode.KeepAspectRatio)
             if scaled.isValid():
                 reader.setScaledSize(scaled)
     image = reader.read()

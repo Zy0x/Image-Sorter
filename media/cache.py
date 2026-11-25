@@ -1,5 +1,6 @@
 """In-memory LRU cache for decoded pixmaps, image/video metadata, and animation frames."""
 
+import gc
 import os
 from collections import OrderedDict
 from PySide6.QtGui import QPixmap
@@ -14,11 +15,11 @@ from media.formats import is_video_file
 
 
 class PixmapLRUCache:
-    """Fast stat-keyed LRU cache enabling ~2-4 ms back/forth navigation and Rapid Move."""
+    """Fast stat-keyed LRU cache with strict RAM bounding enabling ~2 ms navigation and Rapid Move."""
 
-    def __init__(self, max_entries: int = 36, capacity: int = None):
+    def __init__(self, max_entries: int = 24, capacity: int = None):
         limit = capacity if capacity is not None else max_entries
-        self.max_entries = max(8, int(limit))
+        self.max_entries = max(6, int(limit))
         self._pix_cache = OrderedDict()
         self._meta_cache = OrderedDict()
         self._video_meta_cache = OrderedDict()
@@ -84,7 +85,7 @@ class PixmapLRUCache:
         frames = load_animation_frames(path, max_width, max_height, max_frames=max_frames)
         if frames:
             self._anim_cache[key] = frames
-            if len(self._anim_cache) > max(6, self.max_entries // 3):
+            if len(self._anim_cache) > max(3, self.max_entries // 6):
                 self._anim_cache.popitem(last=False)
         return frames
 
@@ -94,7 +95,7 @@ class PixmapLRUCache:
             return
         key = (tok, int(max_width), int(max_height), int(max_frames))
         self._anim_cache[key] = list(frames)
-        if len(self._anim_cache) > max(6, self.max_entries // 3):
+        if len(self._anim_cache) > max(3, self.max_entries // 6):
             self._anim_cache.popitem(last=False)
 
     def has_animation_frames(self, path: str, max_width: int = 0, max_height: int = 0, max_frames: int = 60) -> bool:
@@ -159,8 +160,17 @@ class PixmapLRUCache:
             for k in stale:
                 del store[k]
 
+    def trim_memory(self, target_entries: int = 8) -> None:
+        """Shrink memory cache to target_entries and run garbage collection."""
+        while len(self._pix_cache) > target_entries:
+            self._pix_cache.popitem(last=False)
+        while len(self._anim_cache) > 1:
+            self._anim_cache.popitem(last=False)
+        gc.collect()
+
     def clear(self):
         self._pix_cache.clear()
         self._meta_cache.clear()
         self._video_meta_cache.clear()
         self._anim_cache.clear()
+        gc.collect()

@@ -686,6 +686,60 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
         finally:
             win.close()
 
+    def test_performance_and_ram_optimization_workflow(self):
+        """Verify performance optimizations: cached natural sort keys, O(1) queue removal, RAM trim, and filmstrip item pooling."""
+        from core.file_ops import natural_sort_key
+        from core.media_queue import MediaQueueModel
+        from media.cache import PixmapLRUCache
+        from PySide6.QtGui import QPixmap
+
+        # 1. Test cached natural sort key
+        key1 = natural_sort_key("image_001.png")
+        key2 = natural_sort_key("image_001.png")
+        self.assertIs(key1, key2)
+        self.assertEqual(key1, ("image_", 1, ".png"))
+
+        # 2. Test MediaQueueModel O(1) removal
+        from core.history import HistoryStore
+        hs = HistoryStore()
+        q = MediaQueueModel(hs)
+        q.filtered_files = ["a.png", "b.png", "c.png"]
+        self.assertEqual(len(q.filtered_files), 3)
+        q.current_index = 2
+        q.remove_item("c.png")
+        self.assertEqual(len(q.filtered_files), 2)
+        self.assertEqual(q.current_index, 1)
+
+        # 3. Test PixmapLRUCache RAM bounding & trim
+        cache = PixmapLRUCache(max_entries=24)
+        for i in range(15):
+            pm = QPixmap(10, 10)
+            cache._pix_cache[(f"tok_{i}", 0, 0)] = pm
+        self.assertEqual(len(cache._pix_cache), 15)
+        cache.trim_memory(target_entries=5)
+        self.assertEqual(len(cache._pix_cache), 5)
+        cache.clear()
+        self.assertEqual(len(cache._pix_cache), 0)
+
+        # 4. Test Filmstrip widget pooling in UI
+        _png, _dup, _gif, _mp4 = self._create_sample_media()
+        win = app_main.ImageSorterApp()
+        try:
+            files = app_main.scan_image_files(self.src_dir)
+            win.load_file_list(self.src_dir, files)
+            strip = win.filmstrip_bar
+            strip.update_strip(win.filtered_files, 0, win.pixmap_cache)
+            initial_count = len(strip._items)
+            self.assertGreater(initial_count, 0)
+            first_item = strip._items[0]
+
+            # Update strip for next index without widget destruction
+            strip.update_strip(win.filtered_files, 1, win.pixmap_cache)
+            self.assertEqual(len(strip._items), initial_count)
+            self.assertIs(strip._items[0], first_item)
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

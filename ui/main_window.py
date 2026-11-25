@@ -1,6 +1,6 @@
 """Primary Studio Slate application window (`ImageSorterApp`) coordinating media views, sorting, and workflows."""
 
-from collections import deque
+from collections import deque, OrderedDict
 import copy
 import json
 import os
@@ -133,7 +133,7 @@ class ImageSorterApp(QMainWindow):
         self.settings = load_settings()
         self.history_store = HistoryStore()
         self.media_queue = MediaQueueModel(self.history_store)
-        self.pixmap_cache = PixmapLRUCache(max_entries=48)
+        self.pixmap_cache = PixmapLRUCache(max_entries=24)
         self.log_entries = deque(read_recent_event_log(500), maxlen=500)
 
         # Config-backed state
@@ -169,7 +169,9 @@ class ImageSorterApp(QMainWindow):
         self.sort_actions = {}
         self.media_queue.load_flagged(self.settings.get("flagged_files", []))
         self.current_folder = None
-        self.current_meta_cache = {}
+        self.current_meta_cache = OrderedDict()
+        self._verified_dest_dirs = set()
+        self._pending_log_entries = []
         self.folder_buttons = []
 
         # Active media playback state
@@ -209,10 +211,15 @@ class ImageSorterApp(QMainWindow):
         self._deferred_anim_timer.setSingleShot(True)
         self._deferred_anim_timer.timeout.connect(self._start_deferred_video_anim)
 
+        self._prefetch_timer = QTimer(self)
+        self._prefetch_timer.setSingleShot(True)
+        self._prefetch_timer.setInterval(40)
+        self._prefetch_timer.timeout.connect(self._do_prefetch_neighbors)
+
         self._history_flush_timer = QTimer(self)
         self._history_flush_timer.setSingleShot(True)
         self._history_flush_timer.setInterval(800)
-        self._history_flush_timer.timeout.connect(self.history_store.flush)
+        self._history_flush_timer.timeout.connect(self._flush_history_and_logs)
 
         self._rapid_move_timer = QTimer(self)
         self._rapid_move_timer.timeout.connect(self._on_rapid_move_tick)
@@ -1189,6 +1196,8 @@ class ImageSorterApp(QMainWindow):
             self._record_recent_folder(folder_path)
         self.current_meta_cache.clear()
         self.pixmap_cache.clear()
+        if hasattr(self, "_verified_dest_dirs"):
+            self._verified_dest_dirs.clear()
         self.media_queue.set_files(file_list)
         self.media_queue.load_flagged(self.settings.get("flagged_files", []))
         sort_by = self.settings.get("sort_by", "name")
@@ -1594,7 +1603,10 @@ class ImageSorterApp(QMainWindow):
                     )
                     meta = (w, h, sz, fmt, fcount, 0.0)
                 self.current_meta_cache[actual_path] = meta
+                if len(self.current_meta_cache) > 512:
+                    self.current_meta_cache.popitem(last=False)
             else:
+                self.current_meta_cache.move_to_end(actual_path)
                 duration_s = meta[5] if len(meta) > 5 else 0.0
             w, h, sz, fmt, fcount = meta[:5]
             if (w <= 0 or h <= 0) and not pix.isNull():
@@ -1642,11 +1654,16 @@ class ImageSorterApp(QMainWindow):
             self.next_stage_viewport.center_child()
 
     def _prefetch_neighbor_images(self) -> None:
+        """Debounce prefetching so rapid scrolling / moving never blocks the GUI thread."""
+        self._prefetch_timer.start(40)
+
+    def _do_prefetch_neighbors(self) -> None:
+        """Decode nearest neighbors during idle moments to enable instant (< 2ms) next navigation."""
         queue = self.filtered_files
-        if not queue:
+        if not queue or getattr(self, "_preview_dialog_active", False):
             return
         mw, mh, nw, nh = self._stage_budgets()
-        for delta in (1, 2, -1, 3, -2):
+        for delta in (1, 2, -1):
             idx = self.current_index + delta
             if 0 <= idx < len(queue):
                 actual = self.history_store.resolve_actual_path(queue[idx])
@@ -1958,7 +1975,9 @@ class ImageSorterApp(QMainWindow):
         self._stop_all_media_playback()
 
         try:
-            os.makedirs(dest_folder, exist_ok=True)
+            if dest_folder not in self._verified_dest_dirs:
+                os.makedirs(dest_folder, exist_ok=True)
+                self._verified_dest_dirs.add(dest_folder)
             norm_src_dir = norm_path_key(os.path.dirname(actual_path))
             norm_dest_dir = norm_path_key(dest_folder)
             if norm_src_dir == norm_dest_dir:
@@ -1984,22 +2003,28 @@ class ImageSorterApp(QMainWindow):
                 )
 
             dest_path = get_unique_destination(dest_folder, filename_candidate)
-            shutil.move(actual_path, dest_path)
+            try:
+                os.replace(actual_path, dest_path)
+            except OSError:
+                shutil.move(actual_path, dest_path)
+
+            self.pixmap_cache.invalidate(actual_path)
+            if actual_path in self.current_meta_cache:
+                del self.current_meta_cache[actual_path]
 
             self.history_store.record_move(src_path, dest_path)
             self._history_flush_timer.start()
 
             entry = format_log_entry(f"Moved '{os.path.basename(actual_path)}' -> '{dest_folder}'")
             self.log_entries.append(entry)
-            append_event_log([entry])
+            self._pending_log_entries.append(entry)
 
             folder_label = self.history_store.get_folder_name(src_path, self.folder_names, self.folder_paths) or os.path.basename(dest_folder)
             self._show_toast(f"Moved → {folder_label}")
 
             if self.hide_moved:
-                old_idx = self.current_index
-                self.media_queue.apply_filter(self.filter_combo.currentText(), True, preserve_current=False)
-                self.current_index = min(old_idx, max(0, len(self.filtered_files) - 1))
+                self.media_queue.remove_item(src_path)
+                self.current_index = self.media_queue.current_index
             else:
                 next_idx = self.media_queue.find_valid_next_index(self.current_index)
                 if next_idx is not None:
@@ -2495,6 +2520,14 @@ class ImageSorterApp(QMainWindow):
         if hasattr(self, "toast"):
             self.toast.reposition()
 
+    def _flush_history_and_logs(self) -> None:
+        """Atomically flush move history and batched event log entries to disk."""
+        self.history_store.flush()
+        if hasattr(self, "_pending_log_entries") and self._pending_log_entries:
+            entries = list(self._pending_log_entries)
+            self._pending_log_entries.clear()
+            append_event_log(entries)
+
     def closeEvent(self, event):
         self._stop_rapid_move()
         self._stop_all_media_playback()
@@ -2502,6 +2535,8 @@ class ImageSorterApp(QMainWindow):
             self.hot_reload.stop()
         if hasattr(self, "_history_flush_timer"):
             self._history_flush_timer.stop()
-        self.history_store.flush()
+        self._flush_history_and_logs()
+        if hasattr(self, "pixmap_cache"):
+            self.pixmap_cache.clear()
         self._sync_and_save_settings()
         super().closeEvent(event)

@@ -864,7 +864,7 @@ class FilmstripBar(QFrame):
         self,
         files: list,
         current_idx: int,
-        lru_cache,
+        lru_cache=None,
         is_flagged_cb=None,
         is_moved_cb=None,
     ):
@@ -875,28 +875,26 @@ class FilmstripBar(QFrame):
         self._last_is_flagged_cb = is_flagged_cb
         self._last_is_moved_cb = is_moved_cb
 
-        while self._layout.count():
-            item_w = self._layout.takeAt(0).widget()
-            if item_w:
-                item_w.deleteLater()
-        self._items.clear()
-
         if not files or not (0 <= current_idx < len(files)):
+            for it in self._items:
+                it.hide()
             self.hide()
             return
 
         p_win = self.window()
         if p_win is not None and hasattr(p_win, "settings") and not p_win.settings.get("show_filmstrip", True):
+            for it in self._items:
+                it.hide()
             self.hide()
             return
-
-        self.show()
 
         total = len(files)
         # Media after UP NEXT starts at current_idx + 2
         # (current_idx is in Main Stage, current_idx + 1 is in UP NEXT Stage)
         start_idx = current_idx + 2
         if start_idx >= total:
+            for it in self._items:
+                it.hide()
             self.hide()
             return
 
@@ -906,10 +904,25 @@ class FilmstripBar(QFrame):
         w = self.width() if self.width() > 100 else 240
         slots = max(3, min(5, (w - 12) // 50))
         end_idx = min(total, start_idx + slots)
+        needed = end_idx - start_idx
 
-        for idx in range(start_idx, end_idx):
+        # Expand item pool if needed
+        while len(self._items) < needed:
+            new_item = FilmstripItem(0, self)
+            new_item.clicked.connect(self.item_selected.emit)
+            self._items.append(new_item)
+            self._layout.addWidget(new_item)
+
+        # Hide extra items
+        for i in range(needed, len(self._items)):
+            self._items[i].hide()
+
+        # Update active pooled items
+        for i, idx in enumerate(range(start_idx, end_idx)):
+            item = self._items[i]
+            item.show()
+            item.index = idx
             fpath = files[idx]
-            item = FilmstripItem(idx, self)
             item.is_active = False
             item.is_video = is_video_file(fpath)
             item.is_flagged = bool(is_flagged_cb(fpath)) if is_flagged_cb else False
@@ -924,12 +937,13 @@ class FilmstripBar(QFrame):
             pix = None
             if lru_cache:
                 try:
-                    if hasattr(lru_cache, "get_pixmap"):
+                    # Non-blocking cache lookup during rapid scrolling
+                    if hasattr(lru_cache, "has_pixmap") and lru_cache.has_pixmap(fpath, 100, 150):
                         pix = lru_cache.get_pixmap(fpath, 100, 150)
-                    elif hasattr(lru_cache, "get_or_load"):
-                        pix = lru_cache.get_or_load(fpath, 100, 150)
                     elif hasattr(lru_cache, "get"):
                         pix = lru_cache.get(fpath, 100, 150)
+                    elif hasattr(lru_cache, "get_pixmap"):
+                        pix = lru_cache.get_pixmap(fpath, 100, 150)
                 except Exception:
                     pix = None
 
@@ -944,10 +958,6 @@ class FilmstripBar(QFrame):
             else:
                 item.thumb_label.setText("VID" if item.is_video else "IMG")
                 item.thumb_label.setStyleSheet("font-size: 9.5px; font-weight: 700; color: #949cb0;")
-
-            item.clicked.connect(self.item_selected.emit)
-            self._items.append(item)
-            self._layout.addWidget(item)
 
         self._refresh_items_style()
 

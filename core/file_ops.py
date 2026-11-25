@@ -3,6 +3,7 @@
 import ctypes
 from ctypes import wintypes
 from datetime import datetime
+from functools import lru_cache
 import os
 import re
 import subprocess
@@ -50,21 +51,25 @@ def reveal_in_file_explorer(file_path: str) -> bool:
         return False
 
 
+@lru_cache(maxsize=32768)
 def natural_sort_key(path: str):
-    """Natural Explorer-style key so IMG_2 sorts before IMG_10."""
+    """Natural Explorer-style key so IMG_2 sorts before IMG_10 (cached for lightning-fast multi-thousand sorting)."""
     name = os.path.basename(path).lower()
-    return [int(part) if part.isdigit() else part for part in _NATURAL_SPLIT.split(name)]
+    return tuple(int(part) if part.isdigit() else part for part in _NATURAL_SPLIT.split(name))
 
 
 def get_unique_destination(dest_folder: str, filename: str) -> str:
     """Return a non-colliding destination path ('photo (1).jpg', etc.), never overwriting files."""
-    base, ext = os.path.splitext(filename)
     candidate = os.path.join(dest_folder, filename)
+    if not os.path.lexists(candidate):
+        return candidate
+    base, ext = os.path.splitext(filename)
     counter = 1
-    while os.path.lexists(candidate):
+    while True:
         candidate = os.path.join(dest_folder, f"{base} ({counter}){ext}")
+        if not os.path.lexists(candidate):
+            return candidate
         counter += 1
-    return candidate
 
 
 def format_auto_rename_filename(
