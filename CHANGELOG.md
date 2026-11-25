@@ -2,6 +2,11 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.32 — 2026-11-25
+
+### Documentation — Verified Real Supported File Formats Registry
+- **Comprehensive Format Specification (`README.md`):** Added a verified, categorized table of all 33 natively supported file extensions (Videos, Animated, Standard Photos, Apple/Modern, and Design/Vector) verified directly against `media/formats.py` decoder registries.
+
 ## 2.1.31 — 2026-11-25
 
 ### Documentation — Highlight Native Video Sorting & Playback Capabilities
