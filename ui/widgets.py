@@ -3,7 +3,7 @@
 import os
 import time
 from PySide6.QtCore import QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QCursor, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -937,13 +937,17 @@ class FilmstripBar(QFrame):
             pix = None
             if lru_cache:
                 try:
-                    # Non-blocking cache lookup during rapid scrolling
-                    if hasattr(lru_cache, "has_pixmap") and lru_cache.has_pixmap(fpath, 100, 150):
-                        pix = lru_cache.get_pixmap(fpath, 100, 150)
+                    p_win = self.window()
+                    actual_path = fpath
+                    if p_win is not None and hasattr(p_win, "history_store"):
+                        actual_path = p_win.history_store.resolve_actual_path(fpath)
+
+                    if hasattr(lru_cache, "get_pixmap"):
+                        pix = lru_cache.get_pixmap(actual_path, 100, 150)
+                    elif hasattr(lru_cache, "get_or_load"):
+                        pix = lru_cache.get_or_load(actual_path, 100, 150)
                     elif hasattr(lru_cache, "get"):
-                        pix = lru_cache.get(fpath, 100, 150)
-                    elif hasattr(lru_cache, "get_pixmap"):
-                        pix = lru_cache.get_pixmap(fpath, 100, 150)
+                        pix = lru_cache.get(actual_path, 100, 150)
                 except Exception:
                     pix = None
 
@@ -954,8 +958,10 @@ class FilmstripBar(QFrame):
                     cx = max(0, (scaled.width() - 40) // 2)
                     cy = max(0, (scaled.height() - 60) // 2)
                     scaled = scaled.copy(cx, cy, 40, 60)
+                item.thumb_label.setText("")
                 item.thumb_label.setPixmap(scaled)
             else:
+                item.thumb_label.setPixmap(QPixmap())
                 item.thumb_label.setText("VID" if item.is_video else "IMG")
                 item.thumb_label.setStyleSheet("font-size: 9.5px; font-weight: 700; color: #949cb0;")
 

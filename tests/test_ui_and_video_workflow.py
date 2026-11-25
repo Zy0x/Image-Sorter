@@ -740,6 +740,55 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
         finally:
             win.close()
 
+    def test_filmstrip_thumbnails_and_button_hold_rapid_navigation(self):
+        """Verify filmstrip decodes actual thumbnails instead of VID/IMG, and button/key hold navigates & rapid-moves."""
+        _png, _dup, _gif, mp4 = self._create_sample_media()
+        win = app_main.ImageSorterApp()
+        try:
+            files = app_main.scan_image_files(self.src_dir)
+            win.load_file_list(self.src_dir, files)
+            win.show()
+            self.app.processEvents()
+
+            # 1. Verify Next & Previous buttons have auto-repeat enabled
+            self.assertTrue(win.next_button.autoRepeat())
+            self.assertTrue(win.prev_button.autoRepeat())
+            self.assertGreater(win.next_button.autoRepeatInterval(), 0)
+
+            # 2. Verify Filmstrip decoded real thumbnails (not VID / IMG text)
+            strip = win.filmstrip_bar
+            strip.update_strip(win.filtered_files, 0, win.pixmap_cache)
+            self.app.processEvents()
+            for it in strip._items:
+                if it.isVisible():
+                    self.assertFalse(it.thumb_label.pixmap().isNull(), f"Item {it.index} thumbnail was null")
+                    self.assertEqual(it.thumb_label.text(), "", f"Item {it.index} still had text '{it.thumb_label.text()}'")
+
+            # 3. Verify keyboard auto-repeat for navigation (Key_Right / Key_Left)
+            initial_idx = win.current_index
+            ev_right = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_Right, Qt.NoModifier, "", True, 1)
+            self.app.sendEvent(win, ev_right)
+            self.assertEqual(win.current_index, initial_idx + 1)
+
+            ev_left = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_Left, Qt.NoModifier, "", True, 1)
+            self.app.sendEvent(win, ev_left)
+            self.assertEqual(win.current_index, initial_idx)
+
+            # 4. Verify Folder button hold starts rapid move and immediately moves on delay expiration
+            win._on_folder_btn_pressed(0)
+            self.assertEqual(win._active_rapid_slot, 0)
+            self.assertTrue(win._rapid_move_delay_timer.isActive())
+            # Delay timeout immediately performs rapid_move step
+            idx_before = win.current_index
+            win._rapid_move_delay_timer.timeout.emit()
+            self.assertTrue(win._rapid_move_timer.isActive())
+            self.assertGreater(win.current_index, idx_before)
+            win._on_folder_btn_released()
+            self.assertFalse(win._rapid_move_timer.isActive())
+            self.assertIsNone(win._active_rapid_slot)
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,15 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.28 — 2026-11-25
+
+### Fixed & Improved — Filmstrip Up-Next Thumbnail Decoding & Interactive Button Hold Rapid Navigation
+- **Filmstrip Up-Next Thumbnail Decoding Restored (`update_strip`):** Fixed a regression where thumbnails in the UP NEXT filmstrip bar failed to decode and showed "VID" / "IMG" placeholders. Directly prioritizes `lru_cache.get_pixmap`, resolves actual disk paths across moves via `history_store.resolve_actual_path`, and clears placeholder text on pixmap assignment.
+- **Interactive Button Hold Rapid Navigation (`next_button` & `prev_button`):** Enabled hardware auto-repeat on on-screen navigation buttons (`setAutoRepeat(True)` with a 250ms hold delay and configurable repeat interval). Holding the `Next` or `Previous` buttons with the mouse now continuously cycles through media smoothly.
+- **Keyboard Auto-Repeat & Hold Navigation (`eventFilter`):** Added responsive auto-repeat handlers for `Left` / `Right` arrows and `A` / `D` keys in `eventFilter`, as well as responsive continuous move triggers for numeric keys `1`–`9`.
+- **Instant Rapid Move Loop Activation:** Updated `_begin_rapid_loop` to immediately trigger a file move upon hold-delay expiration before starting the recurring timer, eliminating the 400ms+ dead zone when holding on-screen folder buttons (`[1] Folder A`–`[5] Folder E`).
+- **Resilient Media File Unlocking on Move:** Added a graceful micro-retry during file moves to allow Windows Media Foundation to completely release file handles without popping up move errors.
+
 ## 2.1.27 — 2026-11-25
 
 ### Performance & Memory — Sub-Millisecond File Moves, Zero-Lag Navigation & 60% RAM Reduction

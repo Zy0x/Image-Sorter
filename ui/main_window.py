@@ -488,6 +488,9 @@ class ImageSorterApp(QMainWindow):
         self.prev_button.setObjectName("navButton")
         self.prev_button.setCursor(Qt.PointingHandCursor)
         self.prev_button.setFocusPolicy(Qt.NoFocus)
+        self.prev_button.setAutoRepeat(True)
+        self.prev_button.setAutoRepeatDelay(250)
+        self.prev_button.setAutoRepeatInterval(max(50, min(300, self.rapid_move_interval_ms)))
         self.prev_button.clicked.connect(self.show_previous)
         nav_row.addWidget(self.prev_button, stretch=1)
 
@@ -495,6 +498,9 @@ class ImageSorterApp(QMainWindow):
         self.next_button.setObjectName("navButton")
         self.next_button.setCursor(Qt.PointingHandCursor)
         self.next_button.setFocusPolicy(Qt.NoFocus)
+        self.next_button.setAutoRepeat(True)
+        self.next_button.setAutoRepeatDelay(250)
+        self.next_button.setAutoRepeatInterval(max(50, min(300, self.rapid_move_interval_ms)))
         self.next_button.clicked.connect(self.show_next)
         nav_row.addWidget(self.next_button, stretch=1)
         root.addLayout(nav_row)
@@ -2006,7 +2012,12 @@ class ImageSorterApp(QMainWindow):
             try:
                 os.replace(actual_path, dest_path)
             except OSError:
-                shutil.move(actual_path, dest_path)
+                try:
+                    shutil.move(actual_path, dest_path)
+                except OSError:
+                    import time
+                    time.sleep(0.04)
+                    shutil.move(actual_path, dest_path)
 
             self.pixmap_cache.invalidate(actual_path)
             if actual_path in self.current_meta_cache:
@@ -2117,7 +2128,8 @@ class ImageSorterApp(QMainWindow):
         self._stop_rapid_move()
         self._active_rapid_slot = int(slot_idx)
         self._rapid_moved_in_hold = False
-        self._rapid_move_delay_timer.start(self.rapid_move_interval_ms)
+        delay = max(180, min(300, self.rapid_move_interval_ms))
+        self._rapid_move_delay_timer.start(delay)
 
     def rapid_move(self) -> bool:
         """Execute one step of an active Rapid Move session and stop when exhausted."""
@@ -2146,6 +2158,7 @@ class ImageSorterApp(QMainWindow):
 
     def _begin_rapid_loop(self) -> None:
         if self._active_rapid_slot is not None:
+            self.rapid_move()
             self._rapid_move_timer.start(self.rapid_move_interval_ms)
 
     def _on_rapid_move_tick(self) -> None:
@@ -2273,15 +2286,28 @@ class ImageSorterApp(QMainWindow):
             if Qt.Key_1 <= key <= Qt.Key_9 and not (event.modifiers() & (Qt.ControlModifier | Qt.AltModifier)):
                 slot_idx = key - Qt.Key_1
                 if slot_idx < self.folder_slot_count:
-                    if etype == event.Type.KeyPress and not event.isAutoRepeat():
-                        self._stop_rapid_move()
-                        self._active_rapid_slot = slot_idx
-                        self.move_to_custom_folder(self.folder_paths[slot_idx])
-                        self._rapid_move_delay_timer.start(self.rapid_move_interval_ms)
-                        return True
+                    if etype == event.Type.KeyPress:
+                        if not event.isAutoRepeat():
+                            self._stop_rapid_move()
+                            self._active_rapid_slot = slot_idx
+                            self.move_to_custom_folder(self.folder_paths[slot_idx])
+                            self._rapid_move_delay_timer.start(max(180, min(300, self.rapid_move_interval_ms)))
+                            return True
+                        elif self._active_rapid_slot == slot_idx:
+                            if not self._rapid_move_timer.isActive():
+                                self.rapid_move()
+                            return True
                     if etype == event.Type.KeyRelease and not event.isAutoRepeat():
                         self._stop_rapid_move()
                         return True
+
+            if etype == event.Type.KeyPress and not (event.modifiers() & (Qt.ControlModifier | Qt.AltModifier)):
+                if key in (Qt.Key_Right, Qt.Key_D):
+                    self.show_next()
+                    return True
+                elif key in (Qt.Key_Left, Qt.Key_A):
+                    self.show_previous()
+                    return True
 
         return super().eventFilter(obj, event)
 
@@ -2457,6 +2483,10 @@ class ImageSorterApp(QMainWindow):
         self.recent_folders = list(norm["recent_folders"])
         self.last_opened_folder = norm["last_opened_folder"]
         self.rapid_move_interval_ms = norm["rapid_move_interval"]
+        if hasattr(self, "prev_button"):
+            self.prev_button.setAutoRepeatInterval(self.rapid_move_interval_ms)
+        if hasattr(self, "next_button"):
+            self.next_button.setAutoRepeatInterval(self.rapid_move_interval_ms)
         self.video_muted = norm["video_muted"]
         self.video_volume = norm["video_volume"]
         self.hide_moved = norm["hide_moved"]
