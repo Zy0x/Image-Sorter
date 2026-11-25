@@ -9,6 +9,8 @@ venv/
 build/
 dist/
 *.spec
+*.exe
+Installer/
 
 # Temporary files
 *.tmp

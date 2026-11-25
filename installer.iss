@@ -1,6 +1,6 @@
 #define MyAppName "ImageSorter"
-#define MyAppVersion "2.1.22"
-#define MyAppPublisher "Jessie"
+#define MyAppVersion "2.2.0"
+#define MyAppPublisher "Zy0x"
 #define MyAppExeName "ImageSorter.exe"
 
 [Setup]
@@ -12,7 +12,7 @@ DefaultDirName={code:GetDefaultDirName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=Installer
-OutputBaseFilename=ImageSorter
+OutputBaseFilename=ImageSorter-v2.2.0-stable
 SetupIconFile=assets\icons\app_icon.ico
 Compression=lzma
 SolidCompression=yes
