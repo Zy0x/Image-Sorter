@@ -145,6 +145,16 @@ Fokus: **Penyempurnaan Fungsi Inti, Fitur Produktivitas Lengkap, Performa Media 
 
 ---
 
-## 🔭 v2.2.x (Ide Pengembangan Masa Depan)
+## 🚀 v2.2.0-Stable (Milestone Release — Selesai)
+- [x] **Complete Zero-Lock Multimedia & Video Engine:** Pemutaran video (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`, `.wmv`) dengan sinkronisasi audio, HUD melayang hemat ruang, dan pelepasan handle file tanpa kunci di Windows.
+- [x] **Smart Filter Terstruktur & Kolom Pencarian Real-Time (`Ctrl+F`):** Filter berkategori bersih dengan pemisah visual, deteksi ekstensi aktif dinamis, badge jumlah file real-time, dan kolom pencarian instan nama file.
+- [x] **Arsitektur Super Cepat & Penghematan RAM 60%:** Pemindahan file secepat kilat (`os.replace`), prefetch santai 40ms saat idle, batas cache 24 entri 1.25x DPI, dan pengurutan natural ter-cache.
+- [x] **Navigasi Tombol Tahan Interaktif & Rapid Move:** Auto-repeat pada tombol navigasi (`< Previous` / `> Next`) dan loop pemindahan instan saat tombol folder `[1]`–`[5]` ditahan.
+- [x] **Thumbnail UP NEXT & Isolasi Playback Dialog Preview Penuh:** Pratinjau filmstrip mini dengan thumbnail ter-decode nyata dan isolasi ketat playback modal preview tanpa audio hantu.
+- [x] **Sistem Desain Studio Slate & Registry 33 Format Terverifikasi:** Dokumentasi clean `README.md`, tangkapan layar privasi tinggi, dan tabel format resmi 33 ekstensi.
+
+---
+
+## 🔭 v2.3.x (Ide Pengembangan Masa Depan)
 - [ ] **Multi-Select & Bulk Action:** Memilih beberapa file sekaligus dari filmstrip atau antrean untuk dipindahkan bersamaan.
 - [ ] **Integrasi Tagging & Metadata EXIF Viewer:** Panel inspeksi metadata EXIF/kamera mendalam dan penyematan tag kustom.

@@ -2,6 +2,47 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.2.0 — 2026-11-25
+
+### 🚀 Milestone Release — Comprehensive Multimedia Engine, Smart Structured Filter, Real-Time Search & Ultra-Performance Architecture
+
+Version **2.2.0-Stable** is a major milestone release culminating dozens of architectural enhancements, performance breakthroughs, and user experience refinements across the 2.1 series:
+
+#### 🎬 1. Complete Zero-Lock Video & Animation Multimedia Engine
+- **First-Class Video Playback & Curation:** Full support for video files (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`, `.wmv`) with synchronized audio, mute toggle (`M`), volume persistence, and Play/Pause (`P`).
+- **Zero-Lock File Safety on Windows:** Integrated dynamic file release hooks and micro-retries ensuring Windows Media Foundation never locks video files when moving, undoing, or renaming.
+- **Smart Floating Video HUD Overlay:** Auto-hiding floating player bar with 3-second initial timer, hover-hold state, seek slider, and immediate leave-hide.
+- **Modal Preview Teardown & Playback Isolation:** Strict mutual exclusion between main stage and full-size zoom preview dialog (`ImagePreviewDialog`), completely suspending background render loops to eliminate ghost audio or resource contention.
+
+#### 🔍 2. Structured Smart Filter & Instant Real-Time Search Bar
+- **Categorized Smart Filter Dropdown:** Redesigned filter menu into logical groups: Media Types (`All Files`, `All Images`, `All Videos`, `Animated / GIF`), Curation Status (`Flagged Only`, `Duplicates Only`), and Active File Extensions with horizontal visual separators.
+- **Active-Only Extension Detection:** Intelligently scans collections and only displays formats actually present in the folder, eliminating 30+ unused empty formats.
+- **Real-Time Badge Counts:** Live item counts (e.g., `All Files (17,701)`, `All Videos (5)`, `.mp4 (5)`) updating dynamically on file moves, flag toggles, or duplicate scans.
+- **Instant Search Bar (`Ctrl+F`):** Substring filename search input with quick-clear and ergonomic focus handling (`Escape` clears & unfocuses, `Enter` returns focus to sorting hotkeys).
+
+#### ⚡ 3. Ultra-Performance Architecture & 60% RAM Optimization
+- **Sub-Millisecond Atomic File Moves (`os.replace`):** Kernel-level atomic renames for same-drive folder moves, dropping move latency from ~15ms to ~0.05ms (up to 99% faster) for instant Rapid Move response.
+- **Debounced 40ms Idle Pre-Fetching:** Decoupled adjacent image decoding from GUI navigation, eliminating micro-stutters during rapid key-hold navigation.
+- **Aggressive Memory Bounding:** Bounded pixmap LRU cache to 24 entries with 1.25x DPI scaling and automatic memory trimming on idle and folder switches, slashing memory consumption by ~60%.
+- **$O(1)$ Queue Pruning & Filmstrip Widget Pooling:** Reuses pooled thumbnail widgets and removes moved items in $O(1)$ time to maintain 60 FPS even on 100,000+ file collections.
+- **Cached Natural Sort Keys:** LRU-cached alphanumeric sort keys eliminating regex bottlenecks across massive file sets.
+
+#### 🎯 4. Interactive Hold & Rapid Move Navigation
+- **Hardware Auto-Repeat on Navigation Buttons:** Holding on-screen `< Previous` or `> Next` buttons smoothly cycles through media (250ms hold delay + responsive interval).
+- **Instant Hold-to-Move Loop:** Folder slot buttons `[1]`–`[5]` and numeric keys `1`–`9` activate rapid move immediately upon hold-delay expiration without dead zones.
+- **UP NEXT Card & Filmstrip Thumbnail Decoding:** Dedicated UP NEXT preview card with integrated 3-item filmstrip bar showing actual decoded thumbnails.
+
+#### 🔎 5. Perceptual Duplicate Detection & Curation Tools
+- **64-bit Perceptual Hash (`dHash`):** Detects identical and visually similar media across varying dimensions and compression levels.
+- **Multi-Engine Duplicate Finder:** Exact hash, visual similarity, and size/name comparison with pause/resume support.
+- **Bookmark & Flagging:** One-click flagging (`*` / `Alt+F`) with dedicated filter and persistent storage.
+
+#### 🎨 6. Studio Slate Design System & Documentation
+- **Adaptive Studio Themes:** Studio Slate Dark, Clean Light, System Default, and custom theme editor.
+- **Vector Iconography:** Anti-aliased vector glyphs across all menus, buttons, and dialogs.
+- **Privacy-Safe Documentation Preview:** Redesigned clean `README.md` and procedurally generated high-resolution UI screenshots ensuring zero private user data is exposed.
+- **Verified 33-Format Compatibility Registry:** Officially documented support for all 33 tested media extensions.
+
 ## 2.1.32 — 2026-11-25
 
 ### Documentation — Verified Real Supported File Formats Registry
