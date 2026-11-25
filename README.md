@@ -1,13 +1,13 @@
 <div align="center">
   <img src="./assets/icons/app_icon.png" width="48" alt="Image Sorter Icon">
   <h1>Image Sorter</h1>
-  <p><strong>Fast, modern media curation and rapid sorting desktop application for Windows.</strong></p>
+  <p><strong>Fast, modern desktop media curation and rapid sorting application for images &amp; videos.</strong></p>
 
   <p>
     <a href="https://github.com/Zy0x/Image-Sorter/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
     <a href="https://github.com/Zy0x/Image-Sorter/releases/latest"><img src="https://img.shields.io/github/v/release/Zy0x/Image-Sorter?sort=semver&color=orange" alt="Latest Release"></a>
     <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python"></a>
-    <a href="#"><img src="https://img.shields.io/badge/version-2.1.30--Stable-brightgreen.svg" alt="Version"></a>
+    <a href="#"><img src="https://img.shields.io/badge/version-2.1.31--Stable-brightgreen.svg" alt="Version"></a>
     <a href="https://github.com/Zy0x/Image-Sorter/stargazers"><img src="https://img.shields.io/github/stars/Zy0x/Image-Sorter?style=social" alt="Stars"></a>
   </p>
 
@@ -19,7 +19,9 @@
 
 ## 📌 Overview
 
-**Image Sorter** is a high-performance desktop media curation tool built with **PySide6**. Designed for photographers, designers, and collectors, it lets you organize tens of thousands of images and videos into customized destination folders with single-key taps, rapid hold-to-move, real-time search, and complete zero-overwrite file protection.
+**Image Sorter** is a high-performance desktop media curation and sorting tool built with **PySide6**. Beyond photos and graphic assets, it provides first-class native support for **video files** (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`) featuring zero-lock playback, synced audio, interactive seeking, and auto-hiding controls.
+
+Designed for speed and reliability, it lets you organize tens of thousands of images and videos into customized destination folders with single-key taps, rapid hold-to-move, real-time search (`Ctrl+F`), and complete zero-overwrite file protection.
 
 ---
 

@@ -2,6 +2,11 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.31 — 2026-11-25
+
+### Documentation — Highlight Native Video Sorting & Playback Capabilities
+- **Comprehensive Video Sorting Coverage (`README.md`):** Updated the application overview and header tagline to explicitly highlight first-class native video sorting (`.mp4`, `.webm`, `.mkv`, `.mov`, `.avi`, `.m4v`), zero-lock playback with synced audio, and interactive seek controls alongside image curation.
+
 ## 2.1.30 — 2026-11-25
 
 ### Documentation & Visual Polish — Clean Modern README & High-Resolution Studio Previews

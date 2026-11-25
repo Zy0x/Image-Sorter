@@ -7,7 +7,7 @@ import sys
 from datetime import datetime
 
 APP_NAME = "ImageSorter"
-APP_VERSION = "2.1.30-Stable"
+APP_VERSION = "2.1.31-Stable"
 
 MIN_FOLDER_SLOTS = 3
 MAX_FOLDER_SLOTS = 9
