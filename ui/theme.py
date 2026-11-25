@@ -431,6 +431,32 @@ def make_vector_icon(kind: str, color: str = "#e4e6eb", size: int = 16) -> QIcon
         p.setPen(Qt.NoPen)
         p.drawPolygon(QPolygonF([QPointF(s * 0.22, s * 0.24), QPointF(s * 0.62, mid), QPointF(s * 0.22, s * 0.76)]))
         p.drawRoundedRect(QRectF(s * 0.68, s * 0.24, s * 0.14, s * 0.52), 1.0, 1.0)
+    elif kind == "search":
+        p.drawEllipse(QPointF(mid - s * 0.08, mid - s * 0.08), s * 0.26, s * 0.26)
+        p.drawLine(QPointF(mid + s * 0.12, mid + s * 0.12), QPointF(s * 0.82, s * 0.82))
+    elif kind == "image":
+        p.drawRoundedRect(QRectF(s * 0.14, s * 0.18, s * 0.72, s * 0.64), 2.0, 2.0)
+        p.drawEllipse(QPointF(s * 0.35, s * 0.38), s * 0.08, s * 0.08)
+        p.drawPolyline(QPolygonF([
+            QPointF(s * 0.18, s * 0.72),
+            QPointF(s * 0.44, s * 0.50),
+            QPointF(s * 0.60, s * 0.62),
+            QPointF(s * 0.72, s * 0.52),
+            QPointF(s * 0.82, s * 0.68),
+        ]))
+    elif kind == "video":
+        p.drawRoundedRect(QRectF(s * 0.14, s * 0.22, s * 0.52, s * 0.56), 2.0, 2.0)
+        p.drawPolygon(QPolygonF([
+            QPointF(s * 0.68, s * 0.36),
+            QPointF(s * 0.86, s * 0.26),
+            QPointF(s * 0.86, s * 0.74),
+            QPointF(s * 0.68, s * 0.64),
+        ]))
+    elif kind == "sparkles":
+        p.setBrush(qcol)
+        p.setPen(Qt.NoPen)
+        p.drawPolygon(QPolygonF([QPointF(mid, s * 0.16), QPointF(mid + s * 0.10, mid), QPointF(mid, s * 0.84), QPointF(mid - s * 0.10, mid)]))
+        p.drawPolygon(QPolygonF([QPointF(s * 0.16, mid), QPointF(mid, mid - s * 0.10), QPointF(s * 0.84, mid), QPointF(mid, mid + s * 0.10)]))
     elif kind == "folder":
         path_pts = QPolygonF([
             QPointF(s * 0.14, s * 0.28),

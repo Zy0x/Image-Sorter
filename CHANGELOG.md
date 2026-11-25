@@ -2,6 +2,16 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.29 — 2026-11-25
+
+### Added & Refined — Structured Dynamic Smart Filter & Instant Real-Time Search Bar
+- **Structured Dynamic Filter Categories (`_populate_filter_combo`):** Overhauled the filter combo dropdown from an unstructured flat list into cleanly separated groups: Media Types, Curation Status, and Active File Formats with horizontal visual separators.
+- **Active-Only Extension Detection:** Replaced the static 39-item extension dump with an intelligent scanner that only lists file formats present in the active collection (e.g. only showing `.mp4` and `.jpg` if only those formats exist, completely hiding unused formats).
+- **Real-Time Badge Counts:** Added live count badges to every filter item (e.g. `All Files (17,701)`, `All Videos (5)`, `Flagged Only (3)`, `.mp4 (5)`). Counts update dynamically as files are sorted, flagged, or scanned for duplicates.
+- **Instant Search Bar ("Kolom Pencarian" / `Ctrl+F`):** Added a dedicated modern search input (`searchInput`) in the bottom action bar with quick-clear and shortcut `Ctrl+F`. Supports instant, real-time filename substring filtering combined with active category selections.
+- **Ergonomic Escape & Focus Handling:** Pressing `Escape` inside the search bar instantly clears search text and restores focus to main stage navigation, while `Enter` releases focus for seamless keyboard sorting.
+- **Crisp Studio Vector Icons:** Added dedicated anti-aliased vector glyphs for `search`, `image`, `video`, and `sparkles` across the filter dropdown and search bar.
+
 ## 2.1.28 — 2026-11-25
 
 ### Fixed & Improved — Filmstrip Up-Next Thumbnail Decoding & Interactive Button Hold Rapid Navigation

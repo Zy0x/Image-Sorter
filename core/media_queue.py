@@ -87,7 +87,13 @@ class MediaQueueModel:
                     self.duplicate_norms.add(ns)
                     self.duplicate_group_lookup[ns] = (g_idx, len(src_group))
 
-    def apply_filter(self, selected_filter: str, hide_moved: bool, preserve_current: bool = True) -> None:
+    def apply_filter(
+        self,
+        selected_filter: str,
+        hide_moved: bool,
+        preserve_current: bool = True,
+        search_query: str = "",
+    ) -> None:
         """Rebuild filtered_files from all_files and update current_index cleanly."""
         previous_path = (
             self.filtered_files[self.current_index]
@@ -95,21 +101,27 @@ class MediaQueueModel:
             else None
         )
 
-        if selected_filter == "All Files":
+        clean_filter = (selected_filter or "All Files").split(" (")[0].strip()
+
+        if clean_filter == "All Files":
             candidates = list(self.all_files)
-        elif selected_filter == "All Videos":
+        elif clean_filter == "All Videos":
             candidates = [p for p in self.all_files if is_video_file(p)]
-        elif selected_filter == "All Images":
+        elif clean_filter == "All Images":
             candidates = [p for p in self.all_files if not is_video_file(p)]
-        elif selected_filter == "Animated / GIF":
+        elif clean_filter == "Animated / GIF":
             candidates = [p for p in self.all_files if p.lower().endswith(_ANIMATED_EXTS)]
-        elif selected_filter == "Duplicates Only":
+        elif clean_filter == "Duplicates Only":
             candidates = [p for p in self.all_files if self._norm(p) in self.duplicate_norms]
-        elif selected_filter == "Flagged Only":
+        elif clean_filter == "Flagged Only":
             candidates = [p for p in self.all_files if self._norm(p) in self.flagged_norms]
         else:
-            wanted = selected_filter.lower()
+            wanted = clean_filter.lower()
             candidates = [p for p in self.all_files if p.lower().endswith(wanted)]
+
+        if search_query:
+            sq = search_query.strip().lower()
+            candidates = [p for p in candidates if sq in os.path.basename(p).lower()]
 
         if hide_moved and self.history_store.cache:
             self.filtered_files = [

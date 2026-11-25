@@ -522,7 +522,7 @@ class ImageSorterApp(QMainWindow):
             self.folder_row_layout.addWidget(btn, stretch=1)
         root.addLayout(self.folder_row_layout)
 
-        # 5. Bottom action strip: Filter combo | Undo | Skip
+        # 5. Bottom action strip: Filter combo | Search Input | Undo | Skip
         bottom_row = QHBoxLayout()
         bottom_row.setSpacing(10)
 
@@ -530,13 +530,29 @@ class ImageSorterApp(QMainWindow):
         self.filter_combo.setObjectName("filterCombo")
         self.filter_combo.setCursor(Qt.PointingHandCursor)
         self.filter_combo.setFocusPolicy(Qt.NoFocus)
-        self.filter_combo.setMaxVisibleItems(10)
+        self.filter_combo.setMaxVisibleItems(14)
         self.filter_combo.view().setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.filter_combo.setMinimumWidth(152)
+        self.filter_combo.setMinimumWidth(168)
         self.filter_combo.setMinimumHeight(38)
         self._populate_filter_combo()
-        self.filter_combo.currentTextChanged.connect(lambda _txt: self.apply_filter())
+        self.filter_combo.currentIndexChanged.connect(lambda _idx: self.apply_filter())
         bottom_row.addWidget(self.filter_combo)
+
+        self.search_input = QLineEdit()
+        self.search_input.setObjectName("searchInput")
+        self.search_input.setPlaceholderText("Search file... (Ctrl+F)")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setFocusPolicy(Qt.ClickFocus)
+        self.search_input.setMinimumHeight(38)
+        self.search_input.setMinimumWidth(140)
+        self.search_input.setMaximumWidth(260)
+        self._search_action = self.search_input.addAction(
+            make_vector_icon("search", "#888888", 14),
+            QLineEdit.LeadingPosition,
+        )
+        self.search_input.textChanged.connect(lambda _txt: self.apply_filter())
+        self.search_input.installEventFilter(self)
+        bottom_row.addWidget(self.search_input)
 
         self.undo_button = QPushButton("Undo")
         self.undo_button.setObjectName("actionButton")
@@ -558,13 +574,87 @@ class ImageSorterApp(QMainWindow):
         self.update_folder_buttons()
 
     def _populate_filter_combo(self) -> None:
+        if not hasattr(self, "filter_combo"):
+            return
+
+        # Canonical key of previous selection (without badge count)
+        prev_data = self.filter_combo.currentData()
+        if not prev_data:
+            prev_txt = self.filter_combo.currentText()
+            prev_data = prev_txt.split(" (")[0].strip() if prev_txt else "All Files"
+
         self.filter_combo.blockSignals(True)
         self.filter_combo.clear()
-        self.filter_combo.addItems(
-            ["All Files", "All Images", "All Videos", "Animated / GIF", "Duplicates Only", "Flagged Only"]
-        )
-        for ext in SUPPORTED_IMAGE_EXTENSIONS:
-            self.filter_combo.addItem(ext)
+
+        all_files = getattr(self.media_queue, "all_files", []) if hasattr(self, "media_queue") else []
+        total_all = len(all_files)
+        total_videos = sum(1 for p in all_files if is_video_file(p))
+        total_images = total_all - total_videos
+        total_animated = sum(1 for p in all_files if p.lower().endswith(_ANIM_IMAGE_EXTS))
+        total_dups = len(self.media_queue.duplicate_norms) if hasattr(self, "media_queue") else 0
+        total_flagged = len(self.media_queue.flagged_norms) if hasattr(self, "media_queue") else 0
+
+        # Scan active extensions and their frequencies in current dataset
+        ext_counts = {}
+        for p in all_files:
+            _, ext = os.path.splitext(p)
+            if ext:
+                lext = ext.lower()
+                ext_counts[lext] = ext_counts.get(lext, 0) + 1
+
+        t = resolve_studio_tokens(self) if hasattr(self, "theme_mode") else {"text": "#e4e6eb"}
+        ic_col = t.get("text", "#e4e6eb")
+
+        # 1. Media Type Categories
+        categories = [
+            ("All Files", f"All Files ({total_all:,})", "folder"),
+            ("All Images", f"All Images ({total_images:,})", "image"),
+            ("All Videos", f"All Videos ({total_videos:,})", "video"),
+            ("Animated / GIF", f"Animated / GIF ({total_animated:,})", "sparkles"),
+        ]
+        for cat_key, cat_label, icon_kind in categories:
+            icon = make_vector_icon(icon_kind, ic_col, 14)
+            self.filter_combo.addItem(icon, cat_label, cat_key)
+
+        # Visual Separator
+        self.filter_combo.insertSeparator(self.filter_combo.count())
+
+        # 2. Curation Status
+        curation = [
+            ("Flagged Only", f"Flagged Only ({total_flagged:,})", "star"),
+            ("Duplicates Only", f"Duplicates Only ({total_dups:,})", "duplicate"),
+        ]
+        for cur_key, cur_label, icon_kind in curation:
+            icon = make_vector_icon(icon_kind, ic_col, 14)
+            self.filter_combo.addItem(icon, cur_label, cur_key)
+
+        # 3. Dynamic Active Extensions (only formats present in collection)
+        if ext_counts:
+            self.filter_combo.insertSeparator(self.filter_combo.count())
+            sorted_exts = sorted(ext_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            for ext, count in sorted_exts:
+                icon_kind = "video" if is_video_file("test" + ext) else "image"
+                icon = make_vector_icon(icon_kind, ic_col, 14)
+                self.filter_combo.addItem(icon, f"{ext} ({count:,})", ext)
+
+        # Restore previous selection
+        matched_idx = -1
+        prev_lower = prev_data.lower()
+        for i in range(self.filter_combo.count()):
+            d = self.filter_combo.itemData(i)
+            if d and str(d).strip().lower() == prev_lower:
+                matched_idx = i
+                break
+            txt = self.filter_combo.itemText(i).split(" (")[0].strip().lower()
+            if txt and txt == prev_lower:
+                matched_idx = i
+                break
+
+        if matched_idx >= 0:
+            self.filter_combo.setCurrentIndex(matched_idx)
+        else:
+            self.filter_combo.setCurrentIndex(0)
+
         self.filter_combo.blockSignals(False)
 
     def _add_menu_action(self, menu: QMenu, text: str, icon_kind: str, handler, shortcut: str = None,
@@ -836,11 +926,18 @@ class ImageSorterApp(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_Home), self, activated=self.jump_first)
         QShortcut(QKeySequence(Qt.Key_End), self, activated=self.jump_last)
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.undo_action)
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=self.focus_search)
         QShortcut(QKeySequence(Qt.Key_P), self, activated=self.toggle_main_playback)
         QShortcut(QKeySequence(Qt.Key_M), self, activated=self.toggle_main_mute)
         QShortcut(QKeySequence(Qt.Key_Asterisk), self, activated=self.toggle_flag_current)
         QShortcut(QKeySequence("Shift+8"), self, activated=self.toggle_flag_current)
         QShortcut(QKeySequence("Alt+F"), self, activated=self.toggle_flag_current)
+
+    def focus_search(self) -> None:
+        """Focus the real-time search input bar and select existing text."""
+        if hasattr(self, "search_input"):
+            self.search_input.setFocus()
+            self.search_input.selectAll()
 
     # ------------------------------------------------------------------
     # Theme & Responsive Button/Stage Styling
@@ -1044,10 +1141,34 @@ class ImageSorterApp(QMainWindow):
             QComboBox#filterCombo QAbstractItemView QScrollBar::sub-line:vertical {{
                 height: 0px;
             }}
+            QComboBox#filterCombo QAbstractItemView::separator {{
+                height: 1px;
+                background-color: {t['border']};
+                margin: 4px 6px;
+            }}
+            QLineEdit#searchInput {{
+                background-color: {t['surface']};
+                color: {t['text']};
+                border: 1px solid {t['border']};
+                border-radius: 9px;
+                padding: 4px 10px 4px 10px;
+                font-size: 12px;
+                font-weight: 500;
+            }}
+            QLineEdit#searchInput:focus {{
+                border-color: {t['accent']};
+                background-color: {t['surface_hover']};
+            }}
+            QLineEdit#searchInput:hover {{
+                border-color: {accent_hover};
+            }}
         """)
 
         if hasattr(self, "filter_combo") and hasattr(self.filter_combo, "set_arrow_color"):
             self.filter_combo.set_arrow_color(t["text"])
+
+        if hasattr(self, "search_input") and hasattr(self, "_search_action"):
+            self._search_action.setIcon(make_vector_icon("search", t["text_muted"], 14))
 
         # Refresh vector icons across menus and navigation/action buttons
         for act, kind, explicit_col in self._menu_icon_specs:
@@ -1211,12 +1332,16 @@ class ImageSorterApp(QMainWindow):
         if sort_by != "name" or sort_order != "asc":
             self.media_queue.sort_files(sort_by, sort_order)
         self.history_store.validate()
+        self._populate_filter_combo()
         self.apply_filter(preserve_current=False)
 
     def apply_filter(self, preserve_current: bool = True) -> None:
         """Apply active extension/category & Hide-Moved filters without losing queue anchor."""
-        selected = self.filter_combo.currentText() if hasattr(self, "filter_combo") else "All Files"
-        self.media_queue.apply_filter(selected, self.hide_moved, preserve_current=preserve_current)
+        selected = "All Files"
+        if hasattr(self, "filter_combo"):
+            selected = self.filter_combo.currentData() or self.filter_combo.currentText()
+        search_query = self.search_input.text().strip() if hasattr(self, "search_input") else ""
+        self.media_queue.apply_filter(selected, self.hide_moved, preserve_current=preserve_current, search_query=search_query)
         if not preserve_current:
             self.media_queue.current_index = 0
         self.show_current_image(self.filtered_files)
@@ -1503,8 +1628,11 @@ class ImageSorterApp(QMainWindow):
         self._update_flag_button(src_path)
         self._update_filmstrip()
         self._show_toast("Marked as Flagged ★" if new_state else "Removed Flag ☆")
-        if hasattr(self, "filter_combo") and self.filter_combo.currentText() == "Flagged Only":
-            self.apply_filter()
+        self._populate_filter_combo()
+        if hasattr(self, "filter_combo"):
+            cur = self.filter_combo.currentData() or self.filter_combo.currentText()
+            if "Flagged Only" in cur:
+                self.apply_filter()
 
     def _update_filmstrip(self) -> None:
         """Synchronize filmstrip bar thumbnails with active queue item."""
@@ -2250,6 +2378,17 @@ class ImageSorterApp(QMainWindow):
 
     def eventFilter(self, obj, event):
         etype = event.type()
+        if obj is getattr(self, "search_input", None):
+            if etype == event.Type.KeyPress:
+                if event.key() == Qt.Key_Escape:
+                    if self.search_input.text():
+                        self.search_input.clear()
+                    self.setFocus()
+                    return True
+                elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                    self.setFocus()
+                    return True
+
         targets = [w for w in (self.main_image_label, self.main_stage_viewport, self.main_card) if w is not None]
         if obj in targets:
             if etype in (event.Type.MouseMove, event.Type.Enter, event.Type.HoverMove):
@@ -2364,6 +2503,7 @@ class ImageSorterApp(QMainWindow):
 
     def _on_duplicate_scan_done(self, groups, actual_to_srcs: dict, show_toast: bool = True) -> int:
         self.media_queue.populate_duplicate_results(groups, actual_to_srcs)
+        self._populate_filter_combo()
         found = len(self.media_queue.duplicate_norms)
         if found > 0:
             self.filter_combo.setCurrentText("Duplicates Only")

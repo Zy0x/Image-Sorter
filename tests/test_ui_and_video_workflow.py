@@ -789,6 +789,88 @@ class UiAndVideoWorkflowTests(unittest.TestCase):
         finally:
             win.close()
 
+    def test_structured_filter_combo_and_realtime_search_bar(self):
+        """Verify structured smart filter with dynamic counts, active-only extensions, and real-time search."""
+        png_1, dup_jpg, gif_1, mp4_1 = self._create_sample_media()
+        win = app_main.ImageSorterApp()
+        try:
+            win.show()
+            files = app_main.scan_image_files(self.src_dir)
+            win.load_file_list(self.src_dir, files)
+            self.app.processEvents()
+
+            # 1. Verify combo box contents and dynamic counts
+            combo = win.filter_combo
+            combo_texts = [combo.itemText(i) for i in range(combo.count())]
+            self.assertIn("All Files (4)", combo_texts)
+            self.assertIn("All Images (3)", combo_texts)
+            self.assertIn("All Videos (1)", combo_texts)
+            self.assertIn("Animated / GIF (1)", combo_texts)
+            self.assertIn("Flagged Only (0)", combo_texts)
+            self.assertIn("Duplicates Only (0)", combo_texts)
+
+            # Active extensions must exist (.png, .jpg, .gif, .mp4)
+            self.assertTrue(any(".png (1)" in t for t in combo_texts))
+            self.assertTrue(any(".jpg (1)" in t for t in combo_texts))
+            self.assertTrue(any(".gif (1)" in t for t in combo_texts))
+            self.assertTrue(any(".mp4 (1)" in t for t in combo_texts))
+
+            # Unused formats (.bmp, .tiff, etc.) must NOT clutter the menu
+            self.assertFalse(any(".bmp" in t for t in combo_texts))
+            self.assertFalse(any(".tiff" in t for t in combo_texts))
+
+            # 2. Real-time search bar substring filtering
+            self.assertIsNotNone(win.search_input)
+            self.assertEqual(len(win.filtered_files), 4)
+
+            # Search "clip" matches mp4_1
+            win.search_input.setText("clip")
+            self.app.processEvents()
+            self.assertEqual(len(win.filtered_files), 1)
+            self.assertEqual(win.filtered_files[0], mp4_1)
+
+            # Case-insensitive search "CLIP"
+            win.search_input.setText("CLIP")
+            self.app.processEvents()
+            self.assertEqual(len(win.filtered_files), 1)
+            self.assertEqual(win.filtered_files[0], mp4_1)
+
+            # Clear search restores files
+            win.search_input.clear()
+            self.app.processEvents()
+            self.assertEqual(len(win.filtered_files), 4)
+
+            # 3. Combined Filter + Search
+            combo.setCurrentText("All Images")
+            self.app.processEvents()
+            self.assertEqual(len(win.filtered_files), 3)
+
+            win.search_input.setText("loop")
+            self.app.processEvents()
+            self.assertEqual(len(win.filtered_files), 1)
+            self.assertEqual(win.filtered_files[0], gif_1)
+
+            # Search non-matching term
+            win.search_input.setText("nonexistent_filename_xyz")
+            self.app.processEvents()
+            self.assertEqual(len(win.filtered_files), 0)
+
+            # 4. Shortcut Ctrl+F and Escape key handling
+            win.search_input.clear()
+            combo.setCurrentText("All Files")
+            self.app.processEvents()
+
+            win.focus_search()
+            self.assertTrue(win.search_input.hasFocus())
+
+            win.search_input.setText("test")
+            esc_ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_Escape, Qt.NoModifier)
+            handled = win.eventFilter(win.search_input, esc_ev)
+            self.assertTrue(handled)
+            self.assertEqual(win.search_input.text(), "")
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

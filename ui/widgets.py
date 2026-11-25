@@ -59,6 +59,24 @@ class StudioComboBox(QComboBox):
         self._arrow_color = color
         self.update()
 
+    def setCurrentText(self, text: str) -> None:
+        """Find matching item by exact text, itemData, or prefix (before badge count)."""
+        idx = self.findText(text)
+        if idx >= 0:
+            self.setCurrentIndex(idx)
+            return
+        target = (text or "").split(" (")[0].strip().lower()
+        for i in range(self.count()):
+            data = self.itemData(i)
+            if data and str(data).strip().lower() == target:
+                self.setCurrentIndex(i)
+                return
+            item_text = self.itemText(i).split(" (")[0].strip().lower()
+            if item_text and item_text == target:
+                self.setCurrentIndex(i)
+                return
+        super().setCurrentText(text)
+
     def paintEvent(self, event):
         super().paintEvent(event)
         p = QPainter(self)
