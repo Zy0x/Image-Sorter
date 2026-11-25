@@ -2,6 +2,13 @@
 
 All notable changes to Image Sorter are listed here.
 
+## 2.1.30 — 2026-11-25
+
+### Documentation & Visual Polish — Clean Modern README & High-Resolution Studio Previews
+- **Streamlined Minimalist Documentation (`README.md`):** Completely restructured documentation to be clean, elegant, and straightforward without verbose technical jargon or text walls.
+- **Privacy-Safe High-Resolution Screenshots:** Regenerated official Dark Mode and Light Mode interface previews using procedurally generated artwork to showcase the modern Studio Slate design system, real-time search bar, and UP NEXT filmstrip with 100% user privacy protection.
+- **Refined Quick Start & Navigation Guide:** Reorganized essential keyboard shortcuts into an intuitive table highlighting Rapid Move, instant search (`Ctrl+F`), and multimedia controls.
+
 ## 2.1.29 — 2026-11-25
 
 ### Added & Refined — Structured Dynamic Smart Filter & Instant Real-Time Search Bar
